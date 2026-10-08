@@ -27,14 +27,19 @@ class Config:
     POSTGIS_DATA_DIR = os.getenv('POSTGIS_DATA_DIR', str(BASE_DIR / 'data' / 'geodata'))
     DATABASE_URL = os.getenv('DATABASE_URL')
     DATABASE_FALLBACK_TO_SQLITE = os.getenv('DATABASE_FALLBACK_TO_SQLITE', 'true').lower() == 'true'
+    REQUIRE_POSTGRES_DATABASE_URL = os.getenv('CHIGO_REQUIRE_DATABASE_URL', 'false').lower() == 'true'
+    if REQUIRE_POSTGRES_DATABASE_URL and not DATABASE_URL:
+        raise RuntimeError('Container deployments require a PostgreSQL DATABASE_URL.')
     if DATABASE_URL:
         SQLALCHEMY_DATABASE_URI = normalize_database_url(DATABASE_URL)
+        if REQUIRE_POSTGRES_DATABASE_URL and make_url(SQLALCHEMY_DATABASE_URI).get_backend_name() != 'postgresql':
+            raise RuntimeError('Container deployments require DATABASE_URL to use PostgreSQL.')
     elif USE_POSTGIS:
         SQLALCHEMY_DATABASE_URI = (
             f'postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
         )
     else:
-        if not DATABASE_FALLBACK_TO_SQLITE:
+        if REQUIRE_POSTGRES_DATABASE_URL or not DATABASE_FALLBACK_TO_SQLITE:
             raise RuntimeError(
                 'DATABASE_URL is required when DATABASE_FALLBACK_TO_SQLITE is false.'
             )

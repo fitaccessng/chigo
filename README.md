@@ -128,7 +128,7 @@ Stripe deposits use Checkout in NGN. Configure both Stripe values in `.env`, and
 
 ## Container deployment
 
-The included `Dockerfile` starts the Flask app with Gunicorn on port `8000` and disables SQLite fallback and automatic schema creation. Set `DATABASE_URL` to a reachable PostgreSQL/PostGIS database in the hosting platform and apply migrations before deploying. Without a database URL, the container now exits with a clear configuration error instead of trying to write SQLite into the container filesystem. If the hosting platform overrides the image command, set its start command to:
+The included `Dockerfile` starts the Flask app with Gunicorn on port `8000` and requires a PostgreSQL `DATABASE_URL`, even if a platform overrides the local SQLite fallback setting. Set `DATABASE_URL` to a reachable PostgreSQL/PostGIS database in the hosting platform and apply migrations before deploying. Without a database URL, the container exits with a clear configuration error instead of trying to write SQLite into the container filesystem. If the hosting platform overrides the image command, set its start command to:
 
 ```bash
 gunicorn --bind 0.0.0.0:8000 --workers 1 --threads 4 --timeout 120 'moving_company:create_app()'
