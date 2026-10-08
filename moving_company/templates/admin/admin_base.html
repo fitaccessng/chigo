@@ -1,0 +1,150 @@
+{% extends 'base.html' %}
+{% from 'components/brand_logo.html' import brand_logo %}
+
+{% block title %}{% block admin_title %}Chigo Operations{% endblock %}{% endblock %}
+{% block site_navigation %}{% endblock %}
+{% block site_footer %}{% endblock %}
+
+{% block content %}
+<div id="admin-shell" class="min-h-screen bg-stone-100 text-stone-900">
+  <aside id="admin-sidebar" class="fixed inset-y-0 left-0 z-50 flex w-64 -translate-x-full flex-col bg-stone-950 text-stone-200 transition-[width,transform] duration-200 lg:translate-x-0">
+    <div class="flex h-20 shrink-0 items-center justify-between border-b border-stone-800 px-4">
+      <a href="{{ url_for('admin.dashboard') }}" aria-label="Chigo operations dashboard" class="sidebar-label flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-stone-300">
+        {{ brand_logo('h-16 w-16 rounded-md') }}
+        <span>Operations</span>
+      </a>
+      <button id="sidebar-collapse" type="button" title="Collapse sidebar" aria-label="Collapse sidebar" class="hidden h-8 w-8 items-center justify-center text-stone-400 hover:bg-stone-800 hover:text-white lg:inline-flex">⇤</button>
+      <button id="sidebar-close" type="button" aria-label="Close navigation" class="inline-flex h-8 w-8 items-center justify-center text-stone-400 hover:bg-stone-800 hover:text-white lg:hidden">×</button>
+    </div>
+    <nav aria-label="Admin navigation" class="flex-1 space-y-6 overflow-y-auto px-3 py-5">
+      <section>
+        <p class="sidebar-label px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">Overview</p>
+        {% if can_admin('dashboard') %}<a href="{{ url_for('admin.dashboard') }}" class="sidebar-link mt-2 {% if request.endpoint == 'admin.dashboard' %}sidebar-link-active{% endif %}"><span class="nav-icon">⌂</span><span class="sidebar-label">Dashboard</span></a>{% endif %}
+      </section>
+      {% if can_admin('bookings') %}
+      <section>
+        <p class="sidebar-label px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">Operations</p>
+        <a href="{{ url_for('admin.bookings') }}" class="sidebar-link mt-2 {% if request.endpoint in ['admin.bookings', 'admin.booking_detail'] %}sidebar-link-active{% endif %}"><span class="nav-icon">▤</span><span class="sidebar-label">Bookings</span></a>
+      </section>
+      {% endif %}
+      <section>
+        <p class="sidebar-label px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">Support</p>
+        <a href="{{ url_for('support_admin.support_inbox') }}" class="sidebar-link mt-2 {% if request.endpoint == 'support_admin.support_inbox' %}sidebar-link-active{% endif %}"><span class="nav-icon">◉</span><span class="sidebar-label">Support Inbox</span></a>
+      </section>
+      {% if can_admin('fleet') or can_admin('movers') %}
+      <section>
+        <p class="sidebar-label px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">Fleet &amp; People</p>
+        {% if can_admin('fleet') %}<a href="{{ url_for('admin.trucks') }}" class="sidebar-link mt-2 {% if request.endpoint == 'admin.trucks' %}sidebar-link-active{% endif %}"><span class="nav-icon">▰</span><span class="sidebar-label">Vehicles</span></a>{% endif %}
+        {% if can_admin('movers') %}<a href="{{ url_for('admin.movers') }}" class="sidebar-link {% if request.endpoint == 'admin.movers' %}sidebar-link-active{% endif %}"><span class="nav-icon">♙</span><span class="sidebar-label">Movers &amp; Teams</span></a>{% endif %}
+      </section>
+      {% endif %}
+      {% if can_admin('quotes') %}
+      <section>
+        <p class="sidebar-label px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">Commercial</p>
+        <a href="{{ url_for('admin.pricing') }}" class="sidebar-link mt-2 {% if request.endpoint == 'admin.pricing' %}sidebar-link-active{% endif %}"><span class="nav-icon">₦</span><span class="sidebar-label">Quotes &amp; Pricing</span></a>
+      </section>
+      {% endif %}
+      {% if current_user.role == 'super_admin' %}
+      <section>
+        <p class="sidebar-label px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">System</p>
+        <a href="{{ url_for('admin.create_account') }}" class="sidebar-link mt-2 {% if request.endpoint == 'admin.create_account' %}sidebar-link-active{% endif %}"><span class="nav-icon">＋</span><span class="sidebar-label">Admin Accounts</span></a>
+      </section>
+      {% endif %}
+    </nav>
+    <div class="shrink-0 border-t border-stone-800 p-3">
+      <div class="sidebar-label truncate px-3 pb-2 text-xs font-semibold text-white">{{ current_user.full_name }}</div>
+      <div class="flex items-center gap-2">
+        <a href="{{ url_for('public.home') }}" class="sidebar-footer-link">Public site</a>
+        <a href="{{ url_for('auth.logout') }}" class="sidebar-footer-link">Log out</a>
+      </div>
+    </div>
+  </aside>
+
+  <button id="sidebar-backdrop" type="button" aria-label="Close navigation" class="fixed inset-0 z-40 hidden bg-stone-950/50 lg:hidden"></button>
+  <div id="admin-main" class="min-h-screen transition-[margin] duration-200 lg:ml-64">
+    <header class="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-stone-200 bg-white px-4 sm:px-7">
+      <div class="flex items-center gap-3">
+        <button id="sidebar-open" type="button" aria-label="Open navigation" class="inline-flex h-9 w-9 items-center justify-center border border-stone-300 text-stone-700 hover:bg-stone-100 lg:hidden">☰</button>
+        <p class="text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">Chigo <span class="px-1 text-stone-300">/</span> Operations</p>
+      </div>
+      <span class="hidden text-sm font-medium text-stone-700 sm:block">{{ current_user.full_name }} <span class="ml-2 text-xs uppercase tracking-wide text-stone-400">{{ current_user.role|replace('_', ' ') }}</span></span>
+    </header>
+    <div class="mx-auto max-w-[1500px] p-4 sm:p-6 lg:p-8">
+      {% block dashboard_content %}{% endblock %}
+    </div>
+  </div>
+</div>
+
+<style>
+  .sidebar-link { display:flex; min-height:40px; align-items:center; gap:12px; border-left:2px solid transparent; padding:8px 12px; color:#d6d3d1; font-size:13px; font-weight:600; }
+  .sidebar-link:hover { background:#292524; color:#fff; }
+  .sidebar-link-active { border-left-color:#34d399; background:#292524; color:#fff; }
+  .nav-icon { display:inline-flex; width:20px; flex:none; justify-content:center; color:#a8a29e; font-size:16px; }
+  .sidebar-footer-link { flex:1; padding:8px 10px; color:#d6d3d1; font-size:12px; }
+  .sidebar-footer-link:hover { background:#292524; color:#fff; }
+  #admin-shell.sidebar-collapsed #admin-sidebar { width:4.5rem; }
+  #admin-shell.sidebar-collapsed #admin-main { margin-left:4.5rem; }
+  #admin-shell.sidebar-collapsed .sidebar-label { display:none; }
+  #admin-shell.sidebar-collapsed .sidebar-link { justify-content:center; padding-inline:8px; }
+  @media (min-width:1024px) { #admin-sidebar { transform:translateX(0); } }
+</style>
+<script>
+  const initializeAdminSidebar = () => {
+    const shell = document.getElementById('admin-shell');
+    const sidebar = document.getElementById('admin-sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    const openButton = document.getElementById('sidebar-open');
+    const closeButton = document.getElementById('sidebar-close');
+    const collapseButton = document.getElementById('sidebar-collapse');
+    const desktop = window.matchMedia('(min-width: 1024px)');
+    const main = document.getElementById('admin-main');
+    if (!shell || shell.dataset.sidebarReady) return;
+    shell.dataset.sidebarReady = 'true';
+
+    const setCollapsed = (collapsed) => {
+      shell.classList.toggle('sidebar-collapsed', collapsed);
+      sidebar.style.setProperty('transition', 'none', 'important');
+      main.style.setProperty('transition', 'none', 'important');
+      sidebar.style.setProperty('width', collapsed ? '4.5rem' : '16rem', 'important');
+      main.style.setProperty('margin-left', collapsed ? '4.5rem' : '16rem', 'important');
+      localStorage.setItem('chigo-admin-sidebar-collapsed', String(collapsed));
+    };
+    const initiallyCollapsed = localStorage.getItem('chigo-admin-sidebar-collapsed') === 'true' && desktop.matches;
+    if (initiallyCollapsed) setCollapsed(true);
+    const setMobileOpen = (open) => {
+      sidebar.classList.toggle('-translate-x-full', !open);
+      backdrop.classList.toggle('hidden', !open);
+      document.body.classList.toggle('overflow-hidden', open);
+      sidebar.style.setProperty('transition', 'none', 'important');
+      sidebar.style.setProperty('transform', open ? 'translateX(0)' : 'translateX(-100%)', 'important');
+    };
+    openButton.addEventListener('click', () => setMobileOpen(true));
+    closeButton.addEventListener('click', () => setMobileOpen(false));
+    backdrop.addEventListener('click', () => setMobileOpen(false));
+    collapseButton.addEventListener('click', () => {
+      setCollapsed(!shell.classList.contains('sidebar-collapsed'));
+    });
+    desktop.addEventListener('change', (event) => {
+      if (!event.matches) {
+        shell.classList.remove('sidebar-collapsed');
+        sidebar.style.removeProperty('width');
+        main.style.removeProperty('margin-left');
+        sidebar.style.removeProperty('transition');
+        main.style.removeProperty('transition');
+      } else if (localStorage.getItem('chigo-admin-sidebar-collapsed') === 'true') {
+        setCollapsed(true);
+      }
+      setMobileOpen(false);
+      if (event.matches) {
+        sidebar.style.removeProperty('transform');
+        sidebar.style.removeProperty('transition');
+      }
+    });
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeAdminSidebar, { once: true });
+  } else {
+    initializeAdminSidebar();
+  }
+</script>
+{% endblock %}

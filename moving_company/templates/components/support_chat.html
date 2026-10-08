@@ -1,0 +1,45 @@
+<div id="chigo-support-widget" class="fixed bottom-[100px] right-4 z-[80] sm:bottom-[100px] sm:right-6">
+  <button id="chigo-support-fab" type="button" class="group relative flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-2xl ring-4 ring-emerald-600/20 transition hover:-translate-y-0.5 hover:bg-emerald-700 focus:outline-none focus:ring-4 focus:ring-emerald-500/30 sm:h-16 sm:w-16" aria-label="Open Chigo support chat" aria-expanded="false">
+    <span class="absolute -right-0.5 -top-0.5 h-4 w-4 rounded-full border-2 border-white bg-emerald-400"></span>
+    <svg class="h-7 w-7 sm:h-8 sm:w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/></svg>
+    <span class="hidden sm:inline absolute left-1/2 top-full mt-2 -translate-x-1/2 whitespace-nowrap rounded-full bg-stone-950 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-white opacity-0 shadow-lg transition group-hover:opacity-100">Support</span>
+  </button>
+
+  <section id="chigo-support-panel" class="fixed inset-x-3 bottom-[92px] right-3 z-[90] hidden max-h-[78dvh] overflow-hidden rounded-3xl border border-stone-200 bg-white shadow-2xl sm:inset-x-auto sm:bottom-[100px] sm:right-6 sm:w-[390px] sm:max-h-[710px]" aria-label="Chigo support chat" role="dialog" aria-modal="false">
+    <header class="flex items-center justify-between bg-emerald-700 px-4 py-4 text-white">
+      <div class="min-w-0 flex items-center gap-3">
+        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg></div>
+        <div>
+          <h2 class="text-sm font-black">Chigo Support</h2>
+          <p class="flex items-center gap-1.5 text-[10px] font-medium text-emerald-100"><span class="h-2 w-2 rounded-full bg-emerald-400"></span>Online · We're here to help</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-1">
+        <button id="chigo-support-minimize" type="button" class="rounded-lg p-2 text-white hover:bg-white/10" aria-label="Minimize chat">—</button>
+        <button id="chigo-support-close" type="button" class="rounded-lg p-2 text-white hover:bg-white/10" aria-label="Close chat">×</button>
+      </div>
+    </header>
+
+    <div id="chigo-support-messages" class="h-[46dvh] min-h-52 space-y-3 overflow-y-auto bg-stone-50 px-4 py-4 sm:h-[460px]" aria-live="polite">
+      <div class="max-w-[88%] rounded-2xl rounded-tl-sm bg-white px-4 py-3 text-left text-xs leading-relaxed text-stone-700 shadow-sm ring-1 ring-stone-200">
+        Hi! I’m Chigo’s AI assistant. I can help with Chigo services, bookings, moving, pricing, locations, and support. I’ll clearly identify what I can confirm.
+      </div>
+      <div class="flex flex-wrap gap-2 pt-1">
+        <button type="button" data-support-quick="What services does Chigo offer?" class="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-[10px] font-bold text-emerald-800 hover:bg-emerald-50">Services</button>
+        <button type="button" data-support-quick="How is pricing calculated?" class="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-[10px] font-bold text-emerald-800 hover:bg-emerald-50">Pricing</button>
+        <button type="button" data-support-quick="I want to speak to a human" class="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-[10px] font-bold text-emerald-800 hover:bg-emerald-50">Human support</button>
+      </div>
+    </div>
+
+    <div class="border-t border-stone-200 bg-white p-3">
+      <button id="chigo-support-human" type="button" class="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-bold text-amber-800 hover:bg-amber-100">Talk to a human</button>
+      <form id="chigo-support-form" class="flex items-end gap-2">
+        <input id="chigo-support-csrf-token" type="hidden" value="{{ csrf_token() }}">
+        <label class="sr-only" for="chigo-support-input">Message Chigo support</label>
+        <textarea id="chigo-support-input" rows="1" maxlength="5000" class="max-h-28 min-h-11 flex-1 resize-none rounded-xl border border-stone-300 bg-stone-50 px-3 py-2.5 text-xs text-stone-800 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" placeholder="Type your message..."></textarea>
+        <button type="submit" class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white hover:bg-emerald-800" aria-label="Send message">➤</button>
+      </form>
+      <p class="mt-2 text-center text-[9px] text-stone-400">AI responses use Chigo-approved information.</p>
+    </div>
+  </section>
+</div>

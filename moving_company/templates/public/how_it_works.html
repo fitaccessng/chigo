@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+
+{% block title %}How It Works | Chigo Relocations{% endblock %}
+
+{% block content %}
+<section class="bg-brand-bg py-14 sm:py-20">
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <header class="max-w-3xl">
+      <p class="badge-pill">A clear plan, from the first detail to move day</p>
+      <h1 class="mt-5 text-4xl font-extrabold leading-tight text-slate-900 sm:text-5xl">How it works</h1>
+      <p class="mt-5 text-base leading-7 text-slate-600 sm:text-lg">
+        Build your move one step at a time. Your details and estimate stay together in a single booking request.
+      </p>
+      <a href="{{ url_for('booking.start') }}" class="mt-7 inline-flex rounded-lg bg-brand-700 px-5 py-3 font-bold text-white transition hover:bg-brand-800">Start your booking</a>
+    </header>
+
+    <ol class="mt-12 divide-y divide-slate-200 border-y border-slate-200">
+      <li class="grid gap-4 py-7 sm:grid-cols-[5rem_1fr] sm:gap-8">
+        <span class="text-3xl font-extrabold text-brand-700" aria-hidden="true">01</span>
+        <div>
+          <h2 class="text-xl font-bold text-slate-900">Share your locations</h2>
+          <p class="mt-2 max-w-2xl leading-6 text-slate-600">Enter your pickup and destination addresses, with any access instructions that will help the team plan.</p>
+        </div>
+      </li>
+      <li class="grid gap-4 py-7 sm:grid-cols-[5rem_1fr] sm:gap-8">
+        <span class="text-3xl font-extrabold text-brand-700" aria-hidden="true">02</span>
+        <div>
+          <h2 class="text-xl font-bold text-slate-900">Describe the move</h2>
+          <p class="mt-2 max-w-2xl leading-6 text-slate-600">Tell us about your property, floors, access, and the items you need moved, including fragile or oversized pieces.</p>
+        </div>
+      </li>
+      <li class="grid gap-4 py-7 sm:grid-cols-[5rem_1fr] sm:gap-8">
+        <span class="text-3xl font-extrabold text-brand-700" aria-hidden="true">03</span>
+        <div>
+          <h2 class="text-xl font-bold text-slate-900">Choose services and timing</h2>
+          <p class="mt-2 max-w-2xl leading-6 text-slate-600">Add packing, cleaning, unpacking, storage, or special handling, then choose your preferred move date and time.</p>
+        </div>
+      </li>
+      <li class="grid gap-4 py-7 sm:grid-cols-[5rem_1fr] sm:gap-8">
+        <span class="text-3xl font-extrabold text-brand-700" aria-hidden="true">04</span>
+        <div>
+          <h2 class="text-xl font-bold text-slate-900">Review your estimate</h2>
+          <p class="mt-2 max-w-2xl leading-6 text-slate-600">See the estimated total, deposit, and balance before you submit your booking request.</p>
+        </div>
+      </li>
+      <li class="grid gap-4 py-7 sm:grid-cols-[5rem_1fr] sm:gap-8">
+        <span class="text-3xl font-extrabold text-brand-700" aria-hidden="true">05</span>
+        <div>
+          <h2 class="text-xl font-bold text-slate-900">Confirm and coordinate</h2>
+          <p class="mt-2 max-w-2xl leading-6 text-slate-600">Submit your request and follow its status from your customer dashboard. The operations team coordinates the move plan and assigned crew.</p>
+        </div>
+      </li>
+    </ol>
+
+    <div class="mt-10 flex flex-wrap items-center gap-x-5 gap-y-3">
+      <a href="{{ url_for('booking.start') }}" class="rounded-lg bg-brand-700 px-5 py-3 font-bold text-white transition hover:bg-brand-800">Plan a move</a>
+      <a href="{{ url_for('public.services') }}" class="font-semibold text-brand-700 underline underline-offset-4 hover:text-brand-900">Explore services</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

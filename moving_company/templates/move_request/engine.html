@@ -1,0 +1,831 @@
+{% extends 'dashboard_base.html' %}
+{% block title %}Move plan | Chigo Relocations{% endblock %}
+
+{% block content %}
+{% set labels = {
+  'location': 'Location',
+  'property': 'Property',
+  'inventory': 'Inventory',
+  'services': 'Services',
+  'schedule': 'Schedule',
+  'quote': 'Quote',
+  'payment': 'Payment',
+  'review': 'Review'
+} %}
+{% set active_index = stages.index(stage) %}
+
+<!-- Determine previous stage URL for the back arrow -->
+{% set prev_stage_url = url_for('booking.workflow', request_id=booking.booking_request_id, stage=stages[active_index - 1]) if booking and active_index > 0 else url_for('booking.index') %}
+
+<div class="w-full px-4 sm:px-8 lg:px-12 py-8">
+  <!-- Back Button & Header Navigation -->
+  <div class="mb-6 max-w-[1700px] mx-auto">
+    <a href="{{ prev_stage_url }}" class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-stone-600 transition hover:text-stone-900 focus:outline-none">
+      <svg class="h-4 w-4 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+      </svg>
+      <span>{% if active_index > 0 %}Previous: {{ labels[stages[active_index - 1]] }}{% else %}Previous: Bookings{% endif %}</span>
+    </a>
+  </div>
+
+  <!-- Header & Progress Stepper -->
+  <header class="mb-10 max-w-[1700px] mx-auto border-b border-stone-200/80 pb-8">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <div class="inline-flex items-center gap-2 text-xs font-semibold text-brand-700">
+          <span class="inline-block h-2 w-2 rounded-full bg-brand-600"></span>
+          One Move Plan {% if booking %}· {{ booking.booking_request_id }}{% endif %}
+        </div>
+        <h1 class="mt-2 text-3xl font-extrabold tracking-tight text-stone-900 sm:text-4xl flex items-center gap-3">
+          {% if stage == 'location' %}
+            <svg class="h-8 w-8 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          {% elif stage == 'property' %}
+            <svg class="h-8 w-8 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+          {% elif stage == 'inventory' %}
+            <svg class="h-8 w-8 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+          {% elif stage == 'services' %}
+            <svg class="h-8 w-8 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+          {% elif stage == 'schedule' %}
+            <svg class="h-8 w-8 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          {% elif stage == 'quote' %}
+            <svg class="h-8 w-8 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+          {% elif stage == 'payment' %}
+            <svg class="h-8 w-8 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
+          {% else %}
+            <svg class="h-8 w-8 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          {% endif %}
+          {{ labels[stage] }}
+        </h1>
+      </div>
+      {% if booking %}
+      <div class="text-xs text-stone-500 sm:text-right">
+        <span class="block uppercase tracking-wider text-[10px] font-bold text-stone-400">Request Ref</span>
+        <strong class="font-mono text-sm font-bold text-stone-800">{{ booking.booking_request_id }}</strong>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Stepper Navigation -->
+    <nav aria-label="Booking progress" class="mt-8 overflow-x-auto pb-1">
+      <ol class="flex min-w-max items-center gap-6">
+        {% for item in stages %}
+        <li class="relative flex items-center">
+          <div class="flex items-center gap-3">
+            {% if loop.index0 < active_index %}
+            <span class="flex h-7 w-7 items-center justify-center rounded-full bg-brand-700 text-white text-xs">
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+            </span>
+            {% elif loop.index0 == active_index %}
+            <span class="flex h-7 w-7 items-center justify-center rounded-full bg-brand-700 text-xs font-bold text-white shadow-sm">
+              {{ loop.index }}
+            </span>
+            {% else %}
+            <span class="flex h-7 w-7 items-center justify-center rounded-full bg-stone-100 text-xs font-medium text-stone-400">
+              {{ loop.index }}
+            </span>
+            {% endif %}
+
+            <div class="text-xs">
+              {% if booking and item in unlocked_stages %}
+              <a href="{% if item == 'location' %}{{ url_for('booking.edit_location', request_id=booking.booking_request_id) }}{% else %}{{ url_for('booking.workflow', request_id=booking.booking_request_id, stage=item) }}{% endif %}"
+                 class="font-semibold text-stone-800 hover:text-brand-700 hover:underline">
+                {{ labels[item] }}
+              </a>
+              {% else %}
+              <span class="{% if loop.index0 == active_index %}font-bold text-brand-900{% elif loop.index0 < active_index %}font-medium text-stone-600{% else %}text-stone-400{% endif %}">
+                {{ labels[item] }}
+              </span>
+              {% endif %}
+            </div>
+          </div>
+        </li>
+        {% endfor %}
+      </ol>
+    </nav>
+  </header>
+
+  <!-- Flash Messages -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="mb-8 max-w-[1700px] mx-auto space-y-3">
+      {% for category, message in messages %}
+      <div role="alert" class="flex items-center gap-3 rounded-lg border p-4 text-sm {% if category == 'error' %}border-red-200 bg-red-50 text-red-900{% else %}border-brand-200 bg-brand-50 text-brand-900{% endif %}">
+        {% if category == 'error' %}
+        <svg class="h-5 w-5 shrink-0 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        {% else %}
+        <svg class="h-5 w-5 shrink-0 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        {% endif %}
+        <div>{{ message }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% endwith %}
+
+  <!-- Main Stage Canvas: Full Width & Shadow-free -->
+  <div class="w-full max-w-[1700px] mx-auto">
+    <div class="w-full bg-transparent py-4">
+
+      <!-- LOCATION STAGE -->
+      {% if stage == 'location' %}
+        <form method="post" class="space-y-12">
+          {{ form.hidden_tag() }}
+          
+          <div class="grid gap-12 xl:grid-cols-2">
+            {% for kind, title, desc, icon in [
+                 ('pickup','Pickup Location','Where are we collecting your items from?','M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z'),
+                 ('destination','Destination Location','Where should we deliver everything?','M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6')
+               ] %}
+            <fieldset class="space-y-6">
+              <div class="flex items-center gap-3.5 border-b border-stone-200 pb-4">
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
+                  <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ icon }}"/></svg>
+                </div>
+                <div>
+                  <legend class="text-lg font-bold text-stone-900">{{ title }}</legend>
+                  <p class="text-xs text-stone-500">{{ desc }}</p>
+                </div>
+              </div>
+              
+              <div class="relative pt-1">
+                <label for="{{ kind }}_search" class="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-stone-700">
+                  <svg class="h-3.5 w-3.5 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                  Search for an address or landmark
+                </label>
+                <div class="relative">
+                  <input id="{{ kind }}_search" autocomplete="off" class="w-full rounded-lg border border-stone-300 bg-white px-4 py-3 text-sm transition placeholder:text-stone-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600" placeholder="Type street, area, or landmark name...">
+                  <div id="{{ kind }}_suggestions" class="absolute z-30 mt-1 hidden max-h-60 w-full overflow-y-auto rounded-lg border border-stone-200 bg-white shadow-lg"></div>
+                </div>
+              </div>
+
+              <div class="grid gap-4 sm:grid-cols-2 pt-2">
+                {% for suffix, label in [('address','Street address'),('unit','Unit / building'),('city','City'),('state','State'),('floor','Floor'),('access','Access type')] %}
+                <div>
+                  <label class="mb-1.5 block text-xs font-semibold text-stone-700">{{ label }}</label>
+                  {{ form|attr(kind ~ '_' ~ suffix)(class_='w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm transition focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600') }}
+                </div>
+                {% endfor %}
+                <div class="sm:col-span-2">
+                  <label class="mb-1.5 block text-xs font-semibold text-stone-700">Access instructions / Gate notes</label>
+                  {{ form|attr(kind ~ '_notes')(class_='w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm transition focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600', rows='2') }}
+                </div>
+              </div>
+
+              {% for suffix in ['country','area','area_council','district','neighborhood','location_type','original_input','normalized_location','formatted_address','latitude','longitude','place_id','provider','provider_raw_id'] %}
+                {{ form|attr(kind ~ '_' ~ suffix)(type='hidden') }}
+              {% endfor %}
+              {% if kind == 'pickup' %}{{ form.pickup_location_id(type='hidden') }}{% else %}{{ form.dropoff_location_id(type='hidden') }}{% endif %}
+            </fieldset>
+            {% endfor %}
+          </div>
+
+          <div id="location_route_summary" class="hidden rounded-lg border border-brand-200 bg-brand-50/60 p-5" aria-live="polite"></div>
+
+          <div class="border-t border-stone-200 pt-8 space-y-4">
+            <div class="flex items-center gap-2">
+              <svg class="h-4 w-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+              <p class="text-xs font-bold uppercase tracking-wider text-stone-700">Parking Logistics & Access</p>
+            </div>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <label class="flex items-center gap-3 rounded-lg border border-stone-200 bg-white p-4 text-sm text-stone-700 cursor-pointer transition hover:border-brand-300">
+                {{ form.pickup_parking_close(class_="h-4 w-4 rounded border-stone-300 text-brand-700 focus:ring-brand-500") }}
+                <span class="font-medium">Truck parking close at pickup</span>
+              </label>
+              <label class="flex items-center gap-3 rounded-lg border border-stone-200 bg-white p-4 text-sm text-stone-700 cursor-pointer transition hover:border-brand-300">
+                {{ form.destination_parking_close(class_="h-4 w-4 rounded border-stone-300 text-brand-700 focus:ring-brand-500") }}
+                <span class="font-medium">Truck parking close at destination</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="pt-6 border-t border-stone-200 flex justify-end">
+            <button type="submit" class="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-700 px-8 py-3.5 text-sm font-bold text-white transition hover:bg-brand-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 w-full sm:w-auto">
+              <span>Save locations and continue</span>
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+            </button>
+          </div>
+        </form>
+
+        <script>
+          const locationSearchCache = new Map();
+          const locationSearchState = {
+            pickup: {timer: null, controller: null, selected: null},
+            destination: {timer: null, controller: null, selected: null}
+          };
+          const locationRouteSummary = document.getElementById('location_route_summary');
+          let locationRouteController = null;
+          let locationRouteSequence = 0;
+          function locationField(kind, suffix) { return document.getElementById(`${kind}_${suffix}`); }
+          function clearLocationCoordinates(kind, original) {
+            for (const field of ['latitude','longitude','place_id','provider','provider_raw_id','area','area_council','district','neighborhood','location_type','formatted_address','city','state','country']) {
+              const input = locationField(kind, field);
+              if (input) input.value = '';
+            }
+            const locationIdField = document.getElementById(kind === 'pickup' ? 'pickup_location_id' : 'dropoff_location_id');
+            if (locationIdField) locationIdField.value = '';
+            const originalField = locationField(kind, 'original_input');
+            if (originalField && original) originalField.value = original;
+          }
+          function showRouteState(state, route) {
+            locationRouteSummary.classList.remove('hidden');
+            if (state === 'loading') {
+              locationRouteSummary.replaceChildren();
+              const message = document.createElement('p');
+              message.className = 'text-sm font-semibold text-stone-600 flex items-center gap-2';
+              message.innerHTML = '<svg class="animate-spin h-4 w-4 text-brand-600" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Calculating route distance and travel time...';
+              locationRouteSummary.append(message);
+              return;
+            }
+            if (state === 'failure') {
+              locationRouteSummary.replaceChildren();
+              const message = document.createElement('p');
+              message.className = 'text-sm font-semibold text-amber-800';
+              message.textContent = 'Route distance unavailable. You can continue; we will retry before calculating your quote.';
+              locationRouteSummary.append(message);
+              return;
+            }
+            locationRouteSummary.replaceChildren();
+            const grid = document.createElement('div');
+            grid.className = 'grid gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-center';
+            for (const [label, value] of [['Pickup location', route.pickup], ['Drop-off location', route.destination]]) {
+              const place = document.createElement('div');
+              const heading = document.createElement('p');
+              heading.className = 'text-[10px] font-bold uppercase tracking-wider text-brand-700';
+              heading.textContent = label;
+              const name = document.createElement('p');
+              name.className = 'mt-1 text-sm font-bold text-stone-900';
+              name.textContent = value;
+              place.append(heading, name);
+              grid.append(place);
+              if (label === 'Pickup location') {
+                const distanceBox = document.createElement('div');
+                distanceBox.className = 'rounded-lg bg-white border border-brand-200 px-4 py-2.5 text-center';
+                const distance = document.createElement('p');
+                distance.className = 'text-sm font-extrabold text-brand-800';
+                distance.textContent = `${route.distance_km} km · ~${Math.round(route.duration_minutes)} min`;
+                distanceBox.append(distance);
+                grid.append(distanceBox);
+              }
+            }
+            locationRouteSummary.append(grid);
+          }
+          async function calculateLocationRoute() {
+            const sequence = ++locationRouteSequence;
+            locationRouteController?.abort();
+            const pickup = locationSearchState.pickup.selected;
+            const destination = locationSearchState.destination.selected;
+            if (!pickup || !destination) {
+              locationRouteSummary.classList.add('hidden');
+              return;
+            }
+            locationRouteController = new AbortController();
+            showRouteState('loading');
+            try {
+              const response = await fetch('/api/locations/route', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({pickup, destination}), signal: locationRouteController.signal
+              });
+              const payload = await response.json();
+              if (sequence !== locationRouteSequence) return;
+              if (!response.ok || !payload.success || !payload.route) throw new Error('route unavailable');
+              showRouteState('success', {
+                pickup: pickup.name, destination: destination.name,
+                distance_km: payload.route.distance_km, duration_minutes: payload.route.duration_minutes
+              });
+            } catch (_) {
+              if (sequence === locationRouteSequence) showRouteState('failure');
+            }
+          }
+          for (const kind of ['pickup','destination']) {
+            const input = document.getElementById(`${kind}_search`), panel = document.getElementById(`${kind}_suggestions`);
+            input.addEventListener('input', () => {
+              const q = input.value.trim();
+              const state = locationSearchState[kind];
+              clearTimeout(state.timer);
+              state.controller?.abort();
+              state.selected = null;
+              clearLocationCoordinates(kind, q);
+              locationField(kind, 'address').value = '';
+              locationField(kind, 'unit').value = '';
+              calculateLocationRoute();
+              if (q.length < 2) { panel.classList.add('hidden'); return; }
+              const cacheKey = q.toLowerCase().replace(/\s+/g, ' ');
+              if (locationSearchCache.has(cacheKey)) {
+                renderLocationResults(kind, input, panel, q, locationSearchCache.get(cacheKey));
+                return;
+              }
+              state.timer = setTimeout(async () => {
+                state.controller = new AbortController();
+                panel.innerHTML = '<p class="px-4 py-3 text-xs text-stone-500">Searching local FCT locations...</p>';
+                panel.classList.remove('hidden');
+                try {
+                  const response = await fetch(`/api/locations/autocomplete?q=${encodeURIComponent(q)}&limit=8`, {signal: state.controller.signal});
+                  const data = await response.json();
+                  const results = data.results || [];
+                  locationSearchCache.set(cacheKey, results);
+                  renderLocationResults(kind, input, panel, q, results);
+                } catch (error) {
+                  if (error.name !== 'AbortError') {
+                    panel.innerHTML = '<p class="px-4 py-3 text-xs text-stone-500">Location search is temporarily unavailable. You can enter the address manually.</p>';
+                    panel.classList.remove('hidden');
+                  }
+                }
+              }, 120);
+            });
+            for (const detail of ['address', 'area', 'city', 'state']) {
+              const addressInput = locationField(kind, detail);
+              addressInput?.addEventListener('input', () => {
+              if (locationSearchState[kind].selected) {
+                const editedValue = addressInput.value;
+                locationSearchState[kind].selected = null;
+                clearLocationCoordinates(kind, addressInput.value.trim());
+                addressInput.value = editedValue;
+                calculateLocationRoute();
+              }
+              });
+            }
+          }
+          function renderLocationResults(kind, input, panel, query, results) {
+            panel.replaceChildren();
+            if (!results.length) {
+              panel.innerHTML = '<p class="px-4 py-3 text-xs text-stone-500">No local match. We will try an address lookup; you can also enter the address manually.</p>';
+              panel.classList.remove('hidden');
+              return;
+            }
+            for (const result of results) {
+              const option = document.createElement('button');
+              option.type = 'button';
+              option.className = 'block w-full border-b border-stone-100 px-4 py-3 text-left transition hover:bg-brand-50 last:border-none';
+              const title = document.createElement('span');
+              title.className = 'block text-sm font-bold text-stone-900';
+              title.textContent = result.name || result.formatted_address;
+              const context = document.createElement('span');
+              context.className = 'mt-1 block text-[11px] text-stone-500';
+              context.textContent = [result.area_council, result.district || result.neighborhood, result.state || 'FCT'].filter(Boolean).join(' · ');
+              const type = document.createElement('span');
+              type.className = 'mt-1 inline-block text-[10px] font-semibold uppercase text-brand-700';
+              type.textContent = String(result.location_type || result.type || 'address').replaceAll('_', ' ');
+              option.append(title, context, type);
+              option.addEventListener('click', () => {
+                for (const [suffix, value] of Object.entries({
+                  address: result.name || result.formatted_address,
+                  formatted_address: result.formatted_address || result.name,
+                  city: result.city || 'Abuja', state: result.state || 'Federal Capital Territory',
+                  country: result.country || 'Nigeria', area: result.area,
+                  area_council: result.area_council, district: result.district,
+                  neighborhood: result.neighborhood, location_type: result.location_type || result.type,
+                  original_input: query,
+                  normalized_location: [resulprovider: result.provider, provider_raw_id: result.provider_raw_id
+                })) {
+                  const field = locationField(kind, suffix);
+                  if (field) field.value = value ?? '';
+                }
+                const locationIdField = document.getElementById(kind === 'pickup' ? 'pickup_location_id' : 'dropoff_location_id');
+                if (locationIdField) locationIdField.value = result.local_place_id || result.id || ''; const field = locationField(kind, suffix);
+                  if (field) field.value = value ?? '';
+                }
+                const selected = {name: result.name || result.formatted_address, latitude: Number(result.latitude), longitude: Number(result.longitude)};
+                locationSearchState[kind].selected = selected;
+                input.value = result.formatted_address || result.name;
+                panel.classList.add('hidden');
+                calculateLocationRoute();
+              });
+              panel.append(option);
+            }
+            panel.classList.remove('hidden');
+          }
+        </script>
+      {% elif stage == 'property' %}
+        {% set property_data = booking.workflow_data.get('property', {}) if booking.workflow_data else {} %}
+        {% set property_type = property_data.get('property_type', '') %}
+        {% set is_commercial = property_type in ['Office', 'Shop', 'Warehouse', 'Construction Site'] %}
+        <section class="mx-auto max-w-4xl space-y-6">
+          <form method="post" class="rounded-xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="block text-sm font-semibold text-stone-800" for="property_type">What type of property are you moving from?
+              <select id="property_type" name="property_type" required class="mt-2 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 sm:max-w-md">
+                <option value="">Select property type</option>
+                {% for option in property_types %}
+                <option value="{{ option }}" {% if property_type == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <button type="submit" name="action" value="choose_property_type" class="mt-5 rounded-lg bg-brand-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-800">Continue</button>
+          </form>
+
+          {% if property_type %}
+          <form method="post" class="rounded-xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="property_type" value="{{ property_type }}">
+            <h2 class="text-lg font-bold text-stone-900">Property details</h2>
+            <p class="mt-1 text-sm text-stone-500">These details help us estimate the move accurately.</p>
+
+            <div class="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {% if is_commercial %}
+                {% for name, label in [('rooms', 'Rooms'), ('workstations', 'Workstations')] %}
+                <label class="text-xs font-semibold text-stone-700">{{ label }}
+                  <input type="number" name="{{ name }}" min="0" value="{{ property_data.get(name, 0) }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                </label>
+                {% endfor %}
+              {% else %}
+                {% for name, label in [('bedrooms', 'Bedrooms'), ('bathrooms', 'Bathrooms')] %}
+                <label class="text-xs font-semibold text-stone-700">{{ label }}
+                  <input type="number" name="{{ name }}" min="0" value="{{ property_data.get(name, 0) }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                </label>
+                {% endfor %}
+              {% endif %}
+              <label class="text-xs font-semibold text-stone-700">Floors
+                <input type="number" name="floors" min="1" required value="{{ property_data.get('floors', 1) }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+              </label>
+              <label class="text-xs font-semibold text-stone-700">Approximate size (m²)
+                <input type="number" name="approximate_size_m2" min="0" step="0.1" value="{{ property_data.get('approximate_size_m2', '') }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+              </label>
+            </div>
+
+            <div class="mt-5 flex flex-wrap gap-x-6 gap-y-3 text-sm text-stone-700">
+              {% for name, label in [('elevator', 'Elevator available'), ('loading_bay', 'Loading bay available'), ('forklift', 'Forklift available')] %}
+              <label class="inline-flex items-center gap-2"><input type="checkbox" name="{{ name }}" value="yes" {% if property_data.get(name) %}checked{% endif %} class="rounded border-stone-300 text-brand-700 focus:ring-brand-600">{{ label }}</label>
+              {% endfor %}
+            </div>
+
+            <div class="mt-6 flex justify-end border-t border-stone-200 pt-5">
+              <button type="submit" class="w-full rounded-lg bg-brand-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-brand-800 sm:w-auto">Save property and continue</button>
+            </div>
+          </form>
+          {% endif %}
+        </section>
+      {% elif stage == 'inventory' %}
+        <section class="space-y-8">
+          <div class="flex flex-col gap-3 border-b border-stone-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 class="text-2xl font-extrabold tracking-tight text-stone-900">Build your move inventory</h2>
+              <p class="mt-1 text-sm text-stone-500">Add the items that need to be moved.</p>
+            </div>
+            <div class="flex gap-3 text-xs font-bold">
+              <span class="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-brand-800">{{ inventory_summary.item_count|default(0) }} items</span>
+              <span class="rounded-lg border border-stone-200 bg-white px-3 py-2 text-stone-700">{{ inventory_summary.volume_m3|default(0)|round(1) }} m³</span>
+            </div>
+          </div>
+
+          {% for option in vehicle_options if option.recommended %}
+          <section class="flex flex-col gap-1 rounded-xl border border-brand-200 bg-brand-50/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div><h3 class="text-sm font-bold text-stone-900">Vehicle recommendation</h3><p class="mt-0.5 text-xs text-stone-600">{{ option.name }} · {{ option.quantity }} vehicle{% if option.quantity != 1 %}s{% endif %} for the current inventory.</p></div>
+            <p class="text-xs font-semibold text-brand-800">Review or change your selection on Schedule.</p>
+          </section>
+          {% endfor %}
+
+          {% if inventory_property_type == 'Estate' %}
+          <form method="get" class="flex flex-col gap-3 rounded-xl border border-stone-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <label for="estate-unit-type" class="text-sm font-semibold text-stone-800">Residential unit inventory
+              <select id="estate-unit-type" name="unit_type" onchange="this.form.submit()" class="mt-1.5 block w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 sm:mt-0 sm:ml-3 sm:inline-block sm:w-auto">
+                <option value="">Estate shared facilities only</option>
+                {% for unit_type in ['Apartment', 'House', 'Duplex'] %}<option value="{{ unit_type }}" {% if estate_unit_type == unit_type %}selected{% endif %}>{{ unit_type }}</option>{% endfor %}
+              </select>
+            </label>
+            <span class="text-xs text-stone-500">Choose a unit type to add its household categories alongside estate facilities.</span>
+          </form>
+          {% endif %}
+
+          <section aria-labelledby="inventory-catalogue-heading">
+            <h3 id="inventory-catalogue-heading" class="text-lg font-bold text-stone-900">Catalogue</h3>
+            <div class="mt-4 space-y-6">
+              {% for group in inventory_catalog %}
+              <div>
+                <h4 class="border-b border-stone-200 pb-2 text-sm font-bold text-stone-700">{{ group.category }}</h4>
+                <div class="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {% for item in group.catalog_items %}
+                  <form method="post" class="flex items-center gap-3 rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="action" value="add_catalogue">
+                    <input type="hidden" name="inventory_item_id_{{ item.id }}" value="{{ item.id }}">
+                    <div class="min-w-0 flex-1">
+                      <p class="truncate text-sm font-semibold text-stone-900">{{ item.name }}</p>
+                      <p class="mt-1 text-xs text-stone-500">{{ item.estimated_volume_m3 }} m³ · {{ item.estimated_weight_kg }} kg</p>
+                    </div>
+                    <label class="text-[10px] font-bold uppercase text-stone-500">Qty
+                      <input name="inventory_item_quantity_{{ item.id }}" type="number" min="1" max="500" value="1" required class="mt-1 block w-16 rounded-lg border border-stone-300 bg-white px-2 py-2 text-center text-sm font-normal text-stone-900">
+                    </label>
+                    <button type="submit" class="rounded-lg bg-brand-700 px-3 py-2 text-xs font-bold text-white hover:bg-brand-800">Add</button>
+                  </form>
+                  {% endfor %}
+                </div>
+              </div>
+              {% else %}
+              <p class="rounded-lg border border-dashed border-stone-300 p-5 text-sm text-stone-500">No catalogue items are available for this service.</p>
+              {% endfor %}
+            </div>
+          </section>
+
+          {% if bulk_item_options %}
+          <form method="post" class="rounded-xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="add_bulk">
+            <h3 class="text-base font-bold text-stone-900">Add stock or materials in bulk</h3>
+            <p class="mt-1 text-sm text-stone-500">Enter a grouped quantity instead of adding each carton, bag, or material piece separately.</p>
+            <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <label class="text-xs font-semibold text-stone-700">Material or stock type
+                <select id="bulk-item-type" name="bulk_item_type" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-3 text-sm text-stone-900">
+                  {% for bulk_name, bulk_unit in bulk_item_options.items() %}<option value="{{ bulk_name }}" data-unit="{{ bulk_unit }}">{{ bulk_name }}</option>{% endfor %}
+                </select>
+              </label>
+              <label class="text-xs font-semibold text-stone-700">Unit
+                <select id="bulk-unit" name="bulk_unit" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-3 text-sm text-stone-900">
+                  {% for bulk_name, bulk_unit in bulk_item_options.items() %}<option value="{{ bulk_unit }}" data-for="{{ bulk_name }}">{{ bulk_unit }}</option>{% endfor %}
+                </select>
+              </label>
+              <label class="text-xs font-semibold text-stone-700">Quantity
+                <input name="bulk_quantity" type="number" min="1" max="500" value="1" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-3 text-sm text-stone-900">
+              </label>
+              <label class="text-xs font-semibold text-stone-700">Approx. volume per unit (m³)
+                <input name="bulk_volume_m3" type="number" min="0.01" max="100" step="0.01" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-3 text-sm text-stone-900" placeholder="Optional">
+              </label>
+              <label class="text-xs font-semibold text-stone-700">Approx. weight per unit (kg)
+                <input name="bulk_weight_kg" type="number" min="0.01" max="10000" step="0.1" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-3 text-sm text-stone-900" placeholder="Optional">
+              </label>
+              <div class="flex flex-wrap items-center gap-x-5 gap-y-3 text-sm text-stone-700 lg:col-span-3">
+                <label class="inline-flex items-center gap-2"><input type="checkbox" name="bulk_fragile" class="rounded border-stone-300 text-brand-700 focus:ring-brand-600">Fragile</label>
+                <label class="inline-flex items-center gap-2"><input type="checkbox" name="bulk_special_handling" class="rounded border-stone-300 text-brand-700 focus:ring-brand-600">Special handling required</label>
+              </div>
+            </div>
+            <button type="submit" class="mt-5 rounded-lg bg-brand-700 px-5 py-3 text-sm font-bold text-white hover:bg-brand-800">Add bulk line</button>
+          </form>
+          <script>
+            (() => {
+              const typeSelect = document.getElementById('bulk-item-type');
+              const unitSelect = document.getElementById('bulk-unit');
+              if (!typeSelect || !unitSelect) return;
+              const syncUnit = () => {
+                const unit = typeSelect.selectedOptions[0]?.dataset.unit;
+                for (const option of unitSelect.options) option.hidden = option.dataset.for !== typeSelect.value;
+                unitSelect.value = unit || '';
+              };
+              typeSelect.addEventListener('change', syncUnit);
+              syncUnit();
+            })();
+          </script>
+          {% endif %}
+
+          <form method="post" class="rounded-xl border border-brand-200 bg-brand-50/40 p-5 sm:p-6">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="add_custom">
+            <h3 class="text-base font-bold text-stone-900">Add a custom item</h3>
+            <div class="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_8rem_auto] sm:items-end">
+              <label class="text-xs font-semibold text-stone-700">Item name
+                <input name="custom_item_name[]" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm text-stone-900" placeholder="e.g. Large standing mirror">
+              </label>
+              <label class="text-xs font-semibold text-stone-700">Quantity
+                <input name="custom_item_quantity[]" type="number" min="1" max="500" value="1" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm text-stone-900">
+              </label>
+              <button type="submit" class="rounded-lg bg-brand-700 px-5 py-3 text-sm font-bold text-white hover:bg-brand-800">Add item</button>
+            </div>
+          </form>
+
+          <section class="border-t border-stone-200 pt-7">
+            <div class="flex flex-col gap-1 border-b border-stone-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
+              <h3 class="text-lg font-bold text-stone-900">Your selections</h3>
+              <p class="text-xs text-stone-500">Adjust quantities before continuing.</p>
+            </div>
+            {% if inventory_selection %}
+            <form method="post" class="mt-4 space-y-3">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="save_and_continue">
+              {% for item in inventory_selection %}
+              <div class="grid gap-3 rounded-xl border border-stone-200 bg-white p-4 sm:grid-cols-[minmax(0,1fr)_8rem] sm:items-center">
+                <input type="hidden" name="selection_id[]" value="{{ item.id }}">
+                <div class="min-w-0">
+                  <p class="text-sm font-semibold text-stone-900">{{ item.display_name }}</p>
+                  <p class="mt-1 text-xs text-stone-500">{{ item.category }} · {{ item.estimated_volume_m3 }} m³ · {{ item.estimated_weight_kg }} kg</p>
+                </div>
+                <label class="text-xs font-semibold text-stone-700">Quantity
+                  <input name="quantity[]" type="number" min="1" max="500" value="{{ item.quantity }}" required class="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900">
+                </label>
+              </div>
+              {% endfor %}
+
+              <div class="flex justify-end border-t border-stone-200 pt-5">
+                <button type="submit" class="w-full rounded-lg bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800 sm:w-auto">Save inventory and continue</button>
+              </div>
+            </form>
+            {% else %}
+            <p class="mt-4 rounded-lg border border-dashed border-stone-300 p-6 text-center text-sm text-stone-500">Add at least one item from the catalogue or create a custom item to continue.</p>
+            {% endif %}
+          </section>
+        </section>
+      {% elif stage == 'services' %}
+        {% set selected_services = booking.workflow_data.get('services', {}) if booking.workflow_data else {} %}
+        <form method="post" class="mx-auto max-w-5xl space-y-6">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <section class="rounded-xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
+            <h2 class="text-xl font-extrabold text-stone-900">Choose additional moving services</h2>
+            <p class="mt-1 text-sm text-stone-500">Select the packing, handling, storage, and cleaning support you need.</p>
+
+            <div class="mt-6 grid gap-4 sm:grid-cols-2">
+              {% for name, options in service_options.items() %}
+              {% set default_option = 'none' if name in ['packing', 'storage', 'cleaning'] else 'no' %}
+              <label class="block text-xs font-bold capitalize text-stone-700">{{ name|replace('_', ' ') }}
+                <select name="{{ name }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm font-normal text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                  {% for option in options %}
+                  <option value="{{ option }}" {% if selected_services.get(name, default_option) == option %}selected{% endif %}>{{ option|replace('-', ' ')|title }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              {% endfor %}
+            </div>
+          </section>
+
+          {% if service_cards %}
+          <div class="space-y-5">
+            {% for category, cards in service_cards.items() %}
+            <section class="rounded-xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+              <h3 class="text-base font-bold text-stone-900">{{ category }}</h3>
+              <div class="mt-4 grid gap-3 md:grid-cols-2">
+                {% for card in cards %}
+                <article class="rounded-lg border border-stone-200 bg-stone-50/60 p-4">
+                  <div class="flex items-start justify-between gap-3">
+                    <h4 class="text-sm font-semibold text-stone-900">{{ card.label }}</h4>
+                    {% if card.price is not none %}<span class="shrink-0 text-xs font-bold text-stone-700">₦{{ '{:,.0f}'.format(card.price) }}</span>{% endif %}
+                  </div>
+                  <p class="mt-1 text-xs leading-5 text-stone-600">{{ card.description }}</p>
+                  {% if card.recommendation %}<p class="mt-2 text-xs font-semibold text-brand-700">Recommended: {{ card.recommendation.reason }}</p>{% endif %}
+                  {% if card.required %}<span class="mt-2 inline-block text-[10px] font-bold uppercase tracking-wide text-stone-500">Included</span>{% endif %}
+                </article>
+                {% endfor %}
+              </div>
+            </section>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          {% if recommendations %}
+          <section class="rounded-xl border border-brand-200 bg-brand-50/50 p-5 sm:p-6">
+            <h3 class="text-sm font-bold text-stone-900">Recommendations for this move</h3>
+            <ul class="mt-3 space-y-2">
+              {% for recommendation in recommendations %}
+              <li class="text-sm text-stone-700"><strong>{{ recommendation.label }}</strong><span class="mt-0.5 block text-xs text-stone-600">{{ recommendation.reason }}</span></li>
+              {% endfor %}
+            </ul>
+          </section>
+          {% endif %}
+
+          <div class="flex justify-end border-t border-stone-200 pt-5">
+            <button type="submit" class="w-full rounded-lg bg-brand-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-brand-800 sm:w-auto">Save services and continue</button>
+          </div>
+        </form>
+      {% elif stage == 'schedule' %}
+        {% set schedule_data = booking.workflow_data.get('schedule', {}) if booking.workflow_data else {} %}
+        <section class="mx-auto max-w-4xl space-y-6">
+          {% if schedule_estimate %}
+          <section class="rounded-xl border border-brand-200 bg-brand-50/60 p-5 sm:p-6">
+            <h2 class="text-xs font-bold uppercase tracking-wider text-brand-800">Current move-time estimate</h2>
+            <p class="mt-2 text-2xl font-extrabold text-stone-900">{{ schedule_estimate.duration_minutes }} minutes</p>
+            <p class="mt-1 text-sm text-stone-600">Estimated crew: {{ schedule_estimate.movers }} movers</p>
+          </section>
+          {% endif %}
+
+          <form method="post" class="rounded-xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <h2 class="text-xl font-extrabold text-stone-900">Choose your moving date and time</h2>
+            <p data-slot-warning class="mt-2 text-sm text-stone-500">Your requested slot is subject to availability. We will confirm it after reviewing the move details.</p>
+
+            <div class="mt-6 grid gap-4 sm:grid-cols-2">
+              <label class="block text-xs font-bold text-stone-700">Moving date
+                <input type="date" name="move_date" min="{{ now_date }}" value="{{ schedule_data.get('date', '') }}" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm font-normal text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+              </label>
+              <label class="block text-xs font-bold text-stone-700">Preferred time
+                <select name="preferred_time" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm font-normal text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                  <option value="">Choose a time</option>
+                  {% for time in ['Morning', 'Afternoon', 'Evening'] %}<option value="{{ time }}" {% if schedule_data.get('time') == time %}selected{% endif %}>{{ time }}</option>{% endfor %}
+                </select>
+              </label>
+            </div>
+
+            {% if vehicle_options %}
+            <fieldset class="mt-6 border-t border-stone-200 pt-5">
+              <legend class="text-sm font-bold text-stone-900">Choose a vehicle</legend>
+              <p class="mt-1 text-xs text-stone-500">Select the vehicle type for your move. We calculate how many units are needed from your inventory.</p>
+              <div class="mt-3 grid gap-3 md:grid-cols-2">
+                {% for option in vehicle_options %}
+                <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-stone-200 bg-white p-4 transition hover:border-brand-300 has-[:checked]:border-brand-600 has-[:checked]:bg-brand-50/40">
+                  <input type="radio" name="vehicle_type_id" value="{{ option.id }}" {% if option.selected %}checked{% endif %} required class="mt-1 border-stone-300 text-brand-700 focus:ring-brand-600">
+                  <img src="{{ url_for('static', filename=option.image) }}" alt="{{ option.name }}" loading="lazy" class="h-20 w-28 shrink-0 rounded-lg border border-stone-200 bg-stone-50 object-contain p-1.5">
+                  <span class="min-w-0 flex-1">
+                    <span class="flex flex-wrap items-center justify-between gap-2"><span class="text-sm font-bold text-stone-900">{{ option.name }}</span>{% if option.recommended %}<span class="rounded-md bg-brand-50 px-2 py-1 text-[10px] font-bold text-brand-800">Recommended</span>{% endif %}</span>
+                    <span class="mt-1 block text-xs text-stone-600">{{ option.quantity }} vehicle{% if option.quantity != 1 %}s{% endif %} · {{ option.capacity_m3 }} m³ · {{ option.max_payload_kg }} kg each</span>
+                    {% if option.quantity > 1 %}<span class="mt-1 block text-xs text-stone-500">Multiple units are included to carry the inventory safely.</span>{% endif %}
+                  </span>
+                </label>
+                {% endfor %}
+              </div>
+            </fieldset>
+            {% endif %}
+
+            <div class="mt-5 flex flex-col gap-3 border-y border-stone-200 py-4 sm:flex-row sm:gap-8">
+              <label class="inline-flex items-center gap-2 text-sm text-stone-700"><input type="checkbox" name="flexible_date" {% if schedule_data.get('flexible_date') %}checked{% endif %} class="rounded border-stone-300 text-brand-700 focus:ring-brand-600">My date is flexible</label>
+              <label class="inline-flex items-center gap-2 text-sm text-stone-700"><input type="checkbox" name="flexible_time" {% if schedule_data.get('flexible_time') %}checked{% endif %} class="rounded border-stone-300 text-brand-700 focus:ring-brand-600">My time is flexible</label>
+            </div>
+
+            <label class="mt-5 block text-xs font-bold text-stone-700">Access hours or timing notes
+              <textarea name="access_hours" rows="3" maxlength="250" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm font-normal text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600" placeholder="For example, building access hours or preferred arrival window">{{ schedule_data.get('access_hours', '') }}</textarea>
+            </label>
+
+            <div class="mt-6 flex justify-end border-t border-stone-200 pt-5">
+              <button type="submit" class="w-full rounded-lg bg-brand-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-brand-800 sm:w-auto">Check availability and continue</button>
+            </div>
+          </form>
+        </section>
+      {% elif stage == 'quote' %}
+        {% set quote_summary = booking.calculation_data or {} %}
+        <section class="mx-auto max-w-5xl space-y-6">
+          {% if not booking.schedule_feasible %}
+          <div role="status" class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            The selected time may need an operations review. You can review and accept the estimate while availability is confirmed.
+          </div>
+          {% endif %}
+
+          <section class="rounded-xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
+            <div class="flex flex-col gap-3 border-b border-stone-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 class="text-xl font-extrabold text-stone-900">Your move quote</h2>
+                <p class="mt-1 text-sm text-stone-500">A cost breakdown based on your route, inventory, services, and selected schedule.</p>
+              </div>
+              <span class="inline-flex w-fit rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-bold text-brand-800">{{ booking.quote_status }}</span>
+            </div>
+
+            {% if quote_lines %}
+            <div class="mt-4 overflow-x-auto">
+              <table class="w-full min-w-[28rem] text-left text-sm">
+                <thead class="text-xs uppercase tracking-wide text-stone-500">
+                  <tr><th class="py-2 pr-4 font-semibold">Service</th><th class="py-2 px-3 text-right font-semibold">Qty</th><th class="py-2 pl-3 text-right font-semibold">Amount</th></tr>
+                </thead>
+                <tbody class="divide-y divide-stone-100">
+                  {% for line in quote_lines %}
+                  <tr><td class="py-3 pr-4 text-stone-700">{{ line.label }}</td><td class="py-3 px-3 text-right text-stone-500">{{ line.quantity|round(2) }}</td><td class="py-3 pl-3 text-right font-semibold text-stone-800">₦{{ '{:,.2f}'.format(line.amount) }}</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            <p class="mt-5 rounded-lg border border-dashed border-stone-300 p-5 text-sm text-stone-500">A quote breakdown is not available yet. Review the move details or contact operations.</p>
+            {% endif %}
+
+            <dl class="mt-5 ml-auto max-w-sm space-y-3 border-t border-stone-200 pt-5 text-sm">
+              <div class="flex items-center justify-between gap-4"><dt class="text-stone-600">Subtotal</dt><dd class="font-semibold text-stone-800">₦{{ '{:,.2f}'.format(quote_summary.get('subtotal', booking.estimated_total or 0)) }}</dd></div>
+              <div class="flex items-center justify-between gap-4"><dt class="text-stone-600">Tax</dt><dd class="font-semibold text-stone-800">₦{{ '{:,.2f}'.format(quote_summary.get('tax', 0)) }}</dd></div>
+              <div class="flex items-center justify-between gap-4 border-t border-stone-200 pt-3"><dt class="font-bold text-stone-900">Total estimate</dt><dd class="text-lg font-extrabold text-stone-900">₦{{ '{:,.2f}'.format(booking.estimated_total or 0) }}</dd></div>
+              <div class="flex items-center justify-between gap-4"><dt class="text-stone-600">Deposit to secure booking</dt><dd class="font-bold text-brand-800">₦{{ '{:,.2f}'.format(booking.deposit_amount or 0) }}</dd></div>
+              <div class="flex items-center justify-between gap-4"><dt class="text-stone-600">Remaining balance</dt><dd class="font-semibold text-stone-800">₦{{ '{:,.2f}'.format(booking.balance_amount or 0) }}</dd></div>
+            </dl>
+
+            {% if booking.quote_status == 'Ready' %}
+            <form method="post" class="mt-7 flex justify-end border-t border-stone-200 pt-5">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" name="action" value="accept_quote" class="w-full rounded-lg bg-brand-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-brand-800 sm:w-auto">Accept quote and continue</button>
+            </form>
+            {% endif %}
+          </section>
+        </section>
+      {% elif stage == 'payment' %}
+        <section class="mx-auto max-w-3xl space-y-6">
+          {% if booking.payment_status == 'Paid' %}
+          <section class="rounded-xl border border-emerald-200 bg-emerald-50 p-5 sm:p-7">
+            <div class="flex items-start gap-4">
+              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-800" aria-hidden="true">
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+              </span>
+              <div>
+                <h2 class="text-xl font-extrabold text-stone-900">Payment confirmed</h2>
+                <p class="mt-1 text-sm text-stone-700">Your deposit has been received and your move is confirmed.</p>
+              </div>
+            </div>
+          </section>
+          {% else %}
+          <section class="rounded-xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
+            <div class="border-b border-stone-200 pb-5">
+              <p class="text-xs font-bold uppercase tracking-wider text-brand-700">Quote accepted</p>
+              <h2 class="mt-2 text-2xl font-extrabold text-stone-900">Secure your moving date</h2>
+              <p class="mt-2 text-sm leading-6 text-stone-600">Pay the deposit through our secure payment provider. Your remaining balance is due according to your booking terms.</p>
+            </div>
+
+            <dl class="mt-5 space-y-4">
+              <div class="flex items-center justify-between gap-4 text-sm"><dt class="text-stone-600">Total quote</dt><dd class="font-semibold text-stone-900">₦{{ '{:,.2f}'.format(booking.estimated_total or 0) }}</dd></div>
+              <div class="flex items-center justify-between gap-4 rounded-lg border border-brand-200 bg-brand-50/60 p-4"><dt class="font-bold text-stone-800">Deposit due now</dt><dd class="text-xl font-extrabold text-brand-800">₦{{ '{:,.2f}'.format(booking.deposit_amount or 0) }}</dd></div>
+              <div class="flex items-center justify-between gap-4 text-sm"><dt class="text-stone-600">Balance after deposit</dt><dd class="font-semibold text-stone-900">₦{{ '{:,.2f}'.format(booking.balance_amount or 0) }}</dd></div>
+            </dl>
+
+            {% if booking.payment_status == 'Pending' %}
+            <p class="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">A payment is pending. Continue securely to complete it or retry if you did not finish.</p>
+            {% endif %}
+
+            <form method="post" action="{{ url_for('booking.payment', request_id=booking.booking_request_id) }}" class="mt-6 border-t border-stone-200 pt-5">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="w-full rounded-lg bg-brand-700 px-6 py-3.5 text-sm font-bold text-white transition hover:bg-brand-800 sm:w-auto">Continue to secure payment</button>
+            </form>
+            <p class="mt-3 text-xs text-stone-500">Your card or bank details are handled by the payment provider and are not stored by Chigo.</p>
+          </section>
+          {% endif %}
+        </section>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,45 @@
+{% extends 'admin/admin_base.html' %}
+{% from 'components/brand_logo.html' import brand_logo %}
+
+{% block admin_title %}Create Admin Account | Chigo Operations{% endblock %}
+
+{% block content %}
+<main class="min-h-[calc(100vh-5rem)] bg-stone-100 px-4 py-12 sm:px-6 lg:px-8">
+  <div class="mx-auto max-w-3xl border border-stone-300 bg-white shadow-xl">
+    <header class="border-b border-stone-200 bg-stone-950 px-6 py-6 text-white sm:px-10">
+      <a href="{{ url_for('admin.dashboard') }}" aria-label="Chigo operations dashboard" class="inline-flex items-center gap-3 text-xs font-bold uppercase tracking-wider text-stone-300">
+        {{ brand_logo('h-16 w-16 rounded-md') }}
+        <span>Operations</span>
+      </a>
+      <p class="mt-8 text-xs font-bold uppercase tracking-[0.2em] text-emerald-400">Administrator management</p>
+      <h1 class="mt-2 text-3xl font-black">Create an admin account</h1>
+      <p class="mt-2 text-sm text-stone-300">New accounts receive administrator access. Super-admin privileges remain reserved.</p>
+    </header>
+    <section class="px-6 py-8 sm:px-10">
+      <form method="post" class="grid gap-5 sm:grid-cols-2">
+        {{ form.hidden_tag() }}
+        <label class="block text-sm font-semibold text-stone-800" for="{{ form.full_name.id }}">Full name
+          {{ form.full_name(class_='mt-2 block w-full border border-stone-300 px-3.5 py-3 text-sm font-normal focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/20', autocomplete='name', required=true) }}
+          {% if form.full_name.errors %}<span class="mt-1 block text-xs text-red-700">{{ form.full_name.errors[0] }}</span>{% endif %}
+        </label>
+        <label class="block text-sm font-semibold text-stone-800 sm:col-span-2" for="{{ form.role.id }}">Admin role
+          {{ form.role(class_='mt-2 block w-full border border-stone-300 bg-white px-3.5 py-3 text-sm font-normal focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/20', required=true) }}
+          {% if form.role.errors %}<span class="mt-1 block text-xs text-red-700">{{ form.role.errors[0] }}</span>{% endif %}
+        </label>
+        <label class="block text-sm font-semibold text-stone-800" for="{{ form.email.id }}">Work email
+          {{ form.email(class_='mt-2 block w-full border border-stone-300 px-3.5 py-3 text-sm font-normal focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/20', autocomplete='email', autocapitalize='none', required=true) }}
+          {% if form.email.errors %}<span class="mt-1 block text-xs text-red-700">{{ form.email.errors[0] }}</span>{% endif %}
+        </label>
+        <label class="block text-sm font-semibold text-stone-800 sm:col-span-2" for="{{ form.password.id }}">Temporary password
+          {{ form.password(class_='mt-2 block w-full border border-stone-300 px-3.5 py-3 text-sm font-normal focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/20', autocomplete='new-password', minlength='8', required=true) }}
+          {% if form.password.errors %}<span class="mt-1 block text-xs text-red-700">{{ form.password.errors[0] }}</span>{% else %}<span class="mt-1 block text-xs font-normal text-stone-500">At least 8 characters.</span>{% endif %}
+        </label>
+        <div class="flex flex-wrap items-center gap-4 border-t border-stone-200 pt-5 sm:col-span-2">
+          <button type="submit" class="bg-emerald-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-emerald-800">Create admin</button>
+          <a href="{{ url_for('admin.dashboard') }}" class="text-sm font-semibold text-stone-600 underline underline-offset-4">Cancel</a>
+        </div>
+      </form>
+    </section>
+  </div>
+</main>
+{% endblock %}

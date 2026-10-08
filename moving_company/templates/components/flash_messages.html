@@ -1,0 +1,51 @@
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="max-w-7xl mx-auto px-4 pt-4">
+      {% for category, message in messages %}
+        <div class="flash-message hidden mb-3 rounded-md border px-4 py-3 text-sm {% if category == 'success' %}border-emerald-200 bg-emerald-50 text-emerald-800{% elif category == 'error' %}border-rose-200 bg-rose-50 text-rose-800{% else %}border-sky-200 bg-sky-50 text-sky-800{% endif %}" data-category="{{ category }}" data-message="{{ message | replace('\n', ' ') | e }}">
+          {{ message }}
+        </div>
+      {% endfor %}
+    </div>
+
+    <div id="message-modal" class="fixed inset-0 z-[80] hidden items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+      <div class="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+        <div class="mb-3 flex items-center justify-between">
+          <h3 id="message-modal-title" class="text-lg font-bold text-slate-900">Notice</h3>
+          <button type="button" class="message-modal-close rounded-full bg-slate-100 p-2 text-slate-500 hover:bg-slate-200 hover:text-slate-800">×</button>
+        </div>
+        <p id="message-modal-text" class="text-sm leading-6 text-slate-700"></p>
+        <div class="mt-5 flex justify-end">
+          <button type="button" class="message-modal-close rounded-lg bg-brand-700 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-800">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        const modal = document.getElementById('message-modal');
+        const title = document.getElementById('message-modal-title');
+        const text = document.getElementById('message-modal-text');
+        const messageEls = Array.from(document.querySelectorAll('.flash-message'));
+        if (!modal || !messageEls.length) return;
+
+        const first = messageEls[0];
+        const category = first.dataset.category || 'info';
+        const message = first.dataset.message || first.textContent.trim();
+        const titleMap = { success: 'Success', error: 'Attention', info: 'Notice' };
+
+        title.textContent = titleMap[category] || titleMap.info;
+        text.textContent = message;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+
+        document.querySelectorAll('.message-modal-close').forEach((btn) => {
+          btn.addEventListener('click', function () {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+          });
+        });
+      })();
+    </script>
+  {% endif %}
+{% endwith %}

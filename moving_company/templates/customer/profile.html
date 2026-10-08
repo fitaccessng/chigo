@@ -1,0 +1,214 @@
+{% extends 'dashboard_base.html' %}
+
+{% block dashboard_title %}Settings | Chigo Relocations{% endblock %}
+
+{% block dashboard_content %}
+<div class="max-w-3xl mx-auto space-y-8 pb-20" 
+     x-data="{ 
+       activeModal: null, 
+       pushNotifications: true,
+       openModal(modalName) {
+         this.activeModal = modalName;
+         document.body.classList.add('overflow-hidden');
+       },
+       closeModal() {
+         this.activeModal = null;
+         document.body.classList.remove('overflow-hidden');
+       }
+     }">
+
+  <!-- PAGE HEADER -->
+  
+
+  <!-- USER WELCOME CARD -->
+  <div class="relative overflow-hidden rounded-3xl bg-white border border-slate-200/80 p-6 shadow-xs flex items-center justify-between gap-4">
+    <div class="flex items-center gap-4">
+      <div class="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-brand-700 hover:bg-brand-800 text-lg font-black text-white shadow-md shadow-indigo-500/20">
+        {{ (user.full_name[0] if user.full_name else user.email[0]) | upper }}
+      </div>
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Welcome</p>
+        <h2 class="text-lg font-extrabold text-slate-900 tracking-tight">{{ user.full_name or user.email }}</h2>
+      </div>
+    </div>
+    
+    <a href="{{ url_for('auth.logout') }}" title="Sign Out" class="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-50 text-slate-600 hover:bg-rose-50 hover:text-rose-600 border border-slate-200/80 transition-all cursor-pointer">
+      <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+    </a>
+  </div>
+
+  <!-- SETTINGS MENU LIST (Matching Reference Layout) -->
+  <div class="rounded-3xl border border-slate-200/80 bg-white shadow-xs divide-y divide-slate-100 overflow-hidden">
+    
+    <!-- User Profile Row -->
+    <button @click="openModal('profile')" class="w-full flex items-center justify-between p-5 sm:p-6 hover:bg-slate-50/80 transition-colors text-left cursor-pointer group">
+      <div class="flex items-center gap-4">
+        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-700 hover:bg-brand-800 text-white group-hover:scale-105 transition-transform">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+        </div>
+        <div>
+          <span class="text-sm font-bold text-slate-900 block">User Profile</span>
+          <span class="text-xs text-slate-400">View and update your personal details</span>
+        </div>
+      </div>
+      <svg class="w-5 h-5 text-slate-400 group-hover:translate-x-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+    </button>
+
+    <!-- Change Password Row -->
+    <button @click="openModal('password')" class="w-full flex items-center justify-between p-5 sm:p-6 hover:bg-slate-50/80 transition-colors text-left cursor-pointer group">
+      <div class="flex items-center gap-4">
+        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-700 hover:bg-brand-800 text-white group-hover:scale-105 transition-transform">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+        </div>
+        <div>
+          <span class="text-sm font-bold text-slate-900 block">Change Password</span>
+          <span class="text-xs text-slate-400">Update your account security credentials</span>
+        </div>
+      </div>
+      <svg class="w-5 h-5 text-slate-400 group-hover:translate-x-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+    </button>
+
+    <!-- FAQs Row -->
+    <button @click="openModal('faqs')" class="w-full flex items-center justify-between p-5 sm:p-6 hover:bg-slate-50/80 transition-colors text-left cursor-pointer group">
+      <div class="flex items-center gap-4">
+        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-700 hover:bg-brand-800 text-white group-hover:scale-105 transition-transform">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <div>
+          <span class="text-sm font-bold text-slate-900 block">FAQs</span>
+          <span class="text-xs text-slate-400">Frequently asked relocation questions</span>
+        </div>
+      </div>
+      <svg class="w-5 h-5 text-slate-400 group-hover:translate-x-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+    </button>
+
+    <!-- Push Notification Toggle Row -->
+    <div class="flex items-center justify-between p-5 sm:p-6">
+      <div class="flex items-center gap-4">
+        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-700 hover:bg-brand-800 text-white">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+        </div>
+        <div>
+          <span class="text-sm font-bold text-slate-900 block">Push Notification</span>
+          <span class="text-xs text-slate-400">Receive alerts regarding your moves</span>
+        </div>
+      </div>
+      <!-- Toggle Switch -->
+      <button @click="pushNotifications = !pushNotifications" 
+              :class="pushNotifications ? 'bg-indigo-600' : 'bg-slate-300'"
+              class="relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden">
+        <span :class="pushNotifications ? 'translate-x-5' : 'translate-x-0'" 
+              class="pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out"></span>
+      </button>
+    </div>
+
+  </div>
+
+  <!-- SUPPORT CARD (Bottom Callout) -->
+  <div class="rounded-3xl bg-slate-50 border border-slate-200/80 p-6 sm:p-8 text-center space-y-4">
+    <p class="text-sm font-medium text-slate-600 max-w-sm mx-auto leading-relaxed">
+      If you have any other query you can reach out to us.
+    </p>
+    <div>
+      <a href="https://wa.me/18005550199" target="_blank" class="inline-flex items-center justify-center px-6 py-3 rounded-2xl bg-indigo-50 text-indigo-600 font-extrabold text-xs hover:bg-indigo-100 transition-colors shadow-2xs">
+        WhatsApp Us
+      </a>
+    </div>
+  </div>
+
+
+  <!-- ================= BOTTOM VIEW MODAL SYSTEM ================= -->
+  
+  <!-- Backdrop -->
+  <div x-show="activeModal !== null" 
+       x-transition.opacity.duration.300ms
+       @click="closeModal()"
+       class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs" 
+       style="display: none;"></div>
+
+  <!-- Modal Container (Slides up from Bottom) -->
+  <div x-show="activeModal !== null"
+       x-transition:enter="transition ease-out duration-300 transform"
+       x-transition:enter-start="translate-y-full"
+       x-transition:enter-end="translate-y-0"
+       x-transition:leave="transition ease-in duration-200 transform"
+       x-transition:leave-start="translate-y-0"
+       x-transition:leave-end="translate-y-full"
+       class="fixed inset-x-0 bottom-0 z-50 max-h-[90vh] overflow-y-auto rounded-t-[2.5rem] bg-white p-6 sm:p-8 shadow-2xl border-t border-slate-200"
+       style="display: none;">
+
+    <!-- Modal Handle Bar & Close Header -->
+    <div class="w-12 h-1.5 bg-slate-300 rounded-full mx-auto mb-6"></div>
+    
+    <div class="flex items-center justify-between pb-4 border-b border-slate-100 mb-6">
+      <h3 class="text-lg font-black text-slate-900 tracking-tight" 
+          x-text="activeModal === 'profile' ? 'Edit User Profile' : (activeModal === 'password' ? 'Change Password' : 'Frequently Asked Questions')"></h3>
+      <button @click="closeModal()" class="h-9 w-9 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center transition-colors cursor-pointer">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- 1. PROFILE MODAL CONTENT -->
+    <div x-show="activeModal === 'profile'" class="space-y-5 pb-6">
+      <form action="{{ url_for('customer.profile') }}" method="POST" class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">Full Name</label>
+          <input type="text" name="full_name" value="{{ user.full_name or '' }}" required class="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">Email Address</label>
+          <input type="email" value="{{ user.email }}" disabled class="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-400 cursor-not-allowed">
+        </div>
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">Phone Number</label>
+          <input type="tel" name="phone" value="{{ user.phone or '' }}" placeholder="+1 (555) 000-0000" class="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none">
+        </div>
+        <div class="pt-3 flex gap-3">
+          <button type="button" @click="closeModal()" class="w-1/2 py-3 rounded-xl border border-slate-200 font-bold text-xs text-slate-600 hover:bg-slate-50">Cancel</button>
+          <button type="submit" class="w-1/2 py-3 rounded-xl bg-indigo-600 text-white font-bold text-xs hover:bg-indigo-700 shadow-sm">Save Changes</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- 2. PASSWORD MODAL CONTENT -->
+    <div x-show="activeModal === 'password'" class="space-y-5 pb-6">
+      <form action="#" method="POST" class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">Current Password</label>
+          <input type="password" required class="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">New Password</label>
+          <input type="password" required class="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">Confirm New Password</label>
+          <input type="password" required class="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none">
+        </div>
+        <div class="pt-3 flex gap-3">
+          <button type="button" @click="closeModal()" class="w-1/2 py-3 rounded-xl border border-slate-200 font-bold text-xs text-slate-600 hover:bg-slate-50">Cancel</button>
+          <button type="submit" class="w-1/2 py-3 rounded-xl bg-indigo-600 text-white font-bold text-xs hover:bg-indigo-700 shadow-sm">Update Password</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- 3. FAQS MODAL CONTENT -->
+    <div x-show="activeModal === 'faqs'" class="space-y-4 pb-6 text-left">
+      <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1">
+        <h4 class="text-xs font-extrabold text-slate-900">How do I schedule a relocation?</h4>
+        <p class="text-xs text-slate-600 leading-relaxed">You can book your move directly from your dashboard by selecting your pickup and destination locations.</p>
+      </div>
+      <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1">
+        <h4 class="text-xs font-extrabold text-slate-900">Are my items insured during transit?</h4>
+        <p class="text-xs text-slate-600 leading-relaxed">Yes! All full-service relocations with Chigo Relocations include comprehensive transit insurance coverage.</p>
+      </div>
+      <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1">
+        <h4 class="text-xs font-extrabold text-slate-900">Can I modify my moving date?</h4>
+        <p class="text-xs text-slate-600 leading-relaxed">Changes can be requested up to 48 hours prior to your scheduled move date through support.</p>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}

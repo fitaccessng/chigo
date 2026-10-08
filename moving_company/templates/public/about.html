@@ -1,0 +1,243 @@
+{% extends 'base.html' %}
+
+{% block title %}About Us - Move Smart & Safe | Chigo Relocations{% endblock %}
+
+{% block content %}
+<!-- ================= HERO SECTION ================= -->
+<section class="bg-brand-bg py-16 sm:py-24 relative overflow-hidden">
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+      
+      <div class="lg:col-span-7 space-y-6">
+        <span class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs sm:text-sm font-semibold">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-pulse"></span>
+          Headquartered in Abuja, Serving All Nigeria
+        </span>
+
+        <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-tight text-slate-900 tracking-tight">
+          Redefining Relocation With <span class="text-emerald-700">Care & Precision</span>
+        </h1>
+
+        <p class="text-slate-600 text-base sm:text-lg leading-relaxed max-w-2xl">
+          Chigo Relocations brings your entire moving process into one seamless experience—from itemized inventory and route planning to professional packing, real-time status updates, and stress-free move-day execution.
+        </p>
+
+        <div class="flex flex-wrap items-center gap-4 pt-2">
+          <a href="{{ url_for('booking.start') if 'booking.start' in url_for.__globals__ else '#' }}" class="inline-flex items-center gap-2 px-6 py-3.5 rounded-full bg-emerald-700 text-white font-bold text-sm shadow-lg hover:bg-emerald-800 transition-all active:scale-[0.98]">
+            <span>Plan Your Move</span>
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+          </a>
+          <a href="{{ url_for('public.contact') if 'public.contact' in url_for.__globals__ else '#' }}" class="inline-flex items-center gap-2 px-6 py-3.5 rounded-full bg-white border border-slate-300 text-slate-800 font-bold text-sm hover:border-emerald-600 hover:text-emerald-700 transition-all active:scale-[0.98]">
+            <span>Talk to an Expert</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="lg:col-span-5 relative">
+        <div class="relative mx-auto max-w-md lg:max-w-none">
+          <div class="absolute -inset-2 bg-emerald-700 rounded-3xl transform rotate-2"></div>
+          <div class="relative z-10 bg-white p-3 rounded-3xl shadow-2xl border border-slate-100">
+            <img src="https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=800&q=80" alt="Chigo Relocations Professional Team" class="w-full h-[380px] sm:h-[420px] object-cover rounded-2xl">
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ================= STATS NUMBERS BANNER ================= -->
+<!-- <section class="bg-emerald-900 text-white py-12 border-y border-emerald-800">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+      <div>
+        <p class="text-3xl sm:text-4xl font-extrabold text-amber-400">1,500+</p>
+        <p class="text-xs sm:text-sm text-emerald-200 font-medium uppercase mt-1 tracking-wider">Moves Completed</p>
+      </div>
+      <div>
+        <p class="text-3xl sm:text-4xl font-extrabold text-amber-400">99.2%</p>
+        <p class="text-xs sm:text-sm text-emerald-200 font-medium uppercase mt-1 tracking-wider">On-Time Arrival</p>
+      </div>
+      <div>
+        <p class="text-3xl sm:text-4xl font-extrabold text-amber-400">36</p>
+        <p class="text-xs sm:text-sm text-emerald-200 font-medium uppercase mt-1 tracking-wider">States Covered</p>
+      </div>
+      <div>
+        <p class="text-3xl sm:text-4xl font-extrabold text-amber-400">100%</p>
+        <p class="text-xs sm:text-sm text-emerald-200 font-medium uppercase mt-1 tracking-wider">Insured Services</p>
+      </div>
+    </div>
+  </div>
+</section> -->
+
+<!-- ================= OUR MISSION & VISION ================= -->
+<section class="py-16 sm:py-24 bg-white">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="text-center max-w-2xl mx-auto mb-16">
+      <span class="inline-flex items-center px-4 py-1.5 rounded-full bg-slate-100 text-slate-800 text-xs font-semibold">
+        Who We Are
+      </span>
+      <h2 class="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight mt-3">
+        Driven by Precision, Powered by <span class="text-emerald-700">Integrity</span>
+      </h2>
+      <p class="text-slate-600 text-sm sm:text-base mt-3">
+        We started Chigo Relocations to eliminate the guesswork, delays, and damages often associated with traditional moving services.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+      <!-- Mission Card -->
+      <div class="bg-slate-50 border border-slate-200 rounded-3xl p-8 sm:p-10 relative overflow-hidden group hover:border-emerald-600 transition-all duration-300">
+        <div class="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center mb-6">
+          <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        </div>
+        <h3 class="text-2xl font-bold text-slate-900 mb-3">Our Mission</h3>
+        <p class="text-slate-600 leading-relaxed text-sm sm:text-base">
+          To provide effortless, transparent, and ultra-reliable relocation solutions across Nigeria by leveraging trained personnel, standard handling equipment, and digitized logistics planning.
+        </p>
+      </div>
+
+      <!-- Vision Card -->
+      <div class="bg-slate-50 border border-slate-200 rounded-3xl p-8 sm:p-10 relative overflow-hidden group hover:border-emerald-600 transition-all duration-300">
+        <div class="w-14 h-14 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center mb-6">
+          <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+        </div>
+        <h3 class="text-2xl font-bold text-slate-900 mb-3">Our Vision</h3>
+        <p class="text-slate-600 leading-relaxed text-sm sm:text-base">
+          To become Africa’s most trusted logistics and relocation partner—recognized for standardizing moving operations, protecting customer property, and setting unmatched service benchmarks.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CORE VALUES SECTION ================= -->
+<section class="py-16 bg-brand-bg border-t border-slate-100">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="text-center max-w-2xl mx-auto mb-12">
+      <span class="inline-flex items-center px-4 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold">
+        Our Foundation
+      </span>
+      <h2 class="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight mt-3">
+        The Principles We <span class="text-emerald-700">Live By</span>
+      </h2>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 font-bold flex items-center justify-center">01</div>
+        <h3 class="font-bold text-lg text-slate-900">Total Transparency</h3>
+        <p class="text-slate-600 text-xs leading-relaxed">No unexpected surge charges or hidden move-day fees. What we quote based on your details is what you pay.</p>
+      </div>
+
+      <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 font-bold flex items-center justify-center">02</div>
+        <h3 class="font-bold text-lg text-slate-900">Safety & Protection</h3>
+        <p class="text-slate-600 text-xs leading-relaxed">From heavy-duty bubble wraps and moving blankets to strapped trucks, we treat your items like our own.</p>
+      </div>
+
+      <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 font-bold flex items-center justify-center">03</div>
+        <h3 class="font-bold text-lg text-slate-900">Strict Punctuality</h3>
+        <p class="text-slate-600 text-xs leading-relaxed">Time is money. Our dispatch and moving team arrives strictly at your scheduled window to keep you on schedule.</p>
+      </div>
+
+      <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 font-bold flex items-center justify-center">04</div>
+        <h3 class="font-bold text-lg text-slate-900">Dedicated Support</h3>
+        <p class="text-slate-600 text-xs leading-relaxed">Our operations desk remains active throughout your move duration to quickly answer questions or assist.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= HOW CHIGO PLATFORM WORKS ================= -->
+<section class="py-16 sm:py-24 bg-white">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+      
+      <div class="lg:col-span-6 space-y-6">
+        <span class="inline-flex items-center px-4 py-1.5 rounded-full bg-slate-100 text-slate-800 text-xs font-semibold">
+          Seamless Workflow
+        </span>
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
+          How We Coordinate Your Move <span class="text-emerald-700">Behind The Scenes</span>
+        </h2>
+        <p class="text-slate-600 leading-relaxed text-sm sm:text-base">
+          Moving involves dozens of moving parts. Chigo simplifies everything through a streamlined digital process designed to make move day completely stress-free.
+        </p>
+
+        <div class="space-y-4 pt-2">
+          <div class="flex items-start gap-4">
+            <div class="w-8 h-8 rounded-full bg-emerald-700 text-white font-bold flex items-center justify-center shrink-0 text-sm">1</div>
+            <div>
+              <h4 class="font-bold text-slate-900 text-base">Inventory & Route Capture</h4>
+              <p class="text-slate-600 text-xs sm:text-sm mt-0.5">Submit pickup locations, destination routes, staircase details, and item inventory online.</p>
+            </div>
+          </div>
+
+          <div class="flex items-start gap-4">
+            <div class="w-8 h-8 rounded-full bg-emerald-700 text-white font-bold flex items-center justify-center shrink-0 text-sm">2</div>
+            <div>
+              <h4 class="font-bold text-slate-900 text-base">Instant Transparent Estimate</h4>
+              <p class="text-slate-600 text-xs sm:text-sm mt-0.5">Receive a clear breakdown covering vehicle size, crew hands, packing materials, and fuel cost.</p>
+            </div>
+          </div>
+
+          <div class="flex items-start gap-4">
+            <div class="w-8 h-8 rounded-full bg-emerald-700 text-white font-bold flex items-center justify-center shrink-0 text-sm">3</div>
+            <div>
+              <h4 class="font-bold text-slate-900 text-base">Move-Day Execution & Unpacking</h4>
+              <p class="text-slate-600 text-xs sm:text-sm mt-0.5">Our trained team handles loading, secure transit, offloading, and room placement without hassle.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="lg:col-span-6">
+        <div class="grid grid-cols-2 gap-4">
+          <div class="space-y-4">
+            <div class="rounded-2xl overflow-hidden shadow-md h-48 border border-slate-100">
+              <img src="https://images.unsplash.com/photo-1600585154526-990dced4db0d?auto=format&fit=crop&w=600&q=80" alt="Home relocation" class="w-full h-full object-cover">
+            </div>
+            <div class="rounded-2xl overflow-hidden shadow-md h-64 border border-slate-100">
+              <img src="https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?auto=format&fit=crop&w=600&q=80" alt="Packing boxes" class="w-full h-full object-cover">
+            </div>
+          </div>
+          <div class="space-y-4 pt-8">
+            <div class="rounded-2xl overflow-hidden shadow-md h-64 border border-slate-100">
+              <img src="https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?auto=format&fit=crop&w=600&q=80" alt="Moving truck" class="w-full h-full object-cover">
+            </div>
+            <div class="rounded-2xl overflow-hidden shadow-md h-48 border border-slate-100">
+              <img src="https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=600&q=80" alt="Unloading boxes" class="w-full h-full object-cover">
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ================= CALL TO ACTION SECTION ================= -->
+<section class="py-16 bg-brand-bg border-t border-slate-200">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="bg-emerald-800 rounded-3xl p-8 sm:p-12 text-center text-white relative overflow-hidden shadow-2xl">
+      <div class="relative z-10 max-w-2xl mx-auto space-y-6">
+        <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight">Ready to Experience a Stress-Free Relocation?</h2>
+        <p class="text-emerald-100 text-sm sm:text-base">
+          Get an accurate estimate for your home or office move in just a few minutes.
+        </p>
+        <div class="flex flex-wrap justify-center gap-4 pt-2">
+          <a href="{{ url_for('booking.start') if 'booking.start' in url_for.__globals__ else '#' }}" class="px-8 py-3.5 rounded-full bg-amber-400 text-slate-900 font-extrabold text-sm hover:bg-amber-500 transition-all shadow-lg active:scale-[0.98]">
+            Start Your Plan Now
+          </a>
+          <a href="{{ url_for('public.contact') if 'public.contact' in url_for.__globals__ else '#' }}" class="px-8 py-3.5 rounded-full bg-emerald-900 text-white font-extrabold text-sm border border-emerald-700 hover:bg-emerald-950 transition-all active:scale-[0.98]">
+            Contact Support
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

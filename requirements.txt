@@ -1,0 +1,15 @@
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+Flask-WTF==1.2.1
+Flask-Login==0.6.3
+Flask-Bcrypt==1.0.1
+Flask-Migrate==4.0.7
+psycopg2-binary==2.9.9
+GeoAlchemy2==0.20.0
+Shapely==2.0.7
+requests==2.32.2
+stripe>=11,<15
+osmium==4.0.2
+python-dotenv==1.0.1
+email-validator==2.2.0
+pytest==8.3.2

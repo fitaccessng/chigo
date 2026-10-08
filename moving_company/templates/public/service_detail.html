@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ title }} Services | Chigo Relocations{% endblock %}
+
+{% block content %}
+<section class="bg-brand-bg py-14 sm:py-20">
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <a href="{{ url_for('public.services') }}" class="font-semibold text-brand-700 hover:text-brand-900">&larr; All services</a>
+    <div class="mt-8 max-w-3xl border-l-4 border-brand-600 pl-6 sm:pl-8">
+      <p class="badge-pill">Chigo Relocations</p>
+      <h1 class="mt-5 text-4xl font-extrabold leading-tight text-slate-900 sm:text-5xl">{{ title }} Services</h1>
+      <p class="mt-5 text-lg leading-8 text-slate-600">
+        We coordinate {{ title|lower }} support around your move date, locations, property, and inventory, so your plan fits the way you need to move.
+      </p>
+      <div class="mt-8 flex flex-wrap gap-3">
+        <a href="{{ url_for('booking.start') }}" class="rounded-lg bg-brand-700 px-5 py-3 font-bold text-white hover:bg-brand-800">Add to your move plan</a>
+        <a href="{{ url_for('public.contact') }}" class="rounded-lg border border-slate-300 bg-white px-5 py-3 font-bold text-slate-800 hover:border-brand-600">Contact our team</a>
+      </div>
+    </div>
+    <div class="mt-14 grid gap-8 border-t border-slate-200 pt-8 sm:grid-cols-3">
+      <div><h2 class="font-bold text-slate-900">Planned for your move</h2><p class="mt-2 text-sm leading-6 text-slate-600">Share your locations, access details, and preferred schedule in one booking.</p></div>
+      <div><h2 class="font-bold text-slate-900">Clear estimate</h2><p class="mt-2 text-sm leading-6 text-slate-600">Review the estimated costs for your selected services before confirming your request.</p></div>
+      <div><h2 class="font-bold text-slate-900">One coordinated booking</h2><p class="mt-2 text-sm leading-6 text-slate-600">Keep moving, packing, cleaning, unpacking, and storage needs together.</p></div>
+    </div>
+  </div>
+</section>
+{% endblock %}

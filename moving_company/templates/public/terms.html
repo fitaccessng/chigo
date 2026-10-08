@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+
+{% block title %}Terms of Service | Chigo Relocations{% endblock %}
+
+{% block content %}
+<section class="bg-brand-bg py-14 sm:py-20">
+  <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+    <header class="border-b border-slate-200 pb-8">
+      <p class="badge-pill">Chigo Relocations</p>
+      <h1 class="mt-5 text-4xl font-extrabold leading-tight text-slate-900 sm:text-5xl">Terms of Service</h1>
+      <p class="mt-4 text-base leading-7 text-slate-600">These terms describe the basic conditions for using this website and requesting relocation services from Chigo Relocations.</p>
+    </header>
+
+    <div class="divide-y divide-slate-200">
+      <section class="py-7">
+        <h2 class="text-xl font-bold text-slate-900">Using this website</h2>
+        <p class="mt-3 leading-7 text-slate-600">Use the site lawfully and provide accurate, current information when creating an account or requesting a move. Keep your account credentials private and tell us if you believe your account has been accessed without permission.</p>
+      </section>
+      <section class="py-7">
+        <h2 class="text-xl font-bold text-slate-900">Bookings and estimates</h2>
+        <p class="mt-3 leading-7 text-slate-600">Submitting a booking sends a service request; it does not by itself guarantee availability or confirm a final service agreement. Estimates are based on the details submitted and may need adjustment if the route, inventory, access conditions, or requested services change. We will communicate changes for confirmation.</p>
+      </section>
+      <section class="py-7">
+        <h2 class="text-xl font-bold text-slate-900">Payments</h2>
+        <p class="mt-3 leading-7 text-slate-600">Payment amounts and status are shown with the relevant booking. The payment flow currently available on this development platform is a simulation and does not charge a card or verify a live Paystack transaction. Do not enter payment-card credentials into the mock payment flow.</p>
+      </section>
+      <section class="py-7">
+        <h2 class="text-xl font-bold text-slate-900">Changes, cancellations, and service issues</h2>
+        <p class="mt-3 leading-7 text-slate-600">Contact us as soon as possible to request a booking change or cancellation. Any service-specific schedule, cancellation, liability, or claims terms will be provided in the confirmed quote or service agreement and remain subject to applicable law. You can submit an incident report from your booking page.</p>
+      </section>
+      <section class="py-7">
+        <h2 class="text-xl font-bold text-slate-900">Availability and updates</h2>
+        <p class="mt-3 leading-7 text-slate-600">We work to keep the site available and information current, but features may change or be temporarily unavailable. We may update these terms as the service evolves. Continued use after an update means you accept the updated terms to the extent permitted by law.</p>
+      </section>
+      <section class="py-7">
+        <h2 class="text-xl font-bold text-slate-900">Contact</h2>
+        <p class="mt-3 leading-7 text-slate-600">Questions about these terms can be sent to <a class="font-semibold text-brand-700 underline" href="mailto:hello@chigo.com">hello@chigo.com</a>.</p>
+      </section>
+    </div>
+    <a href="{{ url_for('public.privacy') }}" class="font-semibold text-brand-700 underline underline-offset-4">Read the Privacy Policy</a>
+  </div>
+</section>
+{% endblock %}

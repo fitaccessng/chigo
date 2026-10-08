@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+
+{% block title %}Moving Prices | Chigo Relocations{% endblock %}
+
+{% block content %}
+<section class="bg-brand-bg py-14 sm:py-20">
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <header class="max-w-3xl">
+      <p class="badge-pill">Clear rates for a considered move</p>
+      <h1 class="mt-5 text-4xl font-extrabold leading-tight text-slate-900 sm:text-5xl">Pricing</h1>
+      <p class="mt-5 text-base leading-7 text-slate-600 sm:text-lg">Your estimate depends on the route, property, access, and services you select. These rates show the main components used to prepare it.</p>
+    </header>
+
+    <div class="mt-10 grid gap-x-10 sm:grid-cols-2 lg:grid-cols-3">
+      {% for label, key, suffix in [
+        ('Base moving fee', 'base_moving_fee', 'per booking'),
+        ('Distance', 'price_per_km', 'per km'),
+        ('Property surcharge', 'property_surcharge', 'for larger properties'),
+        ('Floor surcharge', 'floor_surcharge', 'per applicable location'),
+        ('Partial packing', 'packing_partial', 'optional service'),
+        ('Full packing', 'packing_full', 'optional service'),
+        ('Move-out cleaning', 'cleaning_move_out', 'optional service'),
+        ('Move-in cleaning', 'cleaning_move_in', 'optional service'),
+        ('Unpacking', 'unpacking', 'optional service'),
+        ('Storage', 'storage_week', 'per week'),
+        ('Special handling', 'special_handling', 'when applicable'),
+        ('Weekend surcharge', 'weekend_surcharge', 'when applicable'),
+        ('Holiday surcharge', 'holiday_surcharge', 'when applicable')
+      ] %}
+      <div class="flex items-baseline justify-between gap-4 border-b border-slate-200 py-5">
+        <div>
+          <h2 class="font-semibold text-slate-900">{{ label }}</h2>
+          <p class="mt-1 text-sm text-slate-500">{{ suffix }}</p>
+        </div>
+        <p class="shrink-0 text-lg font-bold text-brand-700">₦{{ '{:,.0f}'.format(pricing[key]) }}</p>
+      </div>
+      {% endfor %}
+    </div>
+
+    <p class="mt-8 max-w-3xl text-sm leading-6 text-slate-600">Rates are used to calculate an estimate from the information in your booking. The final service plan and price are confirmed with you before the move.</p>
+    <a href="{{ url_for('booking.start') }}" class="mt-6 inline-flex rounded-lg bg-brand-700 px-5 py-3 font-bold text-white transition hover:bg-brand-800">Build your estimate</a>
+  </div>
+</section>
+{% endblock %}

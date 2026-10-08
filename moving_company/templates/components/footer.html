@@ -1,0 +1,31 @@
+{% from 'components/brand_logo.html' import brand_logo %}
+
+<footer class="border-t border-stone-200 bg-stone-950 text-stone-200">
+  <div class="max-w-7xl mx-auto px-4 py-10 sm:px-6 lg:px-8 grid gap-8 md:grid-cols-3">
+    <div>
+      <a href="{{ url_for('public.home') }}" aria-label="Chigo Relocations home" class="inline-flex rounded-lg">
+        {{ brand_logo('h-24 w-24 rounded-lg') }}
+      </a>
+      <p class="mt-3 text-sm text-stone-300">Professional relocation services built around your move, your team and your peace of mind.</p>
+    </div>
+    <div>
+      <h3 class="text-sm font-semibold uppercase tracking-[0.18em] text-stone-400">Services</h3>
+      <ul class="mt-4 space-y-2 text-sm text-stone-300">
+        <li>Moving</li>
+        <li>Packing</li>
+        <li>Cleaning</li>
+        <li>Storage</li>
+      </ul>
+    </div>
+    <div>
+      <h3 class="text-sm font-semibold uppercase tracking-[0.18em] text-stone-400">Contact</h3>
+      <ul class="mt-4 space-y-2 text-sm text-stone-300">
+        <li>Abuja, Nigeria</li>
+        <li>hello@chigo.com</li>
+        <li>+234 8036135712</li>
+        <li><a href="{{ url_for('public.terms') }}" class="hover:text-white underline underline-offset-4">Terms of Service</a></li>
+        <li><a href="{{ url_for('public.privacy') }}" class="hover:text-white underline underline-offset-4">Privacy Policy</a></li>
+      </ul>
+    </div>
+  </div>
+</footer>

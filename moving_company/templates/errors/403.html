@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}Access Denied{% endblock %}
+{% block content %}
+<section class="max-w-3xl mx-auto px-4 py-24 text-center">
+  <p class="text-sm uppercase tracking-[0.2em] text-stone-500">403</p>
+  <h1 class="mt-4 text-4xl font-black">Access denied</h1>
+  <p class="mt-4 text-stone-600">You do not have permission to view this page.</p>
+  <a href="{{ url_for('public.home') }}" class="mt-8 inline-flex rounded-md bg-brand-700 px-6 py-3 text-sm font-semibold text-white">Back home</a>
+</section>
+{% endblock %}

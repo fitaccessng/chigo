@@ -1,0 +1,37 @@
+{% extends 'admin/admin_base.html' %}
+{% block admin_title %}Pricing | Chigo Operations{% endblock %}
+{% block dashboard_content %}
+<header class="mb-7 border-b border-stone-300 pb-5">
+  <p class="text-xs font-bold uppercase tracking-[0.16em] text-emerald-800">Commercial</p>
+  <h1 class="mt-2 text-3xl font-black">Service prices &amp; quote rules</h1>
+  <p class="mt-2 max-w-3xl text-sm leading-6 text-stone-600">These saved rates feed the existing booking quote calculator. Changes apply to future quote calculations; existing quotes retain their recorded line items.</p>
+</header>
+<form method="post" class="max-w-5xl">
+    {{ form.hidden_tag() }}
+    {% set pricing_groups = [
+      ('Moving', ['base_moving_fee', 'price_per_km', 'property_surcharge', 'floor_surcharge', 'access_difficulty_surcharge', 'outside_service_area_surcharge']),
+      ('Services', ['packing_partial', 'packing_full', 'cleaning_move_out', 'cleaning_move_in', 'cleaning_both', 'unpacking', 'service_assembly_yes', 'service_disassembly_yes', 'storage_week', 'special_handling']),
+      ('Crew & timing', ['base_mover_hourly_fee', 'additional_mover_fee', 'weekend_surcharge', 'holiday_surcharge']),
+      ('Quote rules', ['tax_rate', 'deposit_percentage', 'volume_safety_factor']),
+    ] %}
+    {% for group_title, keys in pricing_groups %}
+    <section class="mb-8">
+      <h2 class="border-b border-stone-300 pb-2 text-lg font-bold">{{ group_title }}</h2>
+      <div class="divide-y divide-stone-200">
+        {% for key in keys %}
+        {% set field = form[key] %}
+        <label class="grid items-center gap-2 py-3 sm:grid-cols-[minmax(0,1fr)_12rem_4rem]">
+          <span class="text-sm font-semibold text-stone-800">{{ field.label.text }}</span>
+          {{ field(class_='w-full border border-stone-300 bg-white px-3 py-2 text-right text-sm tabular-nums focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/20', min='1' if key == 'volume_safety_factor' else '0', max='2' if key == 'volume_safety_factor' else '100' if key in ['tax_rate', 'deposit_percentage'] else none, step='0.05' if key == 'volume_safety_factor' else '0.1' if key in ['tax_rate', 'deposit_percentage'] else '1', required=true) }}
+          <span class="text-xs text-stone-500">{% if key in ['tax_rate', 'deposit_percentage'] %}%{% elif key == 'volume_safety_factor' %}×{% else %}NGN{% endif %}</span>
+          {% if field.errors %}<span class="text-xs text-red-700 sm:col-start-2">{{ field.errors[0] }}</span>{% endif %}
+        </label>
+        {% endfor %}
+      </div>
+    </section>
+    {% endfor %}
+    <div class="sticky bottom-3 flex justify-end border border-stone-200 bg-white/95 p-3 shadow-lg backdrop-blur-sm">
+      {{ form.submit(class_='bg-emerald-700 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-800') }}
+    </div>
+</form>
+{% endblock %}

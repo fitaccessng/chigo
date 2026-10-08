@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+
+{% block title %}Moving FAQs | Chigo Relocations{% endblock %}
+
+{% block content %}
+<section class="bg-brand-bg py-14 sm:py-20">
+  <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+    <header>
+      <p class="badge-pill">A few useful details</p>
+      <h1 class="mt-5 text-4xl font-extrabold leading-tight text-slate-900 sm:text-5xl">Frequently asked questions</h1>
+      <p class="mt-5 text-base leading-7 text-slate-600">Answers about planning, estimates, and managing your move.</p>
+    </header>
+
+    <dl class="mt-10 divide-y divide-slate-200 border-y border-slate-200">
+      <div class="py-6">
+        <dt class="text-lg font-bold text-slate-900">How do I get an estimate?</dt>
+        <dd class="mt-2 leading-6 text-slate-600">Start a booking, enter your locations and move details, choose any extra services, and review the estimate before submitting your request.</dd>
+      </div>
+      <div class="py-6">
+        <dt class="text-lg font-bold text-slate-900">What affects the estimate?</dt>
+        <dd class="mt-2 leading-6 text-slate-600">The estimate uses the route distance, property size, floor access, and selected packing, cleaning, unpacking, storage, or special-handling services.</dd>
+      </div>
+      <div class="py-6">
+        <dt class="text-lg font-bold text-slate-900">Can I save a booking before I finish?</dt>
+        <dd class="mt-2 leading-6 text-slate-600">Booking details are saved as you move through the steps, so you can return to the information already entered in the same browser session.</dd>
+      </div>
+      <div class="py-6">
+        <dt class="text-lg font-bold text-slate-900">How do I follow my booking?</dt>
+        <dd class="mt-2 leading-6 text-slate-600">After submitting a booking, sign in to your customer dashboard to view its status, payment information, and move details.</dd>
+      </div>
+      <div class="py-6">
+        <dt class="text-lg font-bold text-slate-900">How can I contact Chigo?</dt>
+        <dd class="mt-2 leading-6 text-slate-600">Email <a class="font-semibold text-brand-700 underline" href="mailto:hello@chigo.com">hello@chigo.com</a> or visit our <a class="font-semibold text-brand-700 underline" href="{{ url_for('public.contact') }}">contact page</a>.</dd>
+      </div>
+    </dl>
+
+    <a href="{{ url_for('booking.start') }}" class="mt-8 inline-flex rounded-lg bg-brand-700 px-5 py-3 font-bold text-white transition hover:bg-brand-800">Start a booking</a>
+  </div>
+</section>
+{% endblock %}

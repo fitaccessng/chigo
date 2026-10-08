@@ -1,0 +1,124 @@
+{% from 'components/brand_logo.html' import brand_logo %}
+
+<header class="border-b border-stone-200 bg-white/95 backdrop-blur-sm sticky top-0 z-50">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex items-center justify-between h-20">
+      
+      <!-- Logo -->
+      <a href="{{ url_for('public.home') }}" aria-label="Chigo Relocations home" class="flex items-center shrink-0">
+        {{ brand_logo('h-[68px] w-[68px] sm:h-[72px] sm:w-[72px]') }}
+      </a>
+
+      <!-- Desktop Navigation -->
+      <nav class="hidden md:flex items-center gap-7 text-sm font-medium text-stone-700">
+        {% if current_user.is_authenticated and current_user.role in ['admin', 'super_admin'] %}
+          <a href="{{ url_for('admin.dashboard') }}" class="hover:text-brand-700 transition">Operations</a>
+        {% endif %}
+        <a href="{{ url_for('public.services') }}" class="hover:text-brand-700 transition">Services</a>
+        <a href="{{ url_for('public.how_it_works') }}" class="hover:text-brand-700 transition">How it works</a>
+        <a href="{{ url_for('public.about') }}" class="hover:text-brand-700 transition">About</a>
+        <a href="{{ url_for('public.contact') }}" class="hover:text-brand-700 transition">Contact</a>
+      </nav>
+
+      <!-- Right Action Items -->
+      <div class="flex items-center gap-3">
+        <!-- Quote CTA -->
+        <!-- <a href="{{ url_for('public.get_a_quote') }}" class="hidden lg:inline-flex items-center justify-center rounded-md bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-900 transition">
+          Get a quote
+        </a>
+        <a href="{{ url_for('booking.start') }}" class="hidden lg:inline-flex items-center justify-center rounded-md border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 shadow-sm hover:border-brand-700 hover:text-brand-700 transition">
+          Book a move
+        </a> -->
+
+        <!-- Desktop Auth Links -->
+        <div class="hidden sm:flex items-center gap-3">
+          {% if current_user.is_authenticated %}
+            <a href="{{ url_for('admin.dashboard' if current_user.role in ['admin', 'super_admin'] else 'customer.dashboard') }}" class="text-sm font-medium text-stone-700 hover:text-brand-700 transition">Dashboard</a>
+            <a href="{{ url_for('auth.logout') }}" class="text-sm font-medium text-stone-700 hover:text-brand-700 transition">Logout</a>
+          {% else %}
+            <a href="{{ url_for('auth.login') }}" class="text-sm font-medium text-stone-700 hover:text-brand-700 transition">Login</a>
+            <a href="{{ url_for('auth.register') }}" class="text-sm font-medium px-3 py-2 rounded-md border border-stone-300 hover:border-brand-700 transition">Register</a>
+          {% endif %}
+        </div>
+
+        <!-- Mobile Menu Toggle Button -->
+        <button 
+          id="mobile-menu-btn"
+          type="button" 
+          class="inline-flex md:hidden items-center justify-center p-2 rounded-md text-stone-600 hover:text-stone-900 hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-brand-700"
+          aria-expanded="false"
+          aria-controls="mobile-menu"
+        >
+          <span class="sr-only">Toggle navigation menu</span>
+          <!-- Hamburger Icon -->
+          <svg id="icon-open" class="w-6 h-6 block" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+          </svg>
+          <!-- Close (X) Icon -->
+          <svg id="icon-close" class="w-6 h-6 hidden" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Mobile Menu Dropdown -->
+  <div id="mobile-menu" class="hidden md:hidden border-t border-stone-200 bg-white">
+    <div class="px-4 pt-3 pb-6 space-y-3">
+      {% if current_user.is_authenticated and current_user.role in ['admin', 'super_admin'] %}
+        <a href="{{ url_for('admin.dashboard') }}" class="block px-3 py-2 rounded-md text-base font-medium text-stone-700 hover:bg-stone-50 hover:text-brand-700">Operations</a>
+      {% endif %}
+      <a href="{{ url_for('public.services') }}" class="block px-3 py-2 rounded-md text-base font-medium text-stone-700 hover:bg-stone-50 hover:text-brand-700">Services</a>
+      <a href="{{ url_for('public.how_it_works') }}" class="block px-3 py-2 rounded-md text-base font-medium text-stone-700 hover:bg-stone-50 hover:text-brand-700">How it works</a>
+      <a href="{{ url_for('public.about') }}" class="block px-3 py-2 rounded-md text-base font-medium text-stone-700 hover:bg-stone-50 hover:text-brand-700">About</a>
+      <a href="{{ url_for('public.contact') }}" class="block px-3 py-2 rounded-md text-base font-medium text-stone-700 hover:bg-stone-50 hover:text-brand-700">Contact</a>
+      
+      <div class="pt-4 border-t border-stone-200 space-y-2">
+        <!-- <a href="{{ url_for('public.get_a_quote') }}" class="block w-full text-center rounded-md bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-brand-900 transition">
+          Get a quote
+        </a>
+        <a href="{{ url_for('booking.start') }}" class="block w-full text-center rounded-md border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 hover:border-brand-700 hover:text-brand-700 transition">
+          Book a move
+        </a> -->
+        {% if current_user.is_authenticated %}
+          <a href="{{ url_for('admin.dashboard' if current_user.role in ['admin', 'super_admin'] else 'customer.dashboard') }}" class="block w-full text-center px-3 py-2 rounded-md text-base font-medium text-stone-700 hover:bg-stone-50">Dashboard</a>
+          <a href="{{ url_for('auth.logout') }}" class="block w-full text-center px-3 py-2 rounded-md text-base font-medium text-stone-700 hover:bg-stone-50">Logout</a>
+        {% else %}
+          <div class="grid grid-cols-2 gap-2 pt-2">
+            <a href="{{ url_for('auth.login') }}" class="text-center px-3 py-2 rounded-md text-sm font-medium text-stone-700 border border-stone-200 hover:bg-stone-50">Login</a>
+            <a href="{{ url_for('auth.register') }}" class="text-center px-3 py-2 rounded-md text-sm font-medium bg-stone-900 text-white hover:bg-stone-800">Register</a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</header>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const menuBtn = document.getElementById('mobile-menu-btn');
+    const mobileMenu = document.getElementById('mobile-menu');
+    const iconOpen = document.getElementById('icon-open');
+    const iconClose = document.getElementById('icon-close');
+
+    if (menuBtn && mobileMenu) {
+      menuBtn.addEventListener('click', () => {
+        const isOpen = !mobileMenu.classList.contains('hidden');
+        
+        // Toggle menu visibility
+        mobileMenu.classList.toggle('hidden');
+        
+        // Toggle icon states
+        iconOpen.classList.toggle('hidden', !isOpen);
+        iconOpen.classList.toggle('block', isOpen);
+        
+        iconClose.classList.toggle('hidden', isOpen);
+        iconClose.classList.toggle('block', !isOpen);
+
+        menuBtn.setAttribute('aria-expanded', !isOpen);
+      });
+    }
+  });
+</script>

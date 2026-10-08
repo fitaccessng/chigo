@@ -1,0 +1,202 @@
+{% extends 'dashboard_base.html' %}
+
+{% block title %}Customer Dashboard | Chigo Relocations{% endblock %}
+
+{% block dashboard_content %}
+<!-- Full-width breakout wrapper to eliminate parent box-shadow, max-width, and tight padding constraints -->
+<div class="w-screen relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] px-4 sm:px-8 lg:px-12 py-6 bg-brand-bg min-h-screen">
+  <div class="max-w-[1400px] mx-auto space-y-6 sm:space-y-8 pb-24 relative">
+
+    <!-- ================= HERO BANNER ================= -->
+    <div class="relative overflow-hidden rounded-3xl bg-slate-950 text-white">
+      <img 
+        src="https://images.unsplash.com/photo-1600585154526-990dced4db0d?auto=format&fit=crop&w=1600&q=80" 
+        alt="Relocation logistics background" 
+        class="absolute inset-0 w-full h-full object-cover opacity-20"
+      />
+      <div class="absolute inset-0 bg-gradient-to-tr from-slate-950 via-slate-900/90 to-slate-900/40"></div>
+
+      <div class="relative z-10 p-6 sm:p-10 lg:p-12 flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div class="space-y-3 max-w-xl">
+          <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-bold tracking-wide uppercase">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            Customer Portal
+          </div>
+          <h1 class="text-2xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight">
+            Welcome back, {{ current_user.first_name }}! 👋
+          </h1>
+          <p class="text-slate-300 text-xs sm:text-sm lg:text-base leading-relaxed font-medium">
+            Manage your upcoming relocations, track real-time inventories, and access quick services instantly.
+          </p>
+        </div>
+
+        <div class="shrink-0">
+          <a 
+            href="{{ url_for('booking.start') }}" 
+            class="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-2xl bg-brand-700 hover:bg-brand-800 text-white font-bold text-xs sm:text-sm transition-all duration-300"
+          >
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+            </svg>
+            <span>Book New Move</span>
+          </a>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ================= SERVICES QUICK BAR (Responsive Grid) ================= -->
+    <div class="space-y-3">
+      <div class="flex items-center justify-between px-1">
+        <h2 class="text-base sm:text-lg font-black text-stone-900 tracking-tight">Relocation Services</h2>
+        <span class="text-xs font-bold text-brand-700">Quick Select</span>
+      </div>
+
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        
+        <!-- Service 1: Residential -->
+        <a href="{{ url_for('booking.start') }}" class="group flex items-center gap-3 p-3.5 rounded-2xl bg-white border border-stone-200 hover:border-brand-700 transition-all">
+          <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+          </div>
+          <span class="text-xs font-bold text-stone-800 group-hover:text-brand-700 truncate">Residential</span>
+        </a>
+
+        <!-- Service 2: Commercial -->
+        <a href="{{ url_for('booking.start') }}" class="group flex items-center gap-3 p-3.5 rounded-2xl bg-white border border-stone-200 hover:border-brand-700 transition-all">
+          <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+          </div>
+          <span class="text-xs font-bold text-stone-800 group-hover:text-brand-700 truncate">Commercial</span>
+        </a>
+
+        <!-- Service 3: Packing -->
+        <a href="{{ url_for('booking.start') }}" class="group flex items-center gap-3 p-3.5 rounded-2xl bg-white border border-stone-200 hover:border-brand-700 transition-all">
+          <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+          </div>
+          <span class="text-xs font-bold text-stone-800 group-hover:text-brand-700 truncate">Packing</span>
+        </a>
+
+        <!-- Service 4: Storage -->
+        <a href="{{ url_for('booking.start') }}" class="group flex items-center gap-3 p-3.5 rounded-2xl bg-white border border-stone-200 hover:border-brand-700 transition-all">
+          <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+          </div>
+          <span class="text-xs font-bold text-stone-800 group-hover:text-brand-700 truncate">Storage</span>
+        </a>
+
+        <!-- Service 5: Logistics -->
+        <a href="{{ url_for('booking.start') }}" class="group flex items-center gap-3 p-3.5 rounded-2xl bg-white border border-stone-200 hover:border-brand-700 transition-all">
+          <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0"/></svg>
+          </div>
+          <span class="text-xs font-bold text-stone-800 group-hover:text-brand-700 truncate">Logistics</span>
+        </a>
+
+        <!-- Service 6: Support -->
+        <a href="{{ url_for('public.contact') if 'public.contact' in url_for.__globals__ else '#' }}" class="group flex items-center gap-3 p-3.5 rounded-2xl bg-white border border-stone-200 hover:border-emerald-600 transition-all">
+          <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+          </div>
+          <span class="text-xs font-bold text-stone-800 group-hover:text-emerald-700 truncate">24/7 Support</span>
+        </a>
+
+      </div>
+    </div>
+
+
+    <!-- ================= RECENT MOVES / BOOKINGS SECTION ================= -->
+    <div class="space-y-4 pt-2">
+      <div class="flex items-center justify-between px-1">
+        <div>
+          <h2 class="text-lg sm:text-xl font-black text-stone-900 tracking-tight">Recent Moves</h2>
+          <p class="text-xs text-stone-500 font-medium">Track and oversee all your scheduled relocations</p>
+        </div>
+       
+      </div>
+
+      {% if bookings %}
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+          {% for booking in bookings %}
+          <a href="{{ url_for('customer.booking_detail', booking_id=booking.id) }}" class="group relative rounded-2xl sm:rounded-3xl border border-stone-200 bg-white p-5 sm:p-6 hover:border-brand-700 transition-all duration-200 flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-4 gap-2">
+                <span class="font-black text-stone-900 text-base sm:text-lg group-hover:text-brand-700 transition-colors truncate">
+                  {{ booking.booking_number }}
+                </span>
+                <span class="shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest
+                  {% if (booking.status or 'Draft')|lower == 'completed' %}
+                    bg-emerald-100 text-emerald-800 border border-emerald-200
+                  {% elif (booking.status or 'Draft')|lower in ['in progress', 'active', 'confirmed'] %}
+                    bg-amber-100 text-amber-800 border border-amber-200
+                  {% else %}
+                    bg-stone-100 text-stone-700
+                  {% endif %}">
+                  {{ booking.status or 'Draft' }}
+                </span>
+              </div>
+
+              <div class="space-y-2 py-3 border-y border-stone-100">
+                <div class="text-xs text-stone-500 flex items-center justify-between font-medium">
+                  <span class="text-stone-400">Pickup:</span>
+                  <span class="text-stone-800 font-bold truncate max-w-[160px] sm:max-w-[180px]">{{ booking.pickup_city }}</span>
+                </div>
+                <div class="text-xs text-stone-500 flex items-center justify-between font-medium">
+                  <span class="text-stone-400">Destination:</span>
+                  <span class="text-stone-800 font-bold truncate max-w-[160px] sm:max-w-[180px]">{{ booking.destination_city }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-5 flex items-center justify-between pt-2">
+              <span class="text-xs font-bold text-stone-400">Total Bookings: <strong class="text-stone-800">{{ bookings|length }}</strong></span>
+              <span class="inline-flex items-center gap-1 text-xs font-extrabold text-brand-700">
+                View Details &rarr;
+              </span>
+            </div>
+          </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <!-- Empty State -->
+        <div class="text-center py-12 sm:py-16 px-4 rounded-2xl sm:rounded-3xl border border-dashed border-stone-300 bg-white">
+          <div class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-brand-50 text-brand-700 flex items-center justify-center mx-auto mb-4">
+            <svg class="w-7 h-7 sm:w-8 sm:h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/>
+            </svg>
+          </div>
+          <h3 class="text-sm sm:text-base font-black text-stone-900">No moves booked yet</h3>
+          <p class="text-xs text-stone-500 max-w-sm mx-auto mt-1 mb-6 font-medium">
+            Ready to relocate? Get an instant cost estimate and book your first move today.
+          </p>
+          <a href="{{ url_for('booking.start') }}" class="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-brand-700 text-white font-bold text-xs hover:bg-brand-800 transition">
+            Start Booking Now
+          </a>
+        </div>
+      {% endif %}
+    </div>
+
+
+    <!-- ================= FLOATING ACTION BUTTON (FAB) FOR CUSTOMER SERVICE ================= -->
+    <!-- <div class="fixed bottom-5 right-5 sm:bottom-6 sm:right-6 z-50">
+      <a 
+        href="{{ url_for('public.contact') if 'public.contact' in url_for.__globals__ else '#' }}" 
+        class="group relative flex items-center gap-2.5 bg-emerald-600 hover:bg-emerald-700 text-white p-3.5 sm:px-5 sm:py-3.5 rounded-full border border-emerald-500 transition-all duration-300 hover:scale-105 active:scale-95"
+        title="Customer Service"
+      >
+        <span class="absolute -top-1 -right-1 w-3 h-3 bg-amber-400 rounded-full border-2 border-white animate-ping"></span>
+        <span class="absolute -top-1 -right-1 w-3 h-3 bg-amber-400 rounded-full border-2 border-white"></span>
+        
+        <div class="w-5 h-5 flex items-center justify-center">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z"/>
+          </svg>
+        </div>
+        <span class="hidden sm:inline font-black text-xs uppercase tracking-wider">Support</span>
+      </a>
+    </div> -->
+
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}Payment history {{ booking.booking_number }} | Chigo Relocations{% endblock %}
+{% block content %}
+<main class="mx-auto max-w-3xl px-4 py-10">
+  <a class="text-sm font-semibold text-brand-700 underline" href="{{ url_for('customer.booking_detail', booking_id=booking.id) }}">Back to move details</a>
+  <h1 class="mt-4 text-2xl font-extrabold text-stone-900">Payment history</h1>
+  <p class="mt-2 text-sm text-stone-600">Booking {{ booking.booking_number }} · {{ booking.payment_status }}</p>
+  <dl class="mt-6 grid gap-3 border-y border-stone-200 py-5 text-sm sm:grid-cols-3">
+    <div><dt class="text-stone-500">Estimate</dt><dd class="font-semibold">NGN {{ '{:,.2f}'.format(booking.estimated_total or 0) }}</dd></div>
+    <div><dt class="text-stone-500">Deposit</dt><dd class="font-semibold">NGN {{ '{:,.2f}'.format(booking.deposit_amount or 0) }}</dd></div>
+    <div><dt class="text-stone-500">Balance</dt><dd class="font-semibold">NGN {{ '{:,.2f}'.format(booking.balance_amount or 0) }}</dd></div>
+  </dl>
+  <section class="mt-6">
+    <h2 class="font-bold text-stone-900">Transactions</h2>
+    {% for payment in booking.payments|sort(attribute='created_at', reverse=true) %}
+      <div class="flex flex-wrap justify-between gap-3 border-b border-stone-200 py-3 text-sm"><span>{{ payment.payment_reference or 'Provider reference unavailable' }}</span><span>{{ payment.status }} · NGN {{ '{:,.2f}'.format(payment.amount) }}</span></div>
+    {% else %}
+      <p class="py-3 text-sm text-stone-600">No transaction records are attached to this booking.</p>
+    {% endfor %}
+  </section>
+</main>
+{% endblock %}

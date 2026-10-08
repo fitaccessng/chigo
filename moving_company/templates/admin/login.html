@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% from 'components/brand_logo.html' import brand_logo %}
+
+{% block title %}Admin Sign In | Chigo Relocations{% endblock %}
+
+{% block content %}
+<main class="min-h-[calc(100vh-5rem)] bg-stone-100 px-4 py-12 sm:px-6 lg:px-8">
+  <div class="mx-auto grid min-h-[34rem] max-w-5xl overflow-hidden border border-stone-300 bg-white shadow-xl lg:grid-cols-[1fr_0.9fr]">
+    <section class="relative flex flex-col justify-between overflow-hidden bg-stone-950 p-8 text-white sm:p-12">
+      <div class="absolute inset-y-0 right-0 w-2 bg-emerald-500"></div>
+      <a href="{{ url_for('public.home') }}" aria-label="Chigo Relocations home" class="relative inline-flex items-center gap-3">
+        {{ brand_logo('h-20 w-20 rounded-md') }}
+        <span class="text-xs font-bold uppercase tracking-wider text-stone-300">Operations</span>
+      </a>
+      <div class="relative max-w-md py-12">
+        <p class="text-xs font-bold uppercase tracking-[0.2em] text-emerald-400">Team access</p>
+        <h1 class="mt-4 text-4xl font-black leading-tight">Operations, in good hands.</h1>
+        <p class="mt-4 max-w-sm text-sm leading-6 text-stone-300">Sign in with your authorized Chigo administrator account.</p>
+      </div>
+      <p class="relative border-t border-stone-800 pt-5 text-xs text-stone-500">Chigo Relocations · Abuja, Nigeria</p>
+    </section>
+
+    <section class="flex items-center px-6 py-10 sm:px-12">
+      <div class="mx-auto w-full max-w-sm">
+        <p class="text-xs font-bold uppercase tracking-[0.16em] text-stone-500">Administrator sign in</p>
+        <h2 class="mt-3 text-2xl font-black text-stone-950">Welcome back</h2>
+        <form method="post" class="mt-8 space-y-5">
+          {{ form.hidden_tag() }}
+          <label class="block text-sm font-semibold text-stone-800" for="{{ form.email.id }}">Email address
+            {{ form.email(class_='mt-2 block w-full border border-stone-300 px-3.5 py-3 text-sm font-normal focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/20', placeholder='name@chigo.com', autocomplete='username', autocapitalize='none', required=true) }}
+            {% if form.email.errors %}<span class="mt-1 block text-xs text-red-700">{{ form.email.errors[0] }}</span>{% endif %}
+          </label>
+          <label class="block text-sm font-semibold text-stone-800" for="{{ form.password.id }}">Password
+            {{ form.password(class_='mt-2 block w-full border border-stone-300 px-3.5 py-3 text-sm font-normal focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/20', placeholder='Your password', autocomplete='current-password', required=true) }}
+            {% if form.password.errors %}<span class="mt-1 block text-xs text-red-700">{{ form.password.errors[0] }}</span>{% endif %}
+          </label>
+          <button type="submit" class="flex w-full items-center justify-center gap-2 bg-emerald-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-800">Sign in <span aria-hidden="true">→</span></button>
+        </form>
+        <p class="mt-6 border-t border-stone-200 pt-5 text-sm text-stone-600">Customer account? <a class="font-semibold text-emerald-800 underline underline-offset-4" href="{{ url_for('auth.login') }}">Customer sign in</a></p>
+      </div>
+    </section>
+  </div>
+</main>
+{% endblock %}
