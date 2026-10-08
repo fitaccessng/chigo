@@ -26,6 +26,7 @@ class Config:
     SQLITE_DATABASE_URI = f'sqlite:///{BASE_DIR / "moving_company.db"}'
     POSTGIS_DATA_DIR = os.getenv('POSTGIS_DATA_DIR', str(BASE_DIR / 'data' / 'geodata'))
     DATABASE_URL = os.getenv('DATABASE_URL')
+    DATABASE_FALLBACK_TO_SQLITE = os.getenv('DATABASE_FALLBACK_TO_SQLITE', 'true').lower() == 'true'
     if DATABASE_URL:
         SQLALCHEMY_DATABASE_URI = normalize_database_url(DATABASE_URL)
     elif USE_POSTGIS:
@@ -33,6 +34,10 @@ class Config:
             f'postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
         )
     else:
+        if not DATABASE_FALLBACK_TO_SQLITE:
+            raise RuntimeError(
+                'DATABASE_URL is required when DATABASE_FALLBACK_TO_SQLITE is false.'
+            )
         SQLALCHEMY_DATABASE_URI = SQLITE_DATABASE_URI
     AUTO_CREATE_SCHEMA = os.getenv(
         'AUTO_CREATE_SCHEMA',
