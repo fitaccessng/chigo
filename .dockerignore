@@ -1,0 +1,9 @@
+.env
+.git
+.pytest_cache
+.venv
+__pycache__
+*.py[cod]
+moving_company.db
+uploads
+data/geodata/*.pbf

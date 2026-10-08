@@ -126,6 +126,16 @@ Stripe deposits use Checkout in NGN. Configure both Stripe values in `.env`, and
    PORT=5001 python run.py
    ```
 
+## Container deployment
+
+The included `Dockerfile` starts the Flask app with Gunicorn on port `8000`. If the hosting platform overrides the image command, set its start command to:
+
+```bash
+gunicorn --bind 0.0.0.0:8000 --workers 1 --threads 4 --timeout 120 'moving_company:create_app()'
+```
+
+Keep the app factory target quoted when entering a shell-based start command so the shell does not parse the parentheses. Configure production environment variables, including `DATABASE_URL` and `SECRET_KEY`, in the hosting platform.
+
 ## Initialize database
 
 The app creates the database automatically when it boots using SQLAlchemy.
