@@ -380,15 +380,16 @@
                   area_council: result.area_council, district: result.district,
                   neighborhood: result.neighborhood, location_type: result.location_type || result.type,
                   original_input: query,
-                  normalized_location: [resulprovider: result.provider, provider_raw_id: result.provider_raw_id
+                  normalized_location: result.normalized_location || result.formatted_address || result.name,
+                  latitude: result.latitude, longitude: result.longitude,
+                  place_id: result.place_id || (result.local_place_id ? `local-${result.local_place_id}` : result.id),
+                  provider: result.provider, provider_raw_id: result.provider_raw_id
                 })) {
                   const field = locationField(kind, suffix);
                   if (field) field.value = value ?? '';
                 }
                 const locationIdField = document.getElementById(kind === 'pickup' ? 'pickup_location_id' : 'dropoff_location_id');
-                if (locationIdField) locationIdField.value = result.local_place_id || result.id || ''; const field = locationField(kind, suffix);
-                  if (field) field.value = value ?? '';
-                }
+                if (locationIdField) locationIdField.value = result.local_place_id || result.id || '';
                 const selected = {name: result.name || result.formatted_address, latitude: Number(result.latitude), longitude: Number(result.longitude)};
                 locationSearchState[kind].selected = selected;
                 input.value = result.formatted_address || result.name;
