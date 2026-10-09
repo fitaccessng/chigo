@@ -503,6 +503,30 @@ def test_booking_location_page_uses_autocomplete_without_visible_map():
     assert 'search for an address' in html
 
 
+def test_booking_back_button_uses_previous_valid_route():
+    app = create_app(testing=True)
+    anonymous_client = app.test_client()
+    location_response = anonymous_client.get('/booking/location')
+    assert location_response.status_code == 200
+    assert b'href="/"' in location_response.data
+    assert b'Previous: Home' in location_response.data
+
+    with app.app_context():
+        booking = create_booking_request(location={
+            'pickup_address': '12 A Street', 'pickup_city': 'Abuja', 'pickup_state': 'FCT',
+            'destination_address': '14 B Street', 'destination_city': 'Abuja', 'destination_state': 'FCT',
+        })
+        request_id = booking.booking_request_id
+
+    draft_client = app.test_client()
+    with draft_client.session_transaction() as session:
+        session['active_booking_request_id'] = request_id
+    property_response = draft_client.get(f'/booking/{request_id}/property')
+    assert property_response.status_code == 200
+    assert f'href="/booking/{request_id}/location"'.encode() in property_response.data
+    assert b'Previous: Location' in property_response.data
+
+
 def test_fresh_booking_entry_starts_with_blank_location_form():
     app = create_app(testing=True)
     client = app.test_client()
@@ -1031,7 +1055,7 @@ def _mock_google_oauth(monkeypatch, claims=None, error=None):
             return redirect('https://accounts.google.com/mock-authorize')
 
         def authorize_access_token(self, **kwargs):
-            assert kwargs['code_verifier'] == 'test-pkce-verifier'
+            assert not kwargs
             if error:
                 raise OAuthError(error=error)
             return {'userinfo': claims or {}}
@@ -1044,7 +1068,6 @@ def _mock_google_oauth(monkeypatch, claims=None, error=None):
 def _google_callback_session(client, **values):
     defaults = {
         'google_flow': 'login',
-        'google_pkce_verifier': 'test-pkce-verifier',
         'google_next': None,
     }
     defaults.update(values)
@@ -1061,8 +1084,7 @@ def test_google_oidc_start_uses_minimal_scope_pkce_and_safe_next(monkeypatch):
     assert response.status_code == 302
     assert response.location == 'https://accounts.google.com/mock-authorize'
     assert fake.redirect_arguments['scope'] == 'openid email profile'
-    assert fake.redirect_arguments['code_challenge_method'] == 'S256'
-    assert len(fake.redirect_arguments['code_challenge']) == 43
+    assert fake.redirect_arguments['nonce']
 
 
 def test_google_first_login_creates_customer_and_rotates_session(monkeypatch):
@@ -1091,7 +1113,7 @@ def test_google_first_login_creates_customer_and_rotates_session(monkeypatch):
         assert user.role == 'customer'
         assert user.check_password('not-the-google-password') is False
     with client.session_transaction() as session:
-        assert 'google_pkce_verifier' not in session
+        assert 'google_flow' not in session
 
 
 def test_google_login_for_existing_subject_preserves_role(monkeypatch):

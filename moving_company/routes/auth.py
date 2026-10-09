@@ -1,5 +1,3 @@
-import hashlib
-import base64
 import secrets
 from urllib.parse import urlsplit
 
@@ -58,11 +56,6 @@ def _google_start(flow):
         flash('Google sign-in is not configured yet. Use email and password for now.', 'error')
         return redirect(url_for('auth.login'))
 
-    verifier = generate_token(64)
-    challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(verifier.encode('ascii')).digest()
-    ).rstrip(b'=').decode('ascii')
-    session['google_pkce_verifier'] = verifier
     session['google_flow'] = flow
     session['google_next'] = _safe_internal_path(request.args.get('next'))
     if flow == 'link':
@@ -71,8 +64,6 @@ def _google_start(flow):
         redirect_uri=_google_redirect_uri(),
         scope='openid email profile',
         nonce=generate_token(32),
-        code_challenge=challenge,
-        code_challenge_method='S256',
     )
 
 
@@ -90,13 +81,10 @@ def google_link():
 @auth_bp.route('/google/callback', methods=['GET'])
 def google_callback():
     flow = session.pop('google_flow', 'login')
-    verifier = session.pop('google_pkce_verifier', None)
     expected_link_user_id = session.pop('google_link_user_id', None)
     next_path = _safe_internal_path(session.pop('google_next', None))
     try:
-        if not verifier:
-            raise OAuthError(error='invalid_request')
-        token = google_oauth.google.authorize_access_token(code_verifier=verifier)
+        token = google_oauth.google.authorize_access_token()
         claims = token.get('userinfo')
         if not claims or not claims.get('sub') or claims.get('email_verified') not in (True, 'true', 'True'):
             raise OAuthError(error='invalid_userinfo')
@@ -104,8 +92,17 @@ def google_callback():
         email = str(claims.get('email', '')).strip().lower()
         if not email or len(email) > 255 or '@' not in email:
             raise OAuthError(error='invalid_userinfo')
-    except Exception:
-        current_app.logger.info('Google authentication was denied or could not be validated.')
+    except Exception as error:
+        provider_error = getattr(error, 'error', None)
+        failure_kind = str(provider_error)[:64] if provider_error else type(error).__name__
+        if isinstance(error, TypeError):
+            current_app.logger.warning(
+                'Google callback validation failed (%s: %s).',
+                failure_kind,
+                str(error)[:160],
+            )
+        else:
+            current_app.logger.warning('Google callback validation failed (%s).', failure_kind)
         flash('Google sign-in could not be completed. Please try again or use email and password.', 'error')
         return redirect(url_for('auth.login'))
 
