@@ -1,11 +1,9 @@
-import smtplib
-from email.message import EmailMessage
-
 from flask import current_app
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from ..extensions import db
 from ..models import User
+from .transactional_email_service import send_branded_email
 
 _TOKEN_SALT = 'chigo-password-reset-v1'
 
@@ -35,34 +33,17 @@ def verify_reset_token(token):
 
 
 def send_password_reset_email(user, reset_url):
-    mail_server = current_app.config.get('MAIL_SERVER')
-    if not mail_server:
-        if current_app.testing:
-            current_app.extensions.setdefault('outbox', []).append({'to': user.email, 'reset_url': reset_url})
-            return
-        raise RuntimeError('Password reset email is not configured. Set MAIL_SERVER and mail credentials.')
-
-    message = EmailMessage()
-    message['Subject'] = 'Reset your Chigo Relocations password'
-    message['From'] = current_app.config['MAIL_DEFAULT_SENDER']
-    message['To'] = user.email
-    message.set_content(
-        'We received a request to reset your Chigo Relocations password. '
-        f'Use this link within {current_app.config["PASSWORD_RESET_MAX_AGE"] // 60} minutes:\n\n'
-        f'{reset_url}\n\nIf you did not request this change, you can ignore this email.'
+    expires_in_minutes = current_app.config['PASSWORD_RESET_MAX_AGE'] // 60
+    send_branded_email(
+        recipient=user.email,
+        subject='Reset your Chigo Relocations password',
+        preheader='Use your secure link to choose a new password.',
+        heading='Reset your password',
+        paragraphs=[
+            f'We received a request to reset your Chigo Relocations password. This link expires in {expires_in_minutes} minutes.',
+            'If you did not request a password reset, you can ignore this email. Your password will not change.',
+        ],
+        action_label='Choose a new password',
+        action_url=reset_url,
+        metadata={'reset_url': reset_url},
     )
-
-    mail_port = current_app.config['MAIL_PORT']
-    mail_username = current_app.config.get('MAIL_USERNAME')
-    mail_password = current_app.config.get('MAIL_PASSWORD')
-    if current_app.config.get('MAIL_USE_TLS'):
-        with smtplib.SMTP(mail_server, mail_port, timeout=10) as smtp:
-            smtp.starttls()
-            if mail_username and mail_password:
-                smtp.login(mail_username, mail_password)
-            smtp.send_message(message)
-    else:
-        with smtplib.SMTP_SSL(mail_server, mail_port, timeout=10) as smtp:
-            if mail_username and mail_password:
-                smtp.login(mail_username, mail_password)
-            smtp.send_message(message)

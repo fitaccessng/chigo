@@ -72,11 +72,20 @@ class Config:
     GOOGLE_MAPS_SERVER_API_KEY = os.getenv('GOOGLE_MAPS_SERVER_API_KEY')
     GOOGLE_MAPS_MAP_ID = os.getenv('GOOGLE_MAPS_MAP_ID')
     GOOGLE_MAPS_API_KEY = GOOGLE_MAPS_SERVER_API_KEY
-    MAIL_SERVER = os.getenv('MAIL_SERVER')
-    MAIL_PORT = int(os.getenv('MAIL_PORT', '587'))
-    MAIL_USE_TLS = os.getenv('MAIL_USE_TLS', 'true').lower() == 'true'
-    MAIL_USERNAME = os.getenv('MAIL_USERNAME')
+    GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
+    GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
+    GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI')
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SECURE = os.getenv(
+        'SESSION_COOKIE_SECURE', 'true' if REQUIRE_POSTGRES_DATABASE_URL else 'false'
+    ).lower() == 'true'
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    MAIL_SERVER = os.getenv('MAIL_SERVER', 'chigomove.online')
+    MAIL_PORT = int(os.getenv('MAIL_PORT', '465'))
+    MAIL_USE_SSL = os.getenv('MAIL_USE_SSL', 'true').lower() == 'true'
+    MAIL_USE_TLS = os.getenv('MAIL_USE_TLS', 'false').lower() == 'true'
+    MAIL_USERNAME = os.getenv('MAIL_USERNAME', 'hello@chigomove.online')
     MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
-    MAIL_DEFAULT_SENDER = os.getenv('MAIL_DEFAULT_SENDER', 'hello@chigo.com')
+    MAIL_DEFAULT_SENDER = os.getenv('MAIL_DEFAULT_SENDER', 'hello@chigomove.online')
     STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY')
     STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')

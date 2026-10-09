@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% from 'components/brand_logo.html' import brand_logo %}
+{% from 'components/google_signin_button.html' import google_signin_button %}
 
 {% block title %}Log In - Chigo Relocations{% endblock %}
 
@@ -88,6 +89,9 @@
           <p class="text-sm text-stone-600 mt-1">Log in to manage your move.</p>
         </div>
 
+        {{ google_signin_button(google_next) }}
+        <div class="flex items-center gap-3 text-xs text-stone-400" aria-hidden="true"><span class="h-px flex-1 bg-stone-200"></span><span>OR USE EMAIL</span><span class="h-px flex-1 bg-stone-200"></span></div>
+
         <form method="post" class="space-y-4">
           {{ form.hidden_tag() }}
 
@@ -135,7 +139,7 @@
             </p>
           </div>
 
-          <p class="text-center text-xs text-stone-500">Team member? <a href="{{ url_for('admin.login') }}" class="font-semibold text-brand-700 underline underline-offset-2">Administrator sign in</a></p>
+          <!-- <p class="text-center text-xs text-stone-500">Team member? <a href="{{ url_for('admin.login') }}" class="font-semibold text-brand-700 underline underline-offset-2">Administrator sign in</a></p> -->
 
         </form>
 

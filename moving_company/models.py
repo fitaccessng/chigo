@@ -37,6 +37,24 @@ class User(UserMixin, db.Model):
         return f'{self.first_name} {self.last_name}'.strip()
 
 
+class OAuthIdentity(db.Model):
+    __tablename__ = 'oauth_identities'
+    __table_args__ = (
+        db.UniqueConstraint('provider', 'subject', name='uq_oauth_identity_provider_subject'),
+        db.UniqueConstraint('user_id', 'provider', name='uq_oauth_identity_user_provider'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    provider = db.Column(db.String(32), nullable=False)
+    subject = db.Column(db.String(255), nullable=False)
+    email = db.Column(db.String(255), nullable=False)
+    email_verified = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('oauth_identities', cascade='all, delete-orphan'))
+
+
 class SupportConversation(db.Model):
     __tablename__ = 'support_conversations'
 

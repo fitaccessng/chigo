@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% from 'components/brand_logo.html' import brand_logo %}
+{% from 'components/google_signin_button.html' import google_signin_button %}
 
 {% block title %}Create Account - Chigo Relocations{% endblock %}
 
@@ -87,6 +88,9 @@
           <h1 class="text-2xl sm:text-3xl font-black text-stone-900 tracking-tight">Create your account</h1>
           <p class="text-sm text-stone-600 mt-1">Fill in your details below to get started.</p>
         </div>
+
+        {{ google_signin_button(google_next) }}
+        <div class="flex items-center gap-3 text-xs text-stone-400" aria-hidden="true"><span class="h-px flex-1 bg-stone-200"></span><span>OR USE EMAIL</span><span class="h-px flex-1 bg-stone-200"></span></div>
 
         <form method="post" class="space-y-4">
           {{ form.hidden_tag() }}

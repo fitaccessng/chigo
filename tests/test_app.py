@@ -978,6 +978,12 @@ def test_registration_uses_full_name_without_optional_details():
         assert user.first_name == 'Avery'
         assert user.last_name == 'Johnson'
         assert user.phone == ''
+    welcome_email = app.extensions['outbox'][0]
+    assert welcome_email['to'] == 'avery@example.com'
+    assert welcome_email['subject'] == 'Welcome to Chigo Relocations'
+    assert 'Welcome, Avery.' in welcome_email['html']
+    assert 'Open your account' in welcome_email['html']
+    assert 'Open your account' in welcome_email['text']
     page = client.get('/auth/register')
     assert b'Add optional details' not in page.data
     assert b'name="full_name"' in page.data
@@ -1010,6 +1016,304 @@ def test_signup_and_login_complete_without_password_rule_surprises():
     })
     assert login_response.status_code == 302
     assert client.get('/customer/dashboard').status_code == 200
+
+
+def _mock_google_oauth(monkeypatch, claims=None, error=None):
+    from authlib.integrations.base_client.errors import OAuthError
+    from moving_company.routes import auth as auth_routes
+
+    class MockGoogle:
+        redirect_arguments = None
+
+        def authorize_redirect(self, **kwargs):
+            self.redirect_arguments = kwargs
+            from flask import redirect
+            return redirect('https://accounts.google.com/mock-authorize')
+
+        def authorize_access_token(self, **kwargs):
+            assert kwargs['code_verifier'] == 'test-pkce-verifier'
+            if error:
+                raise OAuthError(error=error)
+            return {'userinfo': claims or {}}
+
+    fake = MockGoogle()
+    monkeypatch.setattr(auth_routes.google_oauth, 'google', fake, raising=False)
+    return fake
+
+
+def _google_callback_session(client, **values):
+    defaults = {
+        'google_flow': 'login',
+        'google_pkce_verifier': 'test-pkce-verifier',
+        'google_next': None,
+    }
+    defaults.update(values)
+    with client.session_transaction() as session:
+        session.update(defaults)
+
+
+def test_google_oidc_start_uses_minimal_scope_pkce_and_safe_next(monkeypatch):
+    app = create_app(testing=True)
+    app.config.update(GOOGLE_CLIENT_ID='client-id', GOOGLE_CLIENT_SECRET='client-secret')
+    fake = _mock_google_oauth(monkeypatch)
+    response = app.test_client().get('/auth/google?next=https://attacker.example/')
+
+    assert response.status_code == 302
+    assert response.location == 'https://accounts.google.com/mock-authorize'
+    assert fake.redirect_arguments['scope'] == 'openid email profile'
+    assert fake.redirect_arguments['code_challenge_method'] == 'S256'
+    assert len(fake.redirect_arguments['code_challenge']) == 43
+
+
+def test_google_first_login_creates_customer_and_rotates_session(monkeypatch):
+    from moving_company.models import OAuthIdentity
+
+    claims = {
+        'sub': 'google-sub-100', 'email': 'new.google@example.com',
+        'email_verified': True, 'given_name': 'Taylor', 'family_name': 'Adebayo',
+    }
+    _mock_google_oauth(monkeypatch, claims)
+    app = create_app(testing=True)
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    _google_callback_session(client, google_next='/customer/bookings')
+    previous_cookie = client.get_cookie(app.config['SESSION_COOKIE_NAME']).value
+
+    response = client.get('/auth/google/callback?state=mock-state&code=mock-code')
+
+    assert response.status_code == 302
+    assert response.location == '/customer/bookings'
+    assert client.get_cookie(app.config['SESSION_COOKIE_NAME']).value != previous_cookie
+    with app.app_context():
+        user = User.query.filter_by(email='new.google@example.com').one()
+        identity = OAuthIdentity.query.filter_by(provider='google', subject='google-sub-100').one()
+        assert identity.user_id == user.id
+        assert user.role == 'customer'
+        assert user.check_password('not-the-google-password') is False
+    with client.session_transaction() as session:
+        assert 'google_pkce_verifier' not in session
+
+
+def test_google_login_for_existing_subject_preserves_role(monkeypatch):
+    from moving_company.models import OAuthIdentity
+
+    _mock_google_oauth(monkeypatch, {
+        'sub': 'google-staff-sub', 'email': 'dispatcher@example.com',
+        'email_verified': True,
+    })
+    app = create_app(testing=True)
+    with app.app_context():
+        user = User(first_name='Dispatch', last_name='User', email='dispatcher@example.com', phone='', role='dispatcher')
+        user.set_password('existing-password')
+        db.session.add(user)
+        db.session.flush()
+        db.session.add(OAuthIdentity(user_id=user.id, provider='google', subject='google-staff-sub', email=user.email, email_verified=True))
+        db.session.commit()
+        user_id = user.id
+
+    client = app.test_client()
+    _google_callback_session(client)
+    response = client.get('/auth/google/callback?state=mock-state&code=mock-code')
+
+    assert response.status_code == 302
+    assert response.location == '/admin/dashboard'
+    with app.app_context():
+        assert db.session.get(User, user_id).role == 'dispatcher'
+
+
+def test_google_identity_is_unique_and_logout_clears_google_session(monkeypatch):
+    from sqlalchemy.exc import IntegrityError
+    from moving_company.models import OAuthIdentity
+
+    _mock_google_oauth(monkeypatch, {
+        'sub': 'logout-google-sub', 'email': 'logout.google@example.com', 'email_verified': True,
+    })
+    app = create_app(testing=True)
+    client = app.test_client()
+    _google_callback_session(client)
+    assert client.get('/auth/google/callback?state=mock-state&code=mock-code').status_code == 302
+    assert client.get('/customer/dashboard').status_code == 200
+
+    with app.app_context():
+        user = User.query.filter_by(email='logout.google@example.com').one()
+        db.session.add(OAuthIdentity(
+            user_id=user.id, provider='google', subject='logout-google-sub',
+            email=user.email, email_verified=True,
+        ))
+        with pytest.raises(IntegrityError):
+            db.session.commit()
+        db.session.rollback()
+
+    assert client.get('/auth/logout').status_code == 302
+    assert client.get('/customer/dashboard').status_code == 302
+
+
+def test_google_email_collision_requires_existing_account_login(monkeypatch):
+    from moving_company.models import OAuthIdentity
+
+    _mock_google_oauth(monkeypatch, {
+        'sub': 'new-google-sub', 'email': 'password.user@example.com', 'email_verified': True,
+    })
+    app = create_app(testing=True)
+    with app.app_context():
+        user = User(first_name='Password', last_name='User', email='password.user@example.com', phone='', role='customer')
+        user.set_password('keep-this-password')
+        db.session.add(user)
+        db.session.commit()
+        user_id = user.id
+    client = app.test_client()
+    _google_callback_session(client)
+
+    response = client.get('/auth/google/callback?state=mock-state&code=mock-code')
+
+    assert response.status_code == 302
+    assert response.location == '/auth/login'
+    with app.app_context():
+        user = db.session.get(User, user_id)
+        assert user.check_password('keep-this-password')
+        assert OAuthIdentity.query.filter_by(user_id=user_id).count() == 0
+
+
+def test_authenticated_user_can_explicitly_link_google(monkeypatch):
+    from moving_company.models import OAuthIdentity
+
+    fake = _mock_google_oauth(monkeypatch, {
+        'sub': 'explicit-link-sub', 'email': 'linked@example.com', 'email_verified': True,
+    })
+    app = create_app(testing=True)
+    app.config.update(GOOGLE_CLIENT_ID='client-id', GOOGLE_CLIENT_SECRET='client-secret')
+    with app.app_context():
+        user = User(first_name='Linked', last_name='Customer', email='linked@example.com', phone='', role='customer')
+        user.set_password('password123')
+        db.session.add(user)
+        db.session.commit()
+        user_id = user.id
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session['_user_id'] = str(user_id)
+        session['_fresh'] = True
+
+    start = client.get('/auth/google/link')
+    assert start.status_code == 302
+    assert fake.redirect_arguments['scope'] == 'openid email profile'
+    _google_callback_session(client, google_flow='link', google_link_user_id=str(user_id))
+    callback = client.get('/auth/google/callback?state=mock-state&code=mock-code')
+
+    assert callback.status_code == 302
+    assert callback.location == '/customer/profile'
+    with app.app_context():
+        identity = OAuthIdentity.query.filter_by(provider='google', subject='explicit-link-sub').one()
+        assert identity.user_id == user_id
+
+
+@pytest.mark.parametrize('oauth_error', ['access_denied', 'invalid_grant', 'mismatching_state', 'invalid_nonce', 'invalid_signature', 'invalid_audience', 'invalid_issuer', 'expired_token'])
+def test_google_callback_handles_oauth_validation_errors(monkeypatch, oauth_error):
+    _mock_google_oauth(monkeypatch, error=oauth_error)
+    app = create_app(testing=True)
+    client = app.test_client()
+    _google_callback_session(client)
+
+    response = client.get('/auth/google/callback?state=invalid&code=mock-code')
+
+    assert response.status_code == 302
+    assert response.location == '/auth/login'
+
+
+def test_google_callback_rejects_unverified_email(monkeypatch):
+    _mock_google_oauth(monkeypatch, {
+        'sub': 'unverified-sub', 'email': 'unverified@example.com', 'email_verified': False,
+    })
+    app = create_app(testing=True)
+    client = app.test_client()
+    _google_callback_session(client)
+
+    response = client.get('/auth/google/callback?state=mock-state&code=mock-code')
+
+    assert response.location == '/auth/login'
+    with app.app_context():
+        assert User.query.filter_by(email='unverified@example.com').first() is None
+
+
+def test_google_login_preserves_booking_draft_and_rejects_open_redirect(monkeypatch):
+    claims = {
+        'sub': 'booking-google-sub', 'email': 'booking.google@example.com',
+        'email_verified': True, 'name': 'Booking Customer',
+    }
+    _mock_google_oauth(monkeypatch, claims)
+    app = create_app(testing=True)
+    with app.app_context():
+        booking = create_booking_request(location={
+            'pickup_address': '12 A Street', 'pickup_city': 'Abuja', 'pickup_state': 'FCT',
+            'destination_address': '14 B Street', 'destination_city': 'Abuja', 'destination_state': 'FCT',
+        })
+        booking.workflow_state = 'PROPERTY_COMPLETED'
+        db.session.commit()
+        request_id = booking.booking_request_id
+    client = app.test_client()
+    _google_callback_session(client, google_next='//evil.example/steal')
+    with client.session_transaction() as session:
+        session['active_booking_request_id'] = request_id
+
+    response = client.get('/auth/google/callback?state=mock-state&code=mock-code')
+
+    assert response.status_code == 302
+    assert f'/booking/{request_id}/inventory' in response.location
+    assert 'evil.example' not in response.location
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        assert booking.customer_id is not None
+        assert booking.pickup_address == '12 A Street'
+
+
+def test_branded_email_uses_implicit_ssl_transport(monkeypatch):
+    from moving_company.services import transactional_email_service
+
+    calls = {}
+
+    class SMTPConnection:
+        def __init__(self, server, port, **kwargs):
+            calls['connection'] = (server, port, kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def login(self, username, password):
+            calls['login'] = (username, password)
+
+        def send_message(self, message):
+            calls['message'] = message
+
+    monkeypatch.setattr(transactional_email_service.smtplib, 'SMTP_SSL', SMTPConnection)
+    app = create_app(testing=True)
+    app.testing = False
+    app.config.update(
+        MAIL_SERVER='chigomove.online',
+        MAIL_PORT=465,
+        MAIL_USE_SSL=True,
+        MAIL_USE_TLS=False,
+        MAIL_USERNAME='hello@chigomove.online',
+        MAIL_PASSWORD='test-password',
+    )
+
+    with app.app_context():
+        transactional_email_service.send_branded_email(
+            recipient='customer@example.com',
+            subject='Test message',
+            preheader='A preview',
+            heading='Hello',
+            paragraphs=['Your account is ready.'],
+            action_label='Open account',
+            action_url='https://www.chigomove.online/customer/dashboard',
+        )
+
+    assert calls['connection'][0:2] == ('chigomove.online', 465)
+    assert 'context' in calls['connection'][2]
+    assert calls['login'] == ('hello@chigomove.online', 'test-password')
+    assert calls['message'].get_content_subtype() == 'alternative'
+    assert calls['message'].get_body(preferencelist=('html',)) is not None
 
 
 def test_customer_dashboard_shows_booking_details_and_unique_numbers():
@@ -1139,6 +1443,11 @@ def test_password_reset_request_and_token_flow():
     response = client.post('/auth/forgot-password', data={'email': 'reset@example.com'})
     assert response.status_code == 302
     reset_url = app.extensions['outbox'][0]['reset_url']
+    reset_email = app.extensions['outbox'][0]
+    assert reset_email['subject'] == 'Reset your Chigo Relocations password'
+    assert 'Reset your password' in reset_email['html']
+    assert reset_url in reset_email['html']
+    assert reset_url in reset_email['text']
     reset_path = urlsplit(reset_url).path
     assert client.get(reset_path).status_code == 200
     response = client.post(reset_path, data={

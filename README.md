@@ -95,10 +95,27 @@ Optional:
 - `OSM_TILE_URL`
 - `OSM_USER_AGENT`
 - `FLASK_ENV`
-- `MAIL_SERVER`, `MAIL_PORT`, `MAIL_USE_TLS`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_DEFAULT_SENDER` for password reset email delivery
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` for Google OpenID Connect sign-in
+- `SESSION_COOKIE_SECURE` (set to `true` for HTTPS production)
+- `MAIL_SERVER`, `MAIL_PORT`, `MAIL_USE_SSL`, `MAIL_USE_TLS`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_DEFAULT_SENDER` for welcome and password reset email delivery
 - `PASSWORD_RESET_MAX_AGE` in seconds (defaults to 3600)
 
-Password reset emails require SMTP settings. Copy `.env.example` to `.env` and configure the mail server credentials for your provider. Reset links expire after the configured lifetime and become invalid after the password is changed.
+Account welcome and password reset emails use the configured SMTP account. The Chigo mailbox defaults are `MAIL_SERVER=chigomove.online`, `MAIL_PORT=465`, `MAIL_USE_SSL=true`, `MAIL_USE_TLS=false`, and `MAIL_USERNAME=hello@chigomove.online`; set `MAIL_PASSWORD` as a secret in the hosting platform. Rotate the mailbox password if it has been shared outside the password manager. Reset links expire after the configured lifetime and become invalid after the password is changed. Mail delivery failures do not undo account creation, and reset requests keep the same non-enumerating response.
+
+### Google sign-in
+
+Google sign-in uses OpenID Connect with only `openid email profile`. Google identity is keyed by its stable `sub` claim. A verified Google email that already belongs to a password account is never linked automatically; sign into that Chigo account and use **Link Google account** in account settings. New Google accounts receive the customer role only.
+
+Configure Google Cloud Console:
+
+1. Create or select a Google Cloud project and configure its OAuth consent screen. Add `chigomove.online` as an authorized domain for production. Add test users while the consent screen is in testing, or publish it when ready.
+2. Create an OAuth client ID with application type **Web application**.
+3. Add the deployed origin (for example `https://www.chigomove.online`) to Authorized JavaScript origins if required by the console. The client secret is server-side only and is never placed in browser code.
+4. Add the exact production redirect URI `https://www.chigomove.online/auth/google/callback`. Add a separate exact local redirect URI such as `http://localhost:5000/auth/google/callback` for development.
+5. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` as encrypted hosting environment variables. `GOOGLE_REDIRECT_URI` must exactly match the URI registered in Google Cloud. Set `SESSION_COOKIE_SECURE=true` on HTTPS production deployments.
+6. Apply the additive migration with `flask --app run.py db upgrade`. It creates only the OAuth identity table and preserves existing user and booking data.
+
+The OAuth callback validates state, uses S256 PKCE, and relies on Authlib OIDC validation for the Google ID-token signature, issuer, audience, expiry, and nonce. The active booking request is retained through the login session refresh.
 
 Stripe deposits use Checkout in NGN. Configure both Stripe values in `.env`, and register `POST /booking/payment/webhook` as a Stripe webhook endpoint for `checkout.session.completed` and `checkout.session.async_payment_succeeded`. For local webhook testing, forward Stripe CLI events to `http://localhost:5000/booking/payment/webhook` and use the CLI-provided signing secret as `STRIPE_WEBHOOK_SECRET`.
 

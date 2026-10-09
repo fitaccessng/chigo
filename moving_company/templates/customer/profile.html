@@ -37,6 +37,19 @@
     </a>
   </div>
 
+  <section class="rounded-2xl border border-slate-200/80 bg-white p-5 sm:p-6 shadow-xs" aria-labelledby="google-account-heading">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h2 id="google-account-heading" class="text-sm font-bold text-slate-900">Google sign-in</h2>
+        <p class="mt-1 text-xs text-slate-500">{% if google_linked %}A Google account is linked to your Chigo account.{% else %}Link Google after signing in to your existing Chigo account.{% endif %}</p>
+      </div>
+      {% if not google_linked %}
+        {% from 'components/google_signin_button.html' import google_signin_button %}
+        <div class="w-full sm:w-64">{{ google_signin_button(label='Link Google account', link_mode=true) }}</div>
+      {% endif %}
+    </div>
+  </section>
+
   <!-- SETTINGS MENU LIST (Matching Reference Layout) -->
   <div class="rounded-3xl border border-slate-200/80 bg-white shadow-xs divide-y divide-slate-100 overflow-hidden">
     

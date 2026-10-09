@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "dockhive": {
+      "type": "stdio",
+      "command": "/Users/macbookpro/.hivepods/bin/hivepod",
+      "args": ["mcp"]
+    }
+  }
+}

@@ -161,4 +161,6 @@ def report_incident(booking_id):
 @customer_bp.route('/profile')
 @login_required
 def profile():
-    return render_template('customer/profile.html', user=current_user)
+    from ..models import OAuthIdentity
+    google_linked = OAuthIdentity.query.filter_by(user_id=current_user.id, provider='google').first() is not None
+    return render_template('customer/profile.html', user=current_user, google_linked=google_linked)

@@ -18,6 +18,7 @@ from .routes.locations import locations_bp
 from .routes.public import public_bp
 from .routes.support_admin import support_admin_bp
 from .routes.support_chat import support_bp
+from .services.google_oauth_service import configure_google_oauth
 
 
 login_manager.login_view = 'auth.login'
@@ -55,6 +56,7 @@ def create_app(testing=False):
         app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
         app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_pre_ping': True}
         app.config['AUTO_CREATE_SCHEMA'] = True
+    configure_google_oauth(app)
     db.init_app(app)
     migrate.init_app(app, db)
     bcrypt.init_app(app)
