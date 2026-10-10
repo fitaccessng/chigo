@@ -249,12 +249,14 @@ def _location_payload(form):
 
 @booking_bp.route('/start')
 @booking_bp.route('/start/<service_type>')
+@login_required
 def start(service_type='residential'):
     session.pop('active_booking_request_id', None)
     return redirect(url_for('booking.location', service_type=service_type))
 
 
 @booking_bp.route('/')
+@login_required
 def index():
     request_id = session.get('active_booking_request_id')
     booking = Booking.query.filter_by(booking_request_id=request_id).first() if request_id else None
@@ -265,6 +267,7 @@ def index():
 
 @booking_bp.route('/location', methods=['GET', 'POST'])
 @booking_bp.route('/location/<service_type>', methods=['GET', 'POST'])
+@login_required
 def location(service_type='residential'):
     form = BookingLocationForm()
     workflow = get_service_workflow({'primary_service': service_type})
@@ -290,6 +293,7 @@ def location(service_type='residential'):
 
 
 @booking_bp.route('/<request_id>/location', methods=['GET', 'POST'])
+@login_required
 def edit_location(request_id):
     booking = _get_request(request_id)
     had_calculation = bool(booking.calculation_data)
@@ -333,6 +337,7 @@ def resume(request_id):
 
 
 @booking_bp.route('/<request_id>/<stage>', methods=['GET', 'POST'])
+@login_required
 def workflow(request_id, stage):
     if stage not in STAGES[1:]:
         abort(404)
@@ -764,6 +769,7 @@ def workflow(request_id, stage):
 
 
 @booking_bp.route('/<request_id>/inventory/photos/<path:filename>')
+@login_required
 def inventory_photo(request_id, filename):
     booking = _get_request(request_id)
     if not any(photo.file_name == filename for photo in booking.photos):
@@ -824,6 +830,7 @@ def booking_payment(booking_id):
 
 
 @booking_api_bp.route('/api/bookings/<request_id>')
+@login_required
 def get_booking_request(request_id):
     booking = _get_request(request_id)
     return jsonify({
@@ -837,6 +844,7 @@ def get_booking_request(request_id):
 
 
 @booking_api_bp.route('/api/bookings/<request_id>/property', methods=['PUT'])
+@login_required
 def api_update_property(request_id):
     booking = _get_request(request_id)
     if booking.workflow_state not in {'LOCATION_COMPLETED', 'PROPERTY_COMPLETED'}:
@@ -864,6 +872,7 @@ def api_update_property(request_id):
 
 
 @booking_api_bp.route('/api/bookings/<request_id>/inventory', methods=['POST', 'PUT'])
+@login_required
 def api_update_inventory(request_id):
     booking = _get_request(request_id)
     if booking.workflow_state not in {'PROPERTY_COMPLETED', 'INVENTORY_COMPLETED'}:
@@ -882,6 +891,7 @@ def api_update_inventory(request_id):
 
 
 @booking_api_bp.route('/api/bookings/<request_id>/services', methods=['PUT'])
+@login_required
 def api_update_services(request_id):
     booking = _get_request(request_id)
     if booking.workflow_state not in {'INVENTORY_COMPLETED', 'SERVICES_COMPLETED'}:
@@ -900,6 +910,7 @@ def api_update_services(request_id):
 
 
 @booking_api_bp.route('/api/bookings/<request_id>/schedule', methods=['PUT'])
+@login_required
 def api_update_schedule(request_id):
     booking = _get_request(request_id)
     if booking.workflow_state not in {'SERVICES_COMPLETED', 'SCHEDULE_COMPLETED'}:
@@ -927,6 +938,7 @@ def api_update_schedule(request_id):
 
 
 @booking_api_bp.route('/api/bookings/<request_id>/calculate', methods=['POST'])
+@login_required
 def api_calculate_quote(request_id):
     booking = _get_request(request_id)
     try:
@@ -940,6 +952,7 @@ def api_calculate_quote(request_id):
 
 
 @booking_api_bp.route('/api/bookings/<request_id>/quote/accept', methods=['POST'])
+@login_required
 def api_accept_quote(request_id):
     booking = _get_request(request_id)
     try:

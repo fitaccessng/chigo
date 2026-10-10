@@ -4,7 +4,7 @@ import pytest
 
 from moving_company import create_app
 from moving_company.extensions import db
-from moving_company.models import Booking
+from moving_company.models import Booking, User
 from moving_company.services.booking_engine_service import (
     create_booking_request,
     get_service_workflow,
@@ -43,6 +43,18 @@ def make_booking(app, service_type='residential'):
         return booking.booking_request_id
 
 
+def login_customer(app, client):
+    with app.app_context():
+        customer = User(first_name='Service', last_name='Customer', email='service-test@example.com', phone='')
+        customer.set_password('password123')
+        db.session.add(customer)
+        db.session.commit()
+        customer_id = customer.id
+    with client.session_transaction() as session:
+        session['_user_id'] = str(customer_id)
+        session['_fresh'] = True
+
+
 def test_service_intent_is_persisted_and_validated(app):
     with app.app_context():
         booking = create_booking_request(
@@ -71,6 +83,7 @@ def test_service_intent_is_persisted_and_validated(app):
 def test_each_service_type_enters_unified_booking_engine_with_service_context(app, service_type):
     app.config['WTF_CSRF_ENABLED'] = False
     client = app.test_client()
+    login_customer(app, client)
 
     start = client.get(f'/booking/start/{service_type}')
     assert start.status_code == 302

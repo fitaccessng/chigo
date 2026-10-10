@@ -36,6 +36,18 @@ def create_request():
     })
 
 
+def login_customer(app, client):
+    with app.app_context():
+        customer = User(first_name='Booking', last_name='Customer', email='booking-engine-test@example.com', phone='')
+        customer.set_password('password123')
+        db.session.add(customer)
+        db.session.commit()
+        customer_id = customer.id
+    with client.session_transaction() as session:
+        session['_user_id'] = str(customer_id)
+        session['_fresh'] = True
+
+
 def csrf_token(response):
     match = re.search(r'name="csrf_token"[^>]*value="([^"]+)"', response.get_data(as_text=True))
     assert match
@@ -189,6 +201,7 @@ def test_vehicle_options_recover_empty_active_catalogue_and_allow_multiple_units
 def test_inventory_and_service_pages_have_previous_and_no_manual_service_hours(app):
     app.config['WTF_CSRF_ENABLED'] = False
     client = app.test_client()
+    login_customer(app, client)
     with app.app_context():
         booking = create_request()
         save_workflow_section(booking, 'property', {'property_type': 'Apartment', 'bedrooms': 1, 'bathrooms': 1, 'floors': 1})
@@ -213,6 +226,7 @@ def test_inventory_and_service_pages_have_previous_and_no_manual_service_hours(a
 def test_customer_can_add_catalogue_items_with_quantity_only(app):
     app.config['WTF_CSRF_ENABLED'] = False
     client = app.test_client()
+    login_customer(app, client)
     with app.app_context():
         booking = create_request()
         save_workflow_section(booking, 'property', {'property_type': 'Apartment', 'bedrooms': 1, 'bathrooms': 1, 'floors': 1})
@@ -297,6 +311,7 @@ def test_catalogue_is_scoped_to_selected_property_and_packing_scope(app):
 def test_bulk_material_submission_saves_unit_estimates_and_flags(app):
     app.config['WTF_CSRF_ENABLED'] = False
     client = app.test_client()
+    login_customer(app, client)
     with app.app_context():
         booking = create_request()
         booking.primary_service = 'commercial'
@@ -341,6 +356,7 @@ def test_inventory_photo_upload_is_saved_with_booking_and_owner_checked(app, tmp
     app.config['WTF_CSRF_ENABLED'] = False
     app.config['UPLOAD_FOLDER'] = tmp_path
     client = app.test_client()
+    login_customer(app, client)
     with app.app_context():
         booking = create_request()
         booking.workflow_state = 'PROPERTY_COMPLETED'
@@ -368,7 +384,7 @@ def test_inventory_photo_upload_is_saved_with_booking_and_owner_checked(app, tmp
     assert photo.data == png_payload
 
     other_client = app.test_client()
-    assert other_client.get(f'/booking/{request_id}/inventory/photos/{photo_path}').status_code == 404
+    assert other_client.get(f'/booking/{request_id}/inventory/photos/{photo_path}').status_code == 302
 
 
 def test_invalid_stage_transition_does_not_skip_required_information(app):
@@ -554,6 +570,7 @@ def test_quote_retries_pending_road_route_and_uses_server_distance(app, monkeypa
 def test_customer_routes_complete_one_request_through_quote_acceptance(app):
     app.config['WTF_CSRF_ENABLED'] = True
     client = app.test_client()
+    login_customer(app, client)
     with app.app_context():
         booking = create_request()
         request_id = booking.booking_request_id
@@ -639,6 +656,7 @@ def test_customer_routes_complete_one_request_through_quote_acceptance(app):
 def test_property_csrf_retry_preserves_booking_and_advances_from_database(app):
     app.config['WTF_CSRF_ENABLED'] = True
     client = app.test_client()
+    login_customer(app, client)
     with app.app_context():
         booking = create_request()
         request_id = booking.booking_request_id
@@ -704,7 +722,7 @@ def test_booking_reference_survives_relogin_and_is_scoped_to_database_owner(app)
     assert login.status_code == 302
     assert client.get(f'/booking/{request_id}/property').status_code == 200
     assert client.get('/auth/logout').status_code == 302
-    assert client.get(f'/booking/{request_id}/property').status_code == 404
+    assert client.get(f'/booking/{request_id}/property').status_code == 302
     relogin = client.post('/auth/login', data={'email': 'owner@example.com', 'password': 'password123'})
     assert relogin.status_code == 302
     assert client.get(f'/booking/{request_id}/property').status_code == 200
@@ -719,6 +737,7 @@ def test_booking_reference_survives_relogin_and_is_scoped_to_database_owner(app)
 def test_json_api_updates_same_request_and_rejects_stage_skips(app):
     app.config['WTF_CSRF_ENABLED'] = False
     client = app.test_client()
+    login_customer(app, client)
     with app.app_context():
         booking = create_request()
         request_id = booking.booking_request_id

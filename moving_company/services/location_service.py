@@ -72,7 +72,7 @@ def _nominatim_request(path, params=None, timeout=3.5):
 
 
 def _photon_request(path, params=None, timeout=3.5):
-    base_url = _get_config_value('PHOTON_BASE_URL') or 'https://photon.kom'
+    base_url = _get_config_value('PHOTON_BASE_URL') or 'https://photon.komoot.io'
     request_path = f"{base_url.rstrip('/')}{path}"
     request_params = {'lang': 'en'}
     if params:
@@ -280,24 +280,37 @@ def _normalise_result(raw_result):
 
 
 def _photon_to_location(item):
-    display_name = item.get('display_name') or item.get('name') or 'Location'
-    latitude = float(item.get('lat') or 0)
-    longitude = float(item.get('lon') or 0)
-    osm_type = str(item.get('osm_type') or '').casefold()
+    properties = item.get('properties') or item
+    coordinates = (item.get('geometry') or {}).get('coordinates') or []
+    latitude = float(properties.get('lat') or (coordinates[1] if len(coordinates) > 1 else 0))
+    longitude = float(properties.get('lon') or (coordinates[0] if coordinates else 0))
+    osm_type = str(properties.get('osm_type') or '').casefold()
     precision = 'street' if osm_type in {'way', 'node'} else 'area'
+    name = properties.get('name') or properties.get('street') or item.get('display_name') or properties.get('city') or 'Location'
+    address_parts = (
+        ' '.join(part for part in (properties.get('housenumber'), properties.get('street')) if part),
+        properties.get('name') if properties.get('name') != name else None,
+        properties.get('district') or properties.get('suburb'),
+        properties.get('city') or properties.get('town') or properties.get('village'),
+        properties.get('state'),
+        properties.get('country'),
+    )
+    display_name = item.get('display_name') or ', '.join(dict.fromkeys(part for part in address_parts if part)) or name
     location = {
-        'name': display_name,
+        'name': name,
         'formatted_address': display_name,
-        'area': item.get('city') or item.get('town') or 'Abuja',
+        'area': properties.get('district') or properties.get('suburb') or properties.get('city') or properties.get('town') or 'Abuja',
         'area_council': area_council_for_point(latitude, longitude),
-        'district': '', 'neighborhood': '', 'location_type': item.get('osm_type') or 'address',
-        'city': item.get('city') or 'Abuja', 'state': 'Federal Capital Territory',
-        'country': 'Nigeria', 'latitude': latitude, 'longitude': longitude,
-        'place_id': f"photon-{item.get('osm_id') or latitude}:{longitude}",
-        'provider_place_id': f"photon-{item.get('osm_id') or latitude}:{longitude}",
-        'provider': 'photon', 'provider_raw_id': item.get('osm_id') or '',
+        'district': properties.get('district') or '', 'neighborhood': properties.get('suburb') or '',
+        'location_type': properties.get('type') or osm_type or 'address',
+        'city': properties.get('city') or properties.get('town') or properties.get('village') or 'Abuja',
+        'state': properties.get('state') or 'Federal Capital Territory',
+        'country': properties.get('country') or 'Nigeria', 'latitude': latitude, 'longitude': longitude,
+        'place_id': f"photon-{properties.get('osm_id') or latitude}:{longitude}",
+        'provider_place_id': f"photon-{properties.get('osm_id') or latitude}:{longitude}",
+        'provider': 'photon', 'provider_raw_id': properties.get('osm_id') or '',
         'coordinate_precision': precision, 'source': 'photon',
-        'address_components': item,
+        'address_components': properties,
     }
     return location
 
@@ -1003,7 +1016,7 @@ def search_places(query, session_token=None, latitude=None, longitude=None, limi
         }, timeout=2.5)
         results = []
         if isinstance(payload, dict):
-            hits = payload.get('hits') or []
+            hits = payload.get('features') or payload.get('hits') or []
             for item in hits:
                 result = _photon_to_location(item)
                 result['original_query'] = raw_query

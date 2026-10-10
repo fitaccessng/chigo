@@ -64,7 +64,7 @@ class Config:
     MAX_VEHICLE_IMAGES = 12
     PASSWORD_RESET_MAX_AGE = int(os.getenv('PASSWORD_RESET_MAX_AGE', '3600'))
     NOMINATIM_BASE_URL = os.getenv('NOMINATIM_BASE_URL', 'https://nominatim.openstreetmap.org')
-    PHOTON_BASE_URL = os.getenv('PHOTON_BASE_URL', 'https://photon.kom')
+    PHOTON_BASE_URL = os.getenv('PHOTON_BASE_URL', 'https://photon.komoot.io')
     OSRM_BASE_URL = os.getenv('OSRM_BASE_URL', 'https://router.project-osrm.org')
     OSM_TILE_URL = os.getenv('OSM_TILE_URL', 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png')
     OSM_USER_AGENT = os.getenv('OSM_USER_AGENT', 'ChigoRelocations/1.0')

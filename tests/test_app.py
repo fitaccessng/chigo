@@ -1,7 +1,7 @@
 from moving_company import create_app
 from moving_company.extensions import db
 from datetime import date, datetime, timedelta
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from sqlalchemy import func
 import pytest
 
@@ -11,6 +11,20 @@ from moving_company.services.booking_engine_service import create_booking_reques
 from moving_company.services.fct_location_data import FCT_AREA_COUNCILS
 from moving_company.services import location_service
 from moving_company.services.location_service import normalize_query, search_places
+
+
+def _login_test_customer(app, client):
+    with app.app_context():
+        customer = User.query.filter_by(email='booking-test@example.com').first()
+        if customer is None:
+            customer = User(first_name='Booking', last_name='Customer', email='booking-test@example.com', phone='')
+            customer.set_password('password123')
+            db.session.add(customer)
+            db.session.commit()
+        customer_id = customer.id
+    with client.session_transaction() as session:
+        session['_user_id'] = str(customer_id)
+        session['_fresh'] = True
 
 
 def test_postgres_database_url_uses_installed_psycopg2_driver():
@@ -313,6 +327,50 @@ def test_autocomplete_endpoint_returns_search_results_without_crashing():
     assert isinstance(payload['results'], list)
 
 
+def test_autocomplete_falls_back_to_photon_for_unseeded_abuja_streets(monkeypatch):
+    app = create_app(testing=True)
+    location_service.clear_location_search_cache()
+    calls = []
+
+    monkeypatch.setattr(location_service, '_search_postgis_locations', lambda *args, **kwargs: [])
+    monkeypatch.setattr(location_service, '_search_local_abuja_places', lambda *args, **kwargs: [])
+
+    def photon_request(path, params=None, timeout=3.5):
+        calls.append((path, params, timeout))
+        return {'features': [{
+            'type': 'Feature',
+            'geometry': {'type': 'Point', 'coordinates': [7.49, 9.07]},
+            'properties': {
+                'name': 'Example Street', 'street': 'Example Street', 'city': 'Abuja',
+                'state': 'Federal Capital Territory', 'country': 'Nigeria',
+                'osm_type': 'W', 'osm_id': 123,
+            },
+        }]}
+
+    monkeypatch.setattr(location_service, '_photon_request', photon_request)
+    response = app.test_client().get('/api/locations/autocomplete?q=Example%20Street')
+
+    assert response.status_code == 200
+    result = response.get_json()['results'][0]
+    assert result['name'] == 'Example Street'
+    assert result['provider'] == 'photon'
+    assert result['formatted_address'] == 'Example Street, Abuja, Federal Capital Territory, Nigeria'
+    assert result['latitude'] == 9.07
+    assert result['longitude'] == 7.49
+    assert calls[0][0] == '/api/?q=Example%20Street%2C%20Abuja%2C%20FCT%2C%20Nigeria'
+
+
+def test_photon_request_uses_public_service_host_by_default(monkeypatch):
+    calls = []
+    monkeypatch.setattr(location_service, '_get_config_value', lambda name: None)
+    monkeypatch.setattr(location_service, '_request_json', lambda url, headers=None, timeout=12: calls.append((url, headers, timeout)))
+
+    location_service._photon_request('/api/', {'q': 'Gwarinpa Abuja'}, timeout=2.5)
+
+    assert calls[0][0].startswith('https://photon.komoot.io/api/?')
+    assert 'q=Gwarinpa+Abuja' in calls[0][0]
+
+
 def test_local_fct_autocomplete_is_ranked_without_calling_nominatim(monkeypatch):
     app = create_app(testing=True)
     location_service.clear_location_search_cache()
@@ -363,6 +421,7 @@ def test_location_save_resolves_local_references_and_allows_pending_route(monkey
         expected_destination = (destination.latitude, destination.longitude)
 
     client = app.test_client()
+    _login_test_customer(app, client)
     response = client.post('/booking/location', data={
         'pickup_address': 'Gwarinpa', 'pickup_city': 'Abuja', 'pickup_state': 'Federal Capital Territory',
         'pickup_formatted_address': 'Gwarinpa, Abuja, FCT', 'pickup_latitude': '9.7', 'pickup_longitude': '7.7',
@@ -399,7 +458,9 @@ def test_unresolved_fct_address_is_saved_and_does_not_block_booking(monkeypatch)
     monkeypatch.setattr(booking_routes, 'geocode_address', lambda _address: None)
     monkeypatch.setattr(booking_routes, 'route_distance', lambda *args: None)
 
-    response = app.test_client().post('/booking/location', data={
+    client = app.test_client()
+    _login_test_customer(app, client)
+    response = client.post('/booking/location', data={
         'pickup_address': 'No. 14 Example Street, New Estate, Abuja',
         'destination_address': 'House 2, Sample Close, Gwagwalada',
         'submit': 'Continue',
@@ -494,6 +555,7 @@ def test_admin_location_observation_actions_are_protected_and_dispatch(monkeypat
 def test_booking_location_page_uses_autocomplete_without_visible_map():
     app = create_app(testing=True)
     client = app.test_client()
+    _login_test_customer(app, client)
     response = client.get('/booking/location')
     assert response.status_code == 200
     html = response.get_data(as_text=True).lower()
@@ -505,11 +567,12 @@ def test_booking_location_page_uses_autocomplete_without_visible_map():
 
 def test_booking_back_button_uses_previous_valid_route():
     app = create_app(testing=True)
-    anonymous_client = app.test_client()
-    location_response = anonymous_client.get('/booking/location')
+    client = app.test_client()
+    _login_test_customer(app, client)
+    location_response = client.get('/booking/location')
     assert location_response.status_code == 200
-    assert b'href="/"' in location_response.data
-    assert b'Previous: Home' in location_response.data
+    assert b'href="/customer/dashboard"' in location_response.data
+    assert b'Previous: Dashboard' in location_response.data
 
     with app.app_context():
         booking = create_booking_request(location={
@@ -518,10 +581,9 @@ def test_booking_back_button_uses_previous_valid_route():
         })
         request_id = booking.booking_request_id
 
-    draft_client = app.test_client()
-    with draft_client.session_transaction() as session:
+    with client.session_transaction() as session:
         session['active_booking_request_id'] = request_id
-    property_response = draft_client.get(f'/booking/{request_id}/property')
+    property_response = client.get(f'/booking/{request_id}/property')
     assert property_response.status_code == 200
     assert f'href="/booking/{request_id}/location"'.encode() in property_response.data
     assert b'Previous: Location' in property_response.data
@@ -530,6 +592,7 @@ def test_booking_back_button_uses_previous_valid_route():
 def test_fresh_booking_entry_starts_with_blank_location_form():
     app = create_app(testing=True)
     client = app.test_client()
+    _login_test_customer(app, client)
     response = client.get('/booking/location')
     assert response.status_code == 200
     html = response.get_data(as_text=True)
@@ -541,6 +604,7 @@ def test_csrf_errors_redirect_with_flash_instead_of_bad_request_page():
     app = create_app(testing=True)
     app.config['WTF_CSRF_ENABLED'] = True
     client = app.test_client()
+    _login_test_customer(app, client)
 
     response = client.post(
         '/auth/login',
@@ -562,6 +626,7 @@ def test_stale_booking_session_redirects_to_fresh_residential_booking_start_afte
     app = create_app(testing=True)
     app.config['WTF_CSRF_ENABLED'] = True
     client = app.test_client()
+    _login_test_customer(app, client)
 
     with client.session_transaction() as session:
         session['active_booking_request_id'] = 'BR-FAKE-REQUEST'
@@ -579,6 +644,42 @@ def test_stale_booking_session_redirects_to_fresh_residential_booking_start_afte
     followup = client.get('/booking/start/residential', follow_redirects=False)
     assert followup.status_code == 302
     assert followup.headers['Location'].endswith('/booking/location/residential')
+
+
+@pytest.mark.parametrize('path', [
+    '/booking/start/commercial',
+    '/booking/location',
+    '/booking/BR-TEST-REQUEST/property',
+    '/api/bookings/BR-TEST-REQUEST',
+])
+def test_anonymous_booking_entry_redirects_to_login_with_safe_next(path):
+    app = create_app(testing=True)
+    client = app.test_client()
+
+    response = client.get(path)
+
+    assert response.status_code == 302
+    assert urlsplit(response.location).path == '/auth/login'
+    next_path = parse_qs(urlsplit(response.location).query)['next'][0]
+    assert next_path == path
+
+
+def test_login_returns_customer_to_requested_booking_page():
+    app = create_app(testing=True)
+    app.config['WTF_CSRF_ENABLED'] = False
+    with app.app_context():
+        customer = User(first_name='Booking', last_name='Customer', email='booking-return@example.com', phone='')
+        customer.set_password('password123')
+        db.session.add(customer)
+        db.session.commit()
+
+    response = app.test_client().post(
+        '/auth/login?next=%2Fbooking%2Fstart%2Fcommercial',
+        data={'email': 'booking-return@example.com', 'password': 'password123'},
+    )
+
+    assert response.status_code == 302
+    assert response.location.endswith('/booking/start/commercial')
 
 
 def test_login_page_renders_login_fields():
@@ -725,6 +826,7 @@ def test_inventory_page_has_searchable_categories_and_selection_summary():
         request_id = booking.booking_request_id
 
     client = app.test_client()
+    _login_test_customer(app, client)
     with client.session_transaction() as session:
         session['active_booking_request_id'] = request_id
     response = client.get(f'/booking/{request_id}/inventory')
@@ -1590,6 +1692,7 @@ def test_location_search_and_coordinate_persistence_workflow(monkeypatch):
     app = create_app(testing=True)
     app.config['WTF_CSRF_ENABLED'] = False
     client = app.test_client()
+    _login_test_customer(app, client)
 
     search_response = client.get('/api/locations/autocomplete?q=Maitama%20Abuja')
     assert search_response.status_code == 200
