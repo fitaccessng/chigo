@@ -96,6 +96,10 @@ Optional:
 - `OSM_USER_AGENT`
 - `FLASK_ENV`
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` for Google OpenID Connect sign-in
+- `APP_ENV` (`development`, `staging`, or `production`)
+- `CANONICAL_ORIGIN` (the HTTPS production origin, e.g. `https://www.chigomove.online`)
+- `GA4_MEASUREMENT_ID` (production GA4 web-stream ID; leave empty outside production)
+- `GTM_CONTAINER_ID` (optional production GTM container ID; leave empty unless using GTM)
 - `SESSION_COOKIE_SECURE` (set to `true` for HTTPS production)
 - `MAIL_SERVER`, `MAIL_PORT`, `MAIL_USE_SSL`, `MAIL_USE_TLS`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_DEFAULT_SENDER` for welcome and password reset email delivery
 - `PASSWORD_RESET_MAX_AGE` in seconds (defaults to 3600)
@@ -116,6 +120,44 @@ Configure Google Cloud Console:
 6. Apply the additive migration with `flask --app run.py db upgrade`. It creates only the OAuth identity table and preserves existing user and booking data.
 
 The OAuth callback validates state, uses S256 PKCE, and relies on Authlib OIDC validation for the Google ID-token signature, issuer, audience, expiry, and nonce. The active booking request is retained through the login session refresh.
+
+## Analytics, Search Console, SEO, and performance
+
+### Environment separation
+
+Set these values independently for each environment in its hosting or local environment configuration. Do not commit actual tracking IDs or verification tokens:
+
+- Local development: `APP_ENV=development`, empty `CANONICAL_ORIGIN`, `GA4_MEASUREMENT_ID`, and `GTM_CONTAINER_ID`.
+- Staging: use `APP_ENV=staging`, a staging canonical origin only if staging is intentionally crawlable, and leave analytics IDs empty unless staging has a separate property/container.
+- Production: use `APP_ENV=production`, `CANONICAL_ORIGIN=https://www.chigomove.online` (replace with the selected canonical host), and the real Google IDs supplied by the relevant Google account.
+
+Tracking is disabled unless the environment is production, the canonical origin is a valid HTTPS origin, and the configured ID has the expected Google format. A production public page shows an opt-in consent prompt. Google tags do not load on login, account, booking, checkout, payment callback, API, or admin pages. Events created during a private workflow are retained in the signed application session and delivered on a later eligible public page visit, only after consent. Delivery uses an event ID and browser-side acknowledgement to prevent repeated callbacks or refreshes from resending conversions. Conversion parameters are limited to event IDs and, where relevant, the validated service category; no customer, address, booking-reference, payment, or private-URL fields are sent.
+
+Events implemented: `booking_started`, `location_completed`, `inventory_completed`, `services_selected`, `schedule_completed`, `quote_generated`, `checkout_started`, `booking_completed`, and `payment_success`. `payment_success` and `booking_completed` are queued only after Stripe confirms the expected paid Checkout session. They are not inferred from a return-page visit. If GTM is configured, the direct GA4 tag is suppressed; configure one GA4 Google tag in GTM and use the documented `dataLayer` event names, avoiding a second page-view trigger.
+
+### Create and configure GA4
+
+1. In Google Analytics, create or select the production property and create a Web data stream for the canonical HTTPS origin.
+2. Copy the Measurement ID shown for that stream (format `G-XXXXXXXXXX`). Do not use a Measurement Protocol API secret as the Measurement ID.
+3. In the production hosting environment, set `APP_ENV=production`, `CANONICAL_ORIGIN`, and `GA4_MEASUREMENT_ID` as environment variables. Leave GA4 IDs unset in local and staging environments unless using separate properties.
+4. For GTM instead, create a web container, configure `GTM_CONTAINER_ID` with the real container ID, and configure a single GA4 tag in that container. Do not configure duplicate page-view triggers or another copy of the same tag. When a GTM ID is present, the application does not directly initialize `GA4_MEASUREMENT_ID`.
+5. Accept analytics on a production public page and confirm the `page_view` plus the approved event names in GA4 DebugView/Realtime and the browser Network panel. Rejecting optional analytics must prevent Google tag requests. Booking conversion events are queued while private pages are open and flush only on a later consented public page.
+
+### Verify and submit in Search Console
+
+1. Add a **Domain** property for the real domain in Google Search Console.
+2. Copy the DNS TXT verification record supplied by Google into the domain DNS provider exactly as shown. Do not paste the verification value into application code or commit it.
+3. Wait for DNS propagation and use Search Console's Verify action. Verification is not performed by the application.
+4. Set `CANONICAL_ORIGIN` to the chosen HTTPS host. `/robots.txt` references `/sitemap.xml` when the canonical origin is configured. The sitemap contains only the allowlisted public pages; customer, booking, checkout, API, and admin URLs are excluded.
+5. In Search Console, submit `https://<canonical-host>/sitemap.xml`, inspect public URLs with URL Inspection, and request indexing where appropriate. Search Console processing and indexing are external Google operations and are not guaranteed by deployment.
+
+The app emits page-specific titles and descriptions, canonical URLs without query strings, Open Graph metadata, `Organization` data using the published Abuja service area and existing public contact information, `Service` data on service pages, and breadcrumbs where applicable. It intentionally does not emit a street-address `LocalBusiness` listing: the repository has no verified public street address. Confirm any future business-profile address and eligibility before adding one. Login, account, booking, checkout, API, and admin views are marked `noindex, nofollow`.
+
+### Performance checks
+
+The home/about public imagery uses explicit intrinsic dimensions, asynchronous decoding, smaller quality/width variants, and lazy loading below the hero. The primary hero image is prioritized; other images defer loading. To test a deployed URL, open [Google PageSpeed Insights](https://pagespeed.web.dev/), enter the canonical homepage and key public service URLs, and review mobile and desktop Core Web Vitals. Re-test after production asset or template changes; the current Tailwind CDN remains a third-party render-time dependency and is a known optimization opportunity.
+
+Google tag delivery, consent, domain verification, sitemap ingestion, and indexing require manual configuration and verification in the corresponding Google properties. The code and tests only confirm application-side behavior.
 
 Stripe deposits use Checkout in NGN. Configure both Stripe values in `.env`, and register `POST /booking/payment/webhook` as a Stripe webhook endpoint for `checkout.session.completed` and `checkout.session.async_payment_succeeded`. For local webhook testing, forward Stripe CLI events to `http://localhost:5000/booking/payment/webhook` and use the CLI-provided signing secret as `STRIPE_WEBHOOK_SECRET`.
 

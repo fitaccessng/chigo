@@ -25,6 +25,7 @@
         <li>+234 8036135712</li>
         <li><a href="{{ url_for('public.terms') }}" class="hover:text-white underline underline-offset-4">Terms of Service</a></li>
         <li><a href="{{ url_for('public.privacy') }}" class="hover:text-white underline underline-offset-4">Privacy Policy</a></li>
+        {% if seo_public_page and analytics_enabled %}<li><button type="button" data-analytics-preferences class="hover:text-white underline underline-offset-4">Analytics preferences</button></li>{% endif %}
       </ul>
     </div>
   </div>

@@ -3,12 +3,167 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
-    <meta name="description" content="Professional moving, packing, and relocation services across Abuja and Nigeria.">
+    <meta name="description" content="{{ seo_description or 'Professional moving, packing, and relocation services across Abuja and Nigeria.' }}">
+    {% if seo_canonical_url %}<link rel="canonical" href="{{ seo_canonical_url }}">{% endif %}
+    {% if not seo_public_page %}<meta name="robots" content="noindex, nofollow">{% endif %}
+    {% if seo_public_page %}
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Chigo Relocations">
+    <meta property="og:title" content="{{ seo_title }}">
+    <meta property="og:description" content="{{ seo_description }}">
+    {% if seo_canonical_url %}<meta property="og:url" content="{{ seo_canonical_url }}">{% endif %}
+    {% if seo_origin %}<meta property="og:image" content="{{ seo_origin }}{{ url_for('static', filename='images/chigo-logo.svg') }}"><meta property="og:image:alt" content="Chigo Relocations">{% endif %}
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="{{ seo_title }}">
+    <meta name="twitter:description" content="{{ seo_description }}">
+    {% endif %}
     <meta name="theme-color" content="#15803d">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-    <title>{% block title %}Chigo Relocations | Moving & Packing Services Abuja{% endblock %}</title>
+    <title>{{ seo_title }}</title>
+
+    {% if seo_public_page and seo_origin %}
+    <script type="application/ld+json">
+      {{ {
+        '@context': 'https://schema.org',
+        '@type': 'Organization',
+        'name': 'Chigo Relocations',
+        'url': seo_origin,
+        'email': 'hello@chigo.com',
+        'telephone': '+2348036135712',
+        'areaServed': [{'@type': 'City', 'name': 'Abuja'}, {'@type': 'Country', 'name': 'Nigeria'}],
+      }|tojson }}
+    </script>
+    {% if request.endpoint and request.endpoint.endswith('_service') %}
+    <script type="application/ld+json">
+      {{ {
+        '@context': 'https://schema.org',
+        '@type': 'Service',
+        'name': seo_title,
+        'description': seo_description,
+        'provider': {'@type': 'Organization', 'name': 'Chigo Relocations', 'url': seo_origin},
+        'areaServed': {'@type': 'City', 'name': 'Abuja'}
+      }|tojson }}
+    </script>
+    {% endif %}
+    {% if seo_origin and request.endpoint not in ['public.home', 'public.terms', 'public.privacy'] %}
+    <script type="application/ld+json">
+      {{ {
+        '@context': 'https://schema.org',
+        '@type': 'BreadcrumbList',
+        'itemListElement': [
+          {'@type': 'ListItem', 'position': 1, 'name': 'Home', 'item': seo_origin + '/'},
+          {'@type': 'ListItem', 'position': 2, 'name': seo_title, 'item': seo_canonical_url}
+        ]
+      }|tojson }}
+    </script>
+    {% endif %}
+    {% endif %}
+
+    {% if analytics_enabled %}
+    <script id="chigo-analytics-bootstrap">
+      (() => {
+        const consentKey = 'chigo_analytics_consent';
+        const granted = localStorage.getItem(consentKey) === 'granted';
+        document.addEventListener('DOMContentLoaded', () => {
+          document.querySelectorAll('[data-analytics-preferences]').forEach((button) => {
+            button.addEventListener('click', () => {
+              localStorage.removeItem(consentKey);
+              window.location.reload();
+            });
+          });
+        });
+        window.chigoAnalytics = window.chigoAnalytics || {};
+        window.chigoAnalytics.grantConsent = () => {
+          localStorage.setItem(consentKey, 'granted');
+          window.location.reload();
+        };
+        window.chigoAnalytics.revokeConsent = () => {
+          localStorage.removeItem(consentKey);
+          window.location.reload();
+        };
+        if (!granted) {
+          document.addEventListener('DOMContentLoaded', () => {
+            const banner = document.getElementById('analytics-consent');
+            if (localStorage.getItem(consentKey) === 'denied' || !banner) return;
+            banner.hidden = false;
+            banner.querySelector('[data-analytics-accept]')?.addEventListener('click', window.chigoAnalytics.grantConsent);
+            banner.querySelector('[data-analytics-reject]')?.addEventListener('click', () => {
+              localStorage.setItem(consentKey, 'denied');
+              banner.remove();
+            });
+          });
+          return;
+        }
+        window.dataLayer = window.dataLayer || [];
+        window.gtag = window.gtag || function () { window.dataLayer.push(arguments); };
+        window.gtag('consent', 'default', {analytics_storage: 'granted'});
+        window.gtag('js', new Date());
+        const sentEvents = new Set(JSON.parse(localStorage.getItem('chigo_analytics_events') || '[]'));
+        const dispatchedKeys = [];
+        const rememberEvent = (key) => {
+          sentEvents.add(key);
+          localStorage.setItem('chigo_analytics_events', JSON.stringify([...sentEvents].slice(-100)));
+          dispatchedKeys.push(key);
+        };
+        {% if analytics_gtm_id %}
+        window.dataLayer.push({event: 'gtm.js', 'gtm.start': Date.now()});
+        {% if analytics_public_pageview %}
+        window.dataLayer.push({event: 'page_view', page_location: '{{ seo_canonical_url }}', page_path: '{{ seo_page_path }}', page_title: '{{ seo_title|replace("'", "") }}'});
+        {% endif %}
+        const gtm = document.createElement('script');
+        gtm.async = true;
+        gtm.src = 'https://www.googletagmanager.com/gtm.js?id={{ analytics_gtm_id }}';
+        document.head.appendChild(gtm);
+        {% for event in analytics_pending_events %}
+        if (!sentEvents.has({{ event.key|tojson }})) {
+          window.dataLayer.push({event: {{ event.name|tojson }}, event_id: {{ event.key|tojson }}, ...{{ event.params|tojson }}});
+          rememberEvent({{ event.key|tojson }});
+        } else { dispatchedKeys.push({{ event.key|tojson }}); }
+        {% endfor %}
+        {% endif %}
+        {% if analytics_ga4_id %}
+        const ga = document.createElement('script');
+        ga.async = true;
+        ga.src = 'https://www.googletagmanager.com/gtag/js?id={{ analytics_ga4_id }}';
+        document.head.appendChild(ga);
+        window.gtag('config', '{{ analytics_ga4_id }}', {
+          send_page_view: false,
+          allow_google_signals: false,
+          allow_ad_personalization_signals: false,
+          page_location: '{{ seo_canonical_url if analytics_public_pageview else seo_origin ~ "/analytics-event" }}',
+          page_referrer: '{{ seo_origin }}/'
+        });
+        {% if analytics_public_pageview %}
+        window.gtag('event', 'page_view', {page_location: '{{ seo_canonical_url }}', page_title: '{{ seo_title|replace("'", "") }}', page_path: '{{ seo_page_path }}'});
+        {% endif %}
+        {% for event in analytics_pending_events %}
+        if (!sentEvents.has({{ event.key|tojson }})) {
+          window.gtag('event', {{ event.name|tojson }}, {...{{ event.params|tojson }}, event_id: {{ event.key|tojson }}, page_location: '{{ seo_canonical_url if analytics_public_pageview else seo_origin ~ "/analytics-event" }}', page_referrer: '{{ seo_origin }}/'});
+          rememberEvent({{ event.key|tojson }});
+        } else { dispatchedKeys.push({{ event.key|tojson }}); }
+        {% endfor %}
+        {% endif %}
+        if (dispatchedKeys.length) {
+          fetch('/analytics/ack', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({keys: [...new Set(dispatchedKeys)]}), keepalive: true,
+            credentials: 'same-origin'
+          }).catch(() => {});
+        }
+      })();
+    </script>
+    <aside id="analytics-consent" hidden role="dialog" aria-label="Analytics preferences" class="fixed inset-x-4 bottom-4 z-[70] mx-auto max-w-xl rounded-lg border border-stone-300 bg-white p-4 shadow-xl">
+      <p class="text-sm font-semibold text-stone-900">Help us improve Chigo</p>
+      <p class="mt-1 text-xs leading-5 text-stone-600">Allow optional analytics to measure public-page visits and anonymous service events. Booking details, addresses, contact information and payment data are not sent.</p>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button type="button" data-analytics-accept class="rounded-md bg-brand-700 px-3 py-2 text-xs font-bold text-white">Allow analytics</button>
+        <button type="button" data-analytics-reject class="rounded-md border border-stone-300 px-3 py-2 text-xs font-semibold text-stone-700">Reject optional analytics</button>
+        <a href="{{ url_for('public.privacy') }}" class="px-2 py-2 text-xs font-semibold text-brand-700 underline">Privacy</a>
+      </div>
+    </aside>
+    {% endif %}
 
     <!-- Google Fonts: Plus Jakarta Sans -->
     <link rel="preconnect" href="https://fonts.googleapis.com">

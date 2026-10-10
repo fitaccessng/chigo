@@ -28,7 +28,10 @@ def bookings():
 @login_required
 def booking_detail(booking_id):
     booking = Booking.query.filter_by(id=booking_id, customer_id=current_user.id).first_or_404()
-    timeline_events = sorted(booking.events, key=lambda event: event.created_at)
+    timeline_events = sorted(
+        (event for event in booking.events if not event.action.startswith('analytics.')),
+        key=lambda event: event.created_at,
+    )
     return render_template(
         'customer/booking_detail.html', booking=booking,
         review=Review.query.filter_by(booking_id=booking.id, user_id=current_user.id).first(),

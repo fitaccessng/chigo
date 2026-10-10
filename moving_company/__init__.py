@@ -19,6 +19,7 @@ from .routes.public import public_bp
 from .routes.support_admin import support_admin_bp
 from .routes.support_chat import support_bp
 from .services.google_oauth_service import configure_google_oauth
+from .services.seo_analytics import inject_seo_analytics_context
 
 
 login_manager.login_view = 'auth.login'
@@ -62,6 +63,7 @@ def create_app(testing=False):
     bcrypt.init_app(app)
     csrf.init_app(app)
     login_manager.init_app(app)
+    app.context_processor(inject_seo_analytics_context)
 
     if not testing and not os.getenv('FLASK_SKIP_DB_PREFLIGHT'):
         validate_database_connection(app)

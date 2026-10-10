@@ -1,8 +1,53 @@
-from flask import Blueprint, render_template
+from flask import Blueprint, Response, abort, jsonify, render_template, request, url_for
+
+from ..extensions import csrf
+from ..services.seo_analytics import (
+    CANONICAL_PATHS, PUBLIC_PAGES, acknowledge_analytics_events, canonical_origin,
+)
 
 from ..services.pricing_catalog_service import get_pricing_map
 
 public_bp = Blueprint('public', __name__)
+
+
+@public_bp.route('/robots.txt')
+def robots():
+    origin = canonical_origin()
+    lines = [
+        'User-agent: *',
+        'Allow: /',
+        'Disallow: /auth/',
+        'Disallow: /booking',
+        'Disallow: /customer/',
+        'Disallow: /admin/',
+        'Disallow: /api/',
+        'Disallow: /support/',
+    ]
+    if origin:
+        lines.append(f'Sitemap: {origin}/sitemap.xml')
+    return Response('\n'.join(lines) + '\n', mimetype='text/plain')
+
+
+@public_bp.route('/sitemap.xml')
+def sitemap():
+    origin = canonical_origin()
+    if not origin:
+        abort(503, description='Configure CANONICAL_ORIGIN to publish the sitemap.')
+    urls = []
+    for endpoint in PUBLIC_PAGES:
+        path = CANONICAL_PATHS.get(endpoint) or url_for(endpoint)
+        urls.append(f'<url><loc>{origin}{path}</loc></url>')
+    body = '<?xml version="1.0" encoding="UTF-8"?>' \
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + ''.join(urls) + '</urlset>'
+    return Response(body, mimetype='application/xml')
+
+
+@csrf.exempt
+@public_bp.route('/analytics/ack', methods=['POST'])
+def analytics_ack():
+    payload = request.get_json(silent=True) or {}
+    acknowledge_analytics_events(payload.get('keys'))
+    return jsonify({'success': True})
 
 
 @public_bp.route('/')

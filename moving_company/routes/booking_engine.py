@@ -1,4 +1,5 @@
 from datetime import date, datetime
+import secrets
 
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from flask_login import current_user, login_required
@@ -20,6 +21,7 @@ from ..services.location_service import (
     validate_service_area,
 )
 from ..services.payment_provider_service import initialize_payment, process_stripe_webhook, verify_payment
+from ..services.seo_analytics import queue_analytics_event, queue_booking_conversion
 
 
 booking_bp = Blueprint('booking', __name__)
@@ -251,6 +253,8 @@ def _location_payload(form):
 @booking_bp.route('/start/<service_type>')
 @login_required
 def start(service_type='residential'):
+    booking_session_key = session.setdefault('_analytics_booking_session', secrets.token_urlsafe(12))
+    queue_analytics_event('booking_started', dedupe_key=f'booking_started:{booking_session_key}', service_type=service_type)
     session.pop('active_booking_request_id', None)
     return redirect(url_for('booking.location', service_type=service_type))
 
@@ -283,6 +287,7 @@ def location(service_type='residential'):
                     service_type=service_type,
                 )
                 session['active_booking_request_id'] = booking.booking_request_id
+                queue_booking_conversion(booking, 'location_completed')
                 return redirect(url_for('booking.workflow', request_id=booking.booking_request_id, stage='property'))
             except ValueError as error:
                 flash(str(error), 'error')
@@ -627,6 +632,7 @@ def workflow(request_id, stage):
                     selected_vehicle = request.form.get('vehicle_type_id')
                     if selected_vehicle:
                         save_vehicle_selection(booking, selected_vehicle, current_user.id if current_user.is_authenticated else None)
+                    queue_booking_conversion(booking, 'inventory_completed')
                     return redirect(url_for('booking.workflow', request_id=request_id, stage='services'))
 
                 catalogue_ids = request.form.getlist('inventory_item_id[]')
@@ -676,6 +682,7 @@ def workflow(request_id, stage):
                 selected_vehicle = request.form.get('vehicle_type_id')
                 if selected_vehicle:
                     save_vehicle_selection(booking, selected_vehicle, current_user.id if current_user.is_authenticated else None)
+                queue_booking_conversion(booking, 'inventory_completed')
                 if had_calculation:
                     flash('Inventory or vehicle selection changed. Vehicle requirements, workforce, service time, and quote were recalculated.', 'success')
                 return redirect(url_for('booking.workflow', request_id=request_id, stage='services'))
@@ -694,6 +701,7 @@ def workflow(request_id, stage):
                 save_workflow_section(booking, 'services', services, current_user.id if current_user.is_authenticated else None)
                 booking.workflow_state = 'SERVICES_COMPLETED'
                 db.session.commit()
+                queue_booking_conversion(booking, 'services_selected')
                 if had_calculation:
                     flash('Services changed. Estimated duration and quote were invalidated; review the updated schedule.', 'success')
                 return redirect(url_for('booking.workflow', request_id=request_id, stage='schedule'))
@@ -716,6 +724,7 @@ def workflow(request_id, stage):
                     'flexible_time': request.form.get('flexible_time') == 'on',
                     'access_hours': request.form.get('access_hours', '')[:250],
                 }, current_user.id if current_user.is_authenticated else None)
+                queue_booking_conversion(booking, 'schedule_completed')
                 if had_calculation:
                     flash('Schedule changed. Availability and quote are being recalculated from the current move details.', 'success')
                 return redirect(url_for('booking.workflow', request_id=request_id, stage='quote'))
@@ -731,6 +740,7 @@ def workflow(request_id, stage):
     if stage == 'quote' and booking.workflow_state == 'SCHEDULE_COMPLETED':
         try:
             calculate_quote(booking, current_user.id if current_user.is_authenticated else None)
+            queue_booking_conversion(booking, 'quote_generated')
         except ValueError as error:
             flash(str(error), 'error')
     safety_factor = ServicePricing.query.filter_by(key='volume_safety_factor').first()
@@ -785,6 +795,7 @@ def payment(request_id):
         try:
             payment_record = initialize_payment(booking, current_user.email)
             if payment_record.authorization_url:
+                queue_booking_conversion(booking, 'checkout_started')
                 return redirect(payment_record.authorization_url)
         except ValueError as error:
             flash(str(error), 'error')
@@ -943,6 +954,7 @@ def api_calculate_quote(request_id):
     booking = _get_request(request_id)
     try:
         calculation = calculate_quote(booking, current_user.id if current_user.is_authenticated else None)
+        queue_booking_conversion(booking, 'quote_generated')
         return jsonify({'success': True, 'booking_request_id': request_id, 'calculation': calculation,
                         'quote_lines': [{'code': line.code, 'label': line.label, 'amount': line.amount}
                                         for line in BookingQuoteLine.query.filter_by(booking_id=booking.id).all()]})

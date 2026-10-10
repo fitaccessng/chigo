@@ -8,6 +8,7 @@ from flask import current_app, url_for
 from ..extensions import db
 from ..models import Booking, Payment
 from .booking_engine_service import record_event
+from .seo_analytics import queue_booking_conversion
 
 
 def _stripe_secret_key():
@@ -56,6 +57,8 @@ def _record_payment_success(payment: Payment, checkout_session) -> Booking:
             new={'reference': payment.payment_reference, 'amount': payment.amount},
         )
         db.session.commit()
+    queue_booking_conversion(booking, 'payment_success')
+    queue_booking_conversion(booking, 'booking_completed')
     return booking
 
 
@@ -150,7 +153,10 @@ def verify_payment(reference: str):
     if payment is None:
         raise ValueError('This Stripe session is not attached to a booking request.')
     if payment.status == 'Successful':
-        return Booking.query.get_or_404(payment.booking_id)
+        booking = Booking.query.get_or_404(payment.booking_id)
+        queue_booking_conversion(booking, 'payment_success')
+        queue_booking_conversion(booking, 'booking_completed')
+        return booking
 
     client = _stripe_client()
     try:
