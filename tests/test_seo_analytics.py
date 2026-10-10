@@ -58,7 +58,10 @@ def test_public_canonical_and_private_noindex_metadata():
 
 def test_production_tracking_rejects_missing_and_placeholder_ids():
     app = create_app(testing=True)
-    app.config.update(APP_ENV='production', CANONICAL_ORIGIN='https://www.chigomove.online')
+    app.config.update(
+        APP_ENV='production', CANONICAL_ORIGIN='https://www.chigomove.online',
+        GA4_MEASUREMENT_ID='', GTM_CONTAINER_ID='',
+    )
     with app.app_context():
         assert analytics_ids() == ('', '')
         app.config['GA4_MEASUREMENT_ID'] = 'G-XXXXXXXXXX'
