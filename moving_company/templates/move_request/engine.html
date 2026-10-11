@@ -2,6 +2,30 @@
 {% block title %}Move plan | Chigo Relocations{% endblock %}
 
 {% block content %}
+{% macro question_fields(fields, prefix, answers) %}
+  {% for field in fields %}
+  <label class="block text-xs font-semibold text-stone-700 {% if field.type == 'textarea' %}sm:col-span-2{% endif %}"
+         data-question-field
+         {% if field.condition %}data-condition-key="{{ prefix }}{{ field.condition[0] }}" data-condition-value="{{ field.condition[1] }}"{% endif %}>
+    {{ field.label }}
+    {% if field.type in ['select', 'multiselect'] %}
+    <select name="{{ prefix }}{{ field.key }}" {% if field.type == 'multiselect' %}multiple size="{{ [field.options|length, 5]|min }}"{% endif %} {% if field.required %}required{% endif %} class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm font-normal text-stone-900">
+      {% if field.type == 'select' %}
+      <option value="">Choose an option</option>
+      {% endif %}
+      {% for option in field.options %}
+      {% set option_selected = option in answers.get(field.key, []) if field.type == 'multiselect' else answers.get(field.key, '') == option %}
+      <option value="{{ option }}" {% if option_selected %}selected{% endif %}>{{ option|replace('-', ' ')|title }}</option>
+      {% endfor %}
+    </select>
+    {% elif field.type == 'textarea' %}
+    <textarea name="{{ prefix }}{{ field.key }}" rows="3" maxlength="{{ field.max or 1000 }}" {% if field.required %}required{% endif %} class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm font-normal text-stone-900">{{ answers.get(field.key, '') }}</textarea>
+    {% else %}
+    <input type="{{ field.type }}" name="{{ prefix }}{{ field.key }}" value="{{ answers.get(field.key, '') }}" {% if field.required %}required{% endif %}{% if field.min is not none %} min="{{ field.min }}"{% endif %}{% if field.max is not none and field.type == 'number' %} max="{{ field.max }}"{% endif %}{% if field.step is not none %} step="{{ field.step }}"{% endif %} class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm font-normal text-stone-900">
+    {% endif %}
+  </label>
+  {% endfor %}
+{% endmacro %}
 {% set labels = {
   'location': 'Location',
   'property': 'Property',
@@ -175,6 +199,17 @@
                   {{ form|attr(kind ~ '_notes')(class_='w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm transition focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600', rows='2') }}
                 </div>
               </div>
+              <div id="{{ kind }}_lift_field" class="hidden sm:col-span-2" data-lift-field data-place="{{ kind }}">
+                <label class="block text-xs font-semibold text-stone-700">Lift availability
+                  {{ form|attr(kind ~ '_lift_available')(class_='mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600') }}
+                </label>
+              </div>
+
+              <div id="{{ kind }}_lift_field" class="hidden sm:col-span-2" data-lift-field data-place="{{ kind }}">
+                <label class="block text-xs font-semibold text-stone-700">Is a lift available at this {{ 'pickup' if kind == 'pickup' else 'destination' }}?
+                  {{ form|attr(kind ~ '_lift_available')(class_='mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600') }}
+                </label>
+              </div>
 
               {% for suffix in ['country','area','area_council','district','neighborhood','location_type','original_input','normalized_location','formatted_address','latitude','longitude','place_id','provider','provider_raw_id'] %}
                 {{ form|attr(kind ~ '_' ~ suffix)(type='hidden') }}
@@ -211,6 +246,25 @@
           </div>
         </form>
 
+        <script>
+          (() => {
+            for (const place of ['pickup', 'destination']) {
+              const floor = document.getElementById(`${place}_floor`);
+              const group = document.getElementById(`${place}_lift_field`);
+              const lift = document.getElementById(`${place}_lift_available`);
+              if (!floor || !group || !lift) continue;
+              const sync = () => {
+                const aboveGround = Boolean(floor.value && floor.value !== 'Ground');
+                group.classList.toggle('hidden', !aboveGround);
+                lift.disabled = !aboveGround;
+                lift.required = aboveGround;
+                if (!aboveGround) lift.value = '';
+              };
+              floor.addEventListener('change', sync);
+              sync();
+            }
+          })();
+        </script>
         <script>
           const locationSearchCache = new Map();
           const locationSearchState = {
@@ -401,14 +455,35 @@
             panel.classList.remove('hidden');
           }
         </script>
+        <script>
+          (() => {
+            for (const place of ['pickup', 'destination']) {
+              const floor = document.getElementById(`${place}_floor`);
+              const group = document.getElementById(`${place}_lift_field`);
+              const lift = document.getElementById(`${place}_lift_available`);
+              if (!floor || !group || !lift) continue;
+              const sync = () => {
+                const aboveGround = floor.value && floor.value !== 'Ground';
+                group.classList.toggle('hidden', !aboveGround);
+                lift.required = Boolean(aboveGround);
+                lift.disabled = !aboveGround;
+                if (!aboveGround) lift.value = '';
+              };
+              floor.addEventListener('change', sync);
+              sync();
+            }
+          })();
+        </script>
       {% elif stage == 'property' %}
         {% set property_data = booking.workflow_data.get('property', {}) if booking.workflow_data else {} %}
         {% set property_type = property_data.get('property_type', '') %}
-        {% set is_commercial = property_type in ['Office', 'Shop', 'Warehouse', 'Construction Site'] %}
+        {% set property_answers = property_data.get('service_answers', {}) %}
+        {% set requires_property_type = service_type in ['residential', 'commercial'] %}
         <section class="mx-auto max-w-4xl space-y-6">
+          {% if requires_property_type %}
           <form method="post" class="rounded-xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <label class="block text-sm font-semibold text-stone-800" for="property_type">What type of property are you moving from?
+            <label class="block text-sm font-semibold text-stone-800" for="property_type">{% if service_type == 'commercial' %}What type of business premises are you moving from?{% else %}What type of residential property are you moving from?{% endif %}
               <select id="property_type" name="property_type" required class="mt-2 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 sm:max-w-md">
                 <option value="">Select property type</option>
                 {% for option in property_types %}
@@ -418,54 +493,73 @@
             </label>
             <button type="submit" name="action" value="choose_property_type" class="mt-5 rounded-lg bg-brand-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-800">Continue</button>
           </form>
+          {% endif %}
 
-          {% if property_type %}
-          <form method="post" class="rounded-xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
+          {% if property_type or not requires_property_type %}
+          <form method="post" data-question-form class="rounded-xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="property_type" value="{{ property_type }}">
-            <h2 class="text-lg font-bold text-stone-900">Property details</h2>
-            <p class="mt-1 text-sm text-stone-500">These details help us estimate the move accurately.</p>
+            {% if requires_property_type %}<input type="hidden" name="property_type" value="{{ property_type }}">{% endif %}
+            <h2 class="text-lg font-bold text-stone-900">{{ service_workflow.label }} details</h2>
+            <p class="mt-1 text-sm text-stone-500">{% if service_type == 'residential' %}Tell us about the home you are moving into. Pickup and destination floors, lift availability, and access instructions are saved with the locations.{% elif service_type == 'commercial' %}Share workspace size and operating constraints. Premises floors, lift availability, loading access and addresses are saved with the locations.{% elif service_type == 'packing' %}Choose the packing scope and whether materials are needed. The item selector is on the next step.{% elif service_type == 'storage' %}Tell us how long you expect to store items and whether you need collection or later delivery.{% else %}No separate property questions are needed for logistics. Shipment details are collected with inventory.{% endif %}</p>
 
-            <div class="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {% if is_commercial %}
-                {% for name, label in [('rooms', 'Rooms'), ('workstations', 'Workstations')] %}
-                <label class="text-xs font-semibold text-stone-700">{{ label }}
-                  <input type="number" name="{{ name }}" min="0" value="{{ property_data.get(name, 0) }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
-                </label>
-                {% endfor %}
-              {% else %}
-                {% for name, label in [('bedrooms', 'Bedrooms'), ('bathrooms', 'Bathrooms')] %}
-                <label class="text-xs font-semibold text-stone-700">{{ label }}
-                  <input type="number" name="{{ name }}" min="0" value="{{ property_data.get(name, 0) }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
-                </label>
-                {% endfor %}
-              {% endif %}
-              <label class="text-xs font-semibold text-stone-700">Floors
-                <input type="number" name="floors" min="1" required value="{{ property_data.get('floors', 1) }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+            {% if service_type == 'residential' %}
+            <div class="mt-5 grid gap-4 sm:grid-cols-2">
+              {% for name, label in [('bedrooms', 'Bedrooms at pickup'), ('bathrooms', 'Bathrooms at pickup')] %}
+              <label class="text-xs font-semibold text-stone-700">{{ label }}
+                <input type="number" name="{{ name }}" min="0" value="{{ property_data.get(name, 0) }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm text-stone-900">
               </label>
-              <label class="text-xs font-semibold text-stone-700">Approximate size (m²)
-                <input type="number" name="approximate_size_m2" min="0" step="0.1" value="{{ property_data.get('approximate_size_m2', '') }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
-              </label>
-            </div>
-
-            <div class="mt-5 flex flex-wrap gap-x-6 gap-y-3 text-sm text-stone-700">
-              {% for name, label in [('elevator', 'Elevator available'), ('loading_bay', 'Loading bay available'), ('forklift', 'Forklift available')] %}
-              <label class="inline-flex items-center gap-2"><input type="checkbox" name="{{ name }}" value="yes" {% if property_data.get(name) %}checked{% endif %} class="rounded border-stone-300 text-brand-700 focus:ring-brand-600">{{ label }}</label>
               {% endfor %}
             </div>
+            {% endif %}
+            {% if service_type in ['commercial', 'residential'] and service_questions %}
+            <fieldset class="mt-6 border-t border-stone-200 pt-5">
+              <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                {{ question_fields(service_questions, 'service_', property_answers) }}
+              </div>
+            </fieldset>
+            {% elif service_type in ['packing', 'storage'] and service_questions %}
+            <fieldset class="mt-6 border-t border-stone-200 pt-5">
+              <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                {{ question_fields(service_questions, 'service_', property_answers) }}
+              </div>
+            </fieldset>
+            {% elif service_type == 'logistics' %}
+            <p class="mt-5 border-t border-stone-200 pt-5 text-sm text-stone-600">Shipment type, quantity, size, weight and handling are collected with the shipment items on the next step.</p>
+            {% endif %}
 
             <div class="mt-6 flex justify-end border-t border-stone-200 pt-5">
-              <button type="submit" class="w-full rounded-lg bg-brand-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-brand-800 sm:w-auto">Save property and continue</button>
+              <button type="submit" class="w-full rounded-lg bg-brand-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-brand-800 sm:w-auto">{% if requires_property_type %}Save property and continue{% else %}Save service details and continue{% endif %}</button>
             </div>
           </form>
+          <script>
+            (() => {
+              document.querySelectorAll('[data-question-form]').forEach((form) => {
+                const syncConditions = () => form.querySelectorAll('[data-question-field]').forEach((wrapper) => {
+                  const dependency = wrapper.dataset.conditionKey;
+                  const control = dependency ? form.elements.namedItem(dependency) : null;
+                  const visible = !dependency || String(control?.value || '').toLowerCase() === String(wrapper.dataset.conditionValue || '').toLowerCase();
+                  wrapper.hidden = !visible;
+                  wrapper.querySelectorAll('input, select, textarea').forEach((input) => {
+                    input.disabled = !visible;
+                    if (input.dataset.required === undefined) input.dataset.required = input.required ? 'true' : 'false';
+                    input.required = visible && input.dataset.required === 'true';
+                    if (!visible) input.value = '';
+                  });
+                });
+                form.addEventListener('change', syncConditions);
+                syncConditions();
+              });
+            })();
+          </script>
           {% endif %}
         </section>
       {% elif stage == 'inventory' %}
+        {% set inventory_answers = (booking.workflow_data or {}).get('inventory_answers', {}) %}
         <section class="space-y-8">
           <div class="flex flex-col gap-3 border-b border-stone-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 class="text-2xl font-extrabold tracking-tight text-stone-900">Build your move inventory</h2>
-              <p class="mt-1 text-sm text-stone-500">Add the items that need to be moved.</p>
+              <h2 class="text-2xl font-extrabold tracking-tight text-stone-900">{{ service_workflow.label }} inventory</h2>
+              <p class="mt-1 text-sm text-stone-500">{% if service_type == 'residential' %}Add household belongings that need moving.{% elif service_type == 'commercial' %}Add office furniture, equipment, stock and other business items.{% elif service_type == 'packing' %}Add only the items that require packing or unpacking.{% elif service_type == 'storage' %}Add the belongings intended for storage.{% else %}Add shipment items and provide their dimensions and handling requirements.{% endif %}</p>
             </div>
             <div class="flex gap-3 text-xs font-bold">
               <span class="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-brand-800">{{ inventory_summary.item_count|default(0) }} items</span>
@@ -494,9 +588,27 @@
 
           <section aria-labelledby="inventory-catalogue-heading">
             <h3 id="inventory-catalogue-heading" class="text-lg font-bold text-stone-900">Catalogue</h3>
+            <div class="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
+              <input id="inventory-search" type="search" placeholder="Search items by name or category" class="w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 lg:max-w-md">
+              <label class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-stone-600">
+                Category
+                <select id="inventory-category-filter" class="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+                  <option value="all">All</option>
+                  {% for group in inventory_catalog %}
+                  <option value="{{ group.category }}">{{ group.category }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+            </div>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button type="button" class="inventory-category-toggle rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-brand-800" data-category="all">All</button>
+              {% for group in inventory_catalog %}
+              <button type="button" class="inventory-category-toggle rounded-full border border-stone-200 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-stone-600" data-category="{{ group.category }}">{{ group.category }}</button>
+              {% endfor %}
+            </div>
             <div class="mt-4 space-y-6">
               {% for group in inventory_catalog %}
-              <div>
+              <div data-category="{{ group.category }}" data-group-name="{{ group.category }}">
                 <h4 class="border-b border-stone-200 pb-2 text-sm font-bold text-stone-700">{{ group.category }}</h4>
                 <div class="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                   {% for item in group.catalog_items %}
@@ -592,7 +704,7 @@
               <p class="text-xs text-stone-500">Adjust quantities before continuing.</p>
             </div>
             {% if inventory_selection %}
-            <form method="post" class="mt-4 space-y-3">
+            <form method="post" data-question-form class="mt-4 space-y-3">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="action" value="save_and_continue">
               {% for item in inventory_selection %}
@@ -608,26 +720,117 @@
               </div>
               {% endfor %}
 
+              {% if inventory_questions %}
+              <fieldset class="border-t border-stone-200 pt-5">
+                <legend class="text-sm font-bold text-stone-900">{{ service_workflow.label }} inventory details</legend>
+                <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                  {{ question_fields(inventory_questions, 'inventory_', inventory_answers) }}
+                </div>
+              </fieldset>
+              {% endif %}
+
               <div class="flex justify-end border-t border-stone-200 pt-5">
                 <button type="submit" class="w-full rounded-lg bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800 sm:w-auto">Save inventory and continue</button>
               </div>
             </form>
             {% else %}
-            <p class="mt-4 rounded-lg border border-dashed border-stone-300 p-6 text-center text-sm text-stone-500">Add at least one item from the catalogue or create a custom item to continue.</p>
+            <form id="inventory-empty-continue" method="post" data-question-form class="mt-4 space-y-4 rounded-xl border border-dashed border-stone-300 bg-stone-50/70 p-5">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="action" value="save_and_continue">
+              <p class="text-center text-sm text-stone-500">Add at least one item from the catalogue or create a custom item to continue.</p>
+              {% if inventory_questions %}
+              <fieldset class="border-t border-stone-200 pt-5">
+                <legend class="text-sm font-bold text-stone-900">{{ service_workflow.label }} inventory details</legend>
+                <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                  {{ question_fields(inventory_questions, 'inventory_', inventory_answers) }}
+                </div>
+              </fieldset>
+              {% endif %}
+              <div class="flex justify-end">
+                <button type="submit" class="w-full rounded-lg bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800 sm:w-auto">Save inventory and continue</button>
+              </div>
+            </form>
             {% endif %}
           </section>
+          <script>
+            (() => {
+              const searchInput = document.getElementById('inventory-search');
+              const categoryFilter = document.getElementById('inventory-category-filter');
+              const toggleButtons = document.querySelectorAll('.inventory-category-toggle');
+              const groups = Array.from(document.querySelectorAll('[data-group-name]'));
+              if (!searchInput || !categoryFilter || !groups.length) return;
+              const applyInventoryFilter = () => {
+                const query = searchInput.value.trim().toLowerCase();
+                const currentCategory = categoryFilter.value;
+                groups.forEach((group) => {
+                  const category = group.dataset.groupName || '';
+                  const cards = Array.from(group.querySelectorAll('form'));
+                  let visibleCardCount = 0;
+                  cards.forEach((card) => {
+                    const matchesQuery = !query || card.textContent.toLowerCase().includes(query);
+                    const matchesCategory = currentCategory === 'all' || category === currentCategory;
+                    const visible = matchesQuery && matchesCategory;
+                    card.style.display = visible ? '' : 'none';
+                    if (visible) visibleCardCount += 1;
+                  });
+                  group.style.display = visibleCardCount > 0 || (currentCategory === 'all' && !query) ? '' : 'none';
+                });
+              };
+              searchInput.addEventListener('input', applyInventoryFilter);
+              categoryFilter.addEventListener('change', () => {
+                toggleButtons.forEach((button) => {
+                  const active = button.dataset.category === categoryFilter.value;
+                  button.classList.toggle('border-brand-200', active);
+                  button.classList.toggle('bg-brand-50', active);
+                  button.classList.toggle('text-brand-800', active);
+                  button.classList.toggle('border-stone-200', !active);
+                  button.classList.toggle('bg-white', !active);
+                  button.classList.toggle('text-stone-600', !active);
+                });
+                applyInventoryFilter();
+              });
+              toggleButtons.forEach((button) => {
+                button.addEventListener('click', () => {
+                  categoryFilter.value = button.dataset.category || 'all';
+                  categoryFilter.dispatchEvent(new Event('change'));
+                });
+              });
+              applyInventoryFilter();
+            })();
+          </script>
+            <script>
+              (() => {
+                document.querySelectorAll('form[data-question-form]').forEach((form) => {
+                  const syncConditions = () => form.querySelectorAll('[data-question-field]').forEach((wrapper) => {
+                    const dependency = wrapper.dataset.conditionKey;
+                    const control = dependency ? form.elements.namedItem(dependency) : null;
+                    const visible = !dependency || String(control?.value || '').toLowerCase() === String(wrapper.dataset.conditionValue || '').toLowerCase();
+                    wrapper.hidden = !visible;
+                    wrapper.querySelectorAll('input, select, textarea').forEach((input) => {
+                      input.disabled = !visible;
+                      if (input.dataset.required === undefined) input.dataset.required = input.required ? 'true' : 'false';
+                      input.required = visible && input.dataset.required === 'true';
+                      if (!visible) input.value = '';
+                    });
+                  });
+                  form.addEventListener('change', syncConditions);
+                  syncConditions();
+                });
+              })();
+            </script>
         </section>
       {% elif stage == 'services' %}
         {% set selected_services = booking.workflow_data.get('services', {}) if booking.workflow_data else {} %}
         <form method="post" class="mx-auto max-w-5xl space-y-6">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <section class="rounded-xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
-            <h2 class="text-xl font-extrabold text-stone-900">Choose additional moving services</h2>
-            <p class="mt-1 text-sm text-stone-500">Select the packing, handling, storage, and cleaning support you need.</p>
+            <h2 class="text-xl font-extrabold text-stone-900">Choose additional services</h2>
+            <p class="mt-1 text-sm text-stone-500">Your primary service is {{ service_workflow.label }}. Select any additional support for this same booking.</p>
 
             <div class="mt-6 grid gap-4 sm:grid-cols-2">
               {% for name, options in service_options.items() %}
-              {% set default_option = 'none' if name in ['packing', 'storage', 'cleaning'] else 'no' %}
+              {% set default_option = 'none' if name in ['packing', 'storage', 'cleaning', 'home_decor'] else 'no' %}
+              {% if name != service_type %}
               <label class="block text-xs font-bold capitalize text-stone-700">{{ name|replace('_', ' ') }}
                 <select name="{{ name }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm font-normal text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
                   {% for option in options %}
@@ -635,8 +838,23 @@
                   {% endfor %}
                 </select>
               </label>
+              {% endif %}
               {% endfor %}
             </div>
+            {% for addon, sections in addon_questions.items() %}
+            {% set addon_default = 'none' if addon in ['packing', 'storage', 'cleaning', 'home_decor'] else 'no' %}
+            {% set addon_active = selected_services.get(addon, addon_default) not in ['none', 'no', ''] %}
+            <fieldset class="mt-6 border-t border-stone-200 pt-5" data-addon-question-group="{{ addon }}" {% if not addon_active %}hidden disabled{% endif %}>
+              <legend class="text-sm font-bold text-stone-900">{{ 'Cleaning details' if addon == 'cleaning' else 'Home Décor & Setup details' }}</legend>
+              {% for section, fields in sections.items() if fields %}
+              <div class="mt-4 grid gap-4 border-t border-stone-100 pt-4 sm:grid-cols-2">
+                {% set saved_addon_answers = (booking.workflow_data or {}).get('addon_answers', {}).get(addon, {}).get(section, {}) %}
+                <h4 class="text-xs font-bold uppercase tracking-wide text-stone-600 sm:col-span-2">{{ 'Property and access' if section == 'property' else 'Service scope and items' }}</h4>
+                {{ question_fields(fields, 'addon_' ~ addon ~ '_' ~ section ~ '_', saved_addon_answers) }}
+              </div>
+                {% endfor %}
+            </fieldset>
+            {% endfor %}
           </section>
 
           {% if service_cards %}
@@ -677,6 +895,34 @@
             <button type="submit" class="w-full rounded-lg bg-brand-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-brand-800 sm:w-auto">Save services and continue</button>
           </div>
         </form>
+        <script>
+          (() => {
+            const form = document.querySelector('form:has([data-addon-question-group])');
+            if (!form) return;
+            const syncQuestions = () => {
+              form.querySelectorAll('[data-addon-question-group]').forEach((group) => {
+                const choice = form.elements.namedItem(group.dataset.addonQuestionGroup);
+                const addonSelected = choice && !['none', 'no', ''].includes(choice.value);
+                group.hidden = !addonSelected;
+                group.disabled = !addonSelected;
+                group.querySelectorAll('[data-question-field]').forEach((wrapper) => {
+                  const dependency = wrapper.dataset.conditionKey;
+                  const control = dependency ? form.elements.namedItem(dependency) : null;
+                  const visible = addonSelected && (!dependency || String(control?.value || '').toLowerCase() === String(wrapper.dataset.conditionValue || '').toLowerCase());
+                  wrapper.hidden = !visible;
+                  wrapper.querySelectorAll('input, select, textarea').forEach((input) => {
+                    input.disabled = !visible;
+                    if (input.dataset.required === undefined) input.dataset.required = input.required ? 'true' : 'false';
+                    input.required = visible && input.dataset.required === 'true';
+                    if (!visible) input.value = '';
+                  });
+                });
+              });
+            };
+            form.addEventListener('change', syncQuestions);
+            syncQuestions();
+          })();
+        </script>
       {% elif stage == 'schedule' %}
         {% set schedule_data = booking.workflow_data.get('schedule', {}) if booking.workflow_data else {} %}
         <section class="mx-auto max-w-4xl space-y-6">
@@ -747,6 +993,12 @@
             The selected time may need an operations review. You can review and accept the estimate while availability is confirmed.
           </div>
           {% endif %}
+          {% for review_flag in quote_summary.get('manual_review_flags', []) %}
+          <div role="status" class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{{ review_flag }}</div>
+          {% endfor %}
+          {% if quote_summary.get('manual_review_flags') and not quote_summary.get('manual_review_resolved') %}
+          <div role="status" class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">This estimate is awaiting an operations-confirmed quote. Quote acceptance and payment are unavailable until the review is complete.</div>
+          {% endif %}
 
           <section class="rounded-xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
             <div class="flex flex-col gap-3 border-b border-stone-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
@@ -777,12 +1029,13 @@
             <dl class="mt-5 ml-auto max-w-sm space-y-3 border-t border-stone-200 pt-5 text-sm">
               <div class="flex items-center justify-between gap-4"><dt class="text-stone-600">Subtotal</dt><dd class="font-semibold text-stone-800">₦{{ '{:,.2f}'.format(quote_summary.get('subtotal', booking.estimated_total or 0)) }}</dd></div>
               <div class="flex items-center justify-between gap-4"><dt class="text-stone-600">Tax</dt><dd class="font-semibold text-stone-800">₦{{ '{:,.2f}'.format(quote_summary.get('tax', 0)) }}</dd></div>
+              {% if quote_summary.get('referral_discount') %}<div class="flex items-center justify-between gap-4 text-emerald-800"><dt>Referral discount</dt><dd class="font-semibold">-₦{{ '{:,.2f}'.format(quote_summary.get('referral_discount')) }}</dd></div>{% endif %}
               <div class="flex items-center justify-between gap-4 border-t border-stone-200 pt-3"><dt class="font-bold text-stone-900">Total estimate</dt><dd class="text-lg font-extrabold text-stone-900">₦{{ '{:,.2f}'.format(booking.estimated_total or 0) }}</dd></div>
               <div class="flex items-center justify-between gap-4"><dt class="text-stone-600">Deposit to secure booking</dt><dd class="font-bold text-brand-800">₦{{ '{:,.2f}'.format(booking.deposit_amount or 0) }}</dd></div>
               <div class="flex items-center justify-between gap-4"><dt class="text-stone-600">Remaining balance</dt><dd class="font-semibold text-stone-800">₦{{ '{:,.2f}'.format(booking.balance_amount or 0) }}</dd></div>
             </dl>
 
-            {% if booking.quote_status == 'Ready' %}
+            {% if booking.quote_status == 'Ready' and (not quote_summary.get('manual_review_flags') or quote_summary.get('manual_review_resolved')) %}
             <form method="post" class="mt-7 flex justify-end border-t border-stone-200 pt-5">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" name="action" value="accept_quote" class="w-full rounded-lg bg-brand-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-brand-800 sm:w-auto">Accept quote and continue</button>

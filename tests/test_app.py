@@ -11,6 +11,7 @@ from moving_company.services.booking_engine_service import create_booking_reques
 from moving_company.services.fct_location_data import FCT_AREA_COUNCILS
 from moving_company.services import location_service
 from moving_company.services.location_service import normalize_query, search_places
+from moving_company.services.referral_service import get_campaign
 
 
 def _login_test_customer(app, client):
@@ -965,7 +966,7 @@ def test_admin_can_view_and_edit_quote_engine_service_prices():
     values = {key: '100' for key in (
         'base_moving_fee', 'price_per_km', 'property_surcharge', 'floor_surcharge',
         'packing_partial', 'packing_full', 'cleaning_move_out', 'cleaning_move_in',
-        'cleaning_both', 'unpacking', 'service_assembly_yes', 'service_disassembly_yes',
+            'cleaning_both', 'home_decor', 'unpacking', 'service_assembly_yes', 'service_disassembly_yes',
         'storage_week', 'special_handling', 'weekend_surcharge', 'holiday_surcharge',
         'additional_mover_fee', 'base_mover_hourly_fee', 'access_difficulty_surcharge',
         'outside_service_area_surcharge', 'tax_rate', 'deposit_percentage',
@@ -1525,6 +1526,16 @@ def test_dashboard_pages_have_role_specific_navigation():
         assert b'href="/customer/profile"' in response.data
         assert b'uppercase }}' not in response.data
         assert b'href="/booking/start"' in response.data
+    dashboard = client.get('/customer/dashboard')
+    assert b'href="/booking/start/residential"' in dashboard.data
+    assert b'href="/booking/start/commercial"' in dashboard.data
+    assert b'href="/booking/start/packing"' in dashboard.data
+    assert b'href="/booking/start/storage"' in dashboard.data
+    assert b'href="/booking/start/logistics"' in dashboard.data
+    assert b'href="/booking/start?addon=home_decor"' in dashboard.data
+    assert b'href="/booking/start?addon=cleaning"' in dashboard.data
+    assert b'Home Decor' in dashboard.data
+    assert b'Cleaning' in dashboard.data
     assert b'Operations' not in client.get('/customer/dashboard').data
     payment_history = client.get(f'/booking/payment/{booking_id}')
     assert payment_history.status_code == 200
@@ -1552,6 +1563,32 @@ def test_dashboard_pages_have_role_specific_navigation():
     })
     assert login_response.status_code == 302
     assert login_response.location.endswith('/admin/dashboard')
+
+
+def test_customer_profile_has_referral_summary_and_link():
+    app = create_app(testing=True)
+    app.config['WTF_CSRF_ENABLED'] = False
+    with app.app_context():
+        get_campaign(create=True)
+        customer = User(first_name='Ref', last_name='Customer', email='profile-referral@example.com', phone='')
+        customer.set_password('password123')
+        db.session.add(customer)
+        db.session.commit()
+        customer_id = customer.id
+
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session['_user_id'] = str(customer_id)
+        session['_fresh'] = True
+
+    response = client.get('/customer/profile')
+    assert response.status_code == 200
+    assert b'Refer &amp; Earn' in response.data
+    assert b'href="/customer/referrals"' in response.data
+    assert b'Successful referrals' in response.data
+    assert b'Pending referrals' in response.data
+    assert b'Available credit' in response.data
+    assert b'Total earned' in response.data
 
 
 def test_password_reset_request_and_token_flow():
@@ -1614,6 +1651,11 @@ def test_public_services_page_renders():
     response = client.get('/services')
     assert response.status_code == 200
     assert b'Our Services' in response.data
+    assert b'href="/booking/start/commercial"' in response.data
+    assert b'href="/booking/start?addon=home_decor"' in response.data
+    assert b'href="/booking/start?addon=cleaning"' in response.data
+    assert b'Home Decor' in response.data
+    assert b'Cleaning' in response.data
     for path, title in (
         ('/services/moving', b'Moving'),
         ('/services/packing', b'Packing'),
@@ -1921,8 +1963,8 @@ def test_operational_routes_persist_and_enforce_workflows():
     pricing_values = {key: '100' for key in (
         'base_moving_fee', 'price_per_km', 'property_surcharge', 'floor_surcharge',
         'packing_partial', 'packing_full', 'cleaning_move_out', 'cleaning_move_in',
-        'unpacking', 'storage_week', 'special_handling', 'weekend_surcharge', 'holiday_surcharge',
-        'cleaning_both', 'service_assembly_yes', 'service_disassembly_yes',
+            'unpacking', 'storage_week', 'special_handling', 'weekend_surcharge', 'holiday_surcharge',
+            'cleaning_both', 'home_decor', 'service_assembly_yes', 'service_disassembly_yes',
             'additional_mover_fee', 'base_mover_hourly_fee', 'access_difficulty_surcharge',
             'outside_service_area_surcharge', 'tax_rate', 'deposit_percentage', 'volume_safety_factor',
     )}

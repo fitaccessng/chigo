@@ -17,8 +17,13 @@ from .inventory_catalogue import (
     INVENTORY_CATALOG, PROPERTY_CATALOGUE,
 )
 from .location_service import route_distance, validate_coordinates
-from .service_workflow import get_service_workflow, normalize_service_type, recommendations_for_booking, validate_service_bundle
+from .service_workflow import (
+    get_service_workflow, normalize_service_type, recommendations_for_booking,
+    service_questions_for, validate_booking_question_data, validate_question_answers,
+    validate_service_bundle,
+)
 from .vehicle_catalogue import ensure_active_vehicle_catalogue
+from .referral_service import apply_referral_discount
 
 
 STAGES = ('location', 'property', 'inventory', 'services', 'schedule', 'quote', 'payment', 'review')
@@ -58,7 +63,7 @@ def record_event(booking: Booking, action: str, previous=None, new=None, user_id
     ))
 
 
-def create_booking_request(customer_id=None, location=None, user_id=None, service_type='residential'):
+def create_booking_request(customer_id=None, location=None, user_id=None, service_type='residential', initial_services=None, location_access=None):
     location = dict(location or {})
     required = ('pickup_address', 'pickup_city', 'pickup_state', 'destination_address', 'destination_city', 'destination_state')
     missing = [field for field in required if not str(location.get(field) or '').strip()]
@@ -90,7 +95,9 @@ def create_booking_request(customer_id=None, location=None, user_id=None, servic
         status='Draft', primary_service=service_type, workflow_state='LOCATION_COMPLETED', quote_status='Draft',
         workflow_data={
             'service_intent': service_type,
-            'property': {}, 'services': {}, 'schedule': {},
+            'question_schema_version': 2,
+            'property': {}, 'services': dict(initial_services or {}), 'schedule': {},
+            'location_access': dict(location_access or {}),
         }, calculation_data={},
         **{field: location[field] for field in location_fields if field in location},
     )
@@ -145,10 +152,11 @@ def save_workflow_section(booking: Booking, section: str, values: dict, user_id=
     workflow_data[section] = dict(values)
     booking.workflow_data = workflow_data
     if section == 'property':
-        booking.property_type = values['property_type']
-        booking.number_of_bedrooms = int(values.get('bedrooms') or 0)
-        booking.number_of_bathrooms = int(values.get('bathrooms') or 0)
-        booking.number_of_floors = int(values.get('floors') or 1)
+        if values.get('property_type'):
+            booking.property_type = values['property_type']
+            booking.number_of_bedrooms = int(values.get('bedrooms') or 0)
+            booking.number_of_bathrooms = int(values.get('bathrooms') or 0)
+            booking.number_of_floors = int(values.get('floors') or 1)
     elif section == 'schedule':
         booking.move_date = date.fromisoformat(values['date'])
         booking.preferred_time = values['time']
@@ -425,6 +433,16 @@ def catalogue_items_for_service(service_type: str, query: str = '', property_typ
             name for property_name in ('Office', 'Shop', 'Warehouse', 'Hotel', 'Estate', 'Construction Site')
             for names in PROPERTY_CATALOGUE[property_name].values() for name in names
         }
+    elif service_type == 'storage':
+        allowed_names = {
+            name for property_name in ('Apartment', 'House', 'Duplex', 'Office', 'Shop', 'Warehouse', 'Hotel', 'Estate')
+            for names in PROPERTY_CATALOGUE[property_name].values() for name in names
+        }
+    elif service_type == 'logistics':
+        allowed_names = {
+            name for property_name in ('Office', 'Shop', 'Warehouse', 'Construction Site')
+            for names in PROPERTY_CATALOGUE[property_name].values() for name in names
+        }
     if allowed_names is not None:
         active = [item for item in active if item.name in allowed_names]
     if service_type == 'commercial':
@@ -537,6 +555,22 @@ def inventory_requirements(booking: Booking):
         fragile_items += item.quantity if item.fragile else 0
         special_items += item.quantity if item.special_handling else 0
         large_items += item.quantity if item.large else 0
+    workflow_data = booking.workflow_data or {}
+    inventory_answers = workflow_data.get('inventory_answers') or {}
+    if booking.primary_service == 'logistics' and inventory_answers:
+        shipment = validate_question_answers(service_questions_for('logistics', 'inventory'), inventory_answers)
+        shipment_count = shipment['shipment_quantity']
+        volume = (
+            shipment['shipment_length_cm'] * shipment['shipment_width_cm'] * shipment['shipment_height_cm']
+            / 1_000_000 * shipment_count
+        )
+        weight = shipment['shipment_weight_kg']
+        total_items = shipment_count
+        fragile_items = shipment_count if shipment['shipment_fragile'] == 'yes' else 0
+        special_items = shipment_count if shipment['shipment_special_equipment'] == 'yes' else 0
+        large_items = shipment_count if max(
+            shipment['shipment_length_cm'], shipment['shipment_width_cm'], shipment['shipment_height_cm'],
+        ) > 200 else 0
     pricing = {row.key: float(row.value) for row in ServicePricing.query.all()}
     volume *= pricing.get('volume_safety_factor', 1.15)
     booking.estimated_volume_m3 = round(volume, 2)
@@ -585,10 +619,18 @@ def vehicle_options(booking: Booking):
 
 def estimate_workforce_duration(booking: Booking, requirements: dict, vehicle_count: int):
     crew = max(2, ceil(requirements['volume_m3'] / 8), ceil(requirements['weight_kg'] / 1800), ceil(requirements['fragile_items'] / 8))
-    services = (booking.workflow_data or {}).get('services', {})
+    services = _effective_service_selections(booking)
+    property_answers = ((booking.workflow_data or {}).get('property') or {}).get('service_answers', {})
     floors = sum(1 for floor in (booking.pickup_floor, booking.destination_floor) if floor not in {None, 'Ground'})
     access_count = sum(access in {'Moderate', 'Difficult'} for access in (booking.pickup_access, booking.destination_access))
-    stair_factor = floors * (0.2 if any((booking.pickup_stairs, booking.destination_stairs)) else 0.08)
+    access_count += sum(property_answers.get(key) == 'yes' for key in ('restricted_vehicle_access', 'long_carry_distance'))
+    location_access = (booking.workflow_data or {}).get('location_access', {}) or {}
+    stairs_without_lift = any(
+        getattr(booking, f'{place}_stairs', False)
+        and location_access.get(f'{place}_lift_available') is not True
+        for place in ('pickup', 'destination')
+    )
+    stair_factor = floors * (0.2 if stairs_without_lift else 0.08)
     loading_minutes = max(30, ceil(requirements['volume_m3'] * 12 / crew + requirements['large_items'] * 4 + requirements['special_items'] * 8))
     unloading_minutes = max(25, ceil(requirements['volume_m3'] * 10 / crew + requirements['large_items'] * 3 + requirements['special_items'] * 8))
     handling_minutes = ceil((loading_minutes + unloading_minutes) * stair_factor) + access_count * 15
@@ -599,6 +641,7 @@ def estimate_workforce_duration(booking: Booking, requirements: dict, vehicle_co
     service_minutes += 30 if services.get('disassembly') == 'yes' else 0
     service_minutes += 30 if services.get('assembly') == 'yes' else 0
     service_minutes += {'move-out': 90, 'move-in': 90, 'both': 150}.get(services.get('cleaning'), 0)
+    service_minutes += 120 if services.get('home_decor') == 'yes' else 0
     return {
         'movers': crew, 'loading_minutes': loading_minutes, 'unloading_minutes': unloading_minutes,
         'handling_minutes': handling_minutes, 'travel_minutes': ceil(vehicle_minutes),
@@ -611,6 +654,44 @@ def preview_move_duration(booking: Booking):
     requirements = inventory_requirements(booking)
     selected = next((option for option in vehicle_options(booking) if option['selected']), None)
     return estimate_workforce_duration(booking, requirements, selected['quantity'] if selected else 1)
+
+
+def _effective_service_selections(booking: Booking) -> dict:
+    services = dict((booking.workflow_data or {}).get('services', {}) or {})
+    property_answers = ((booking.workflow_data or {}).get('property') or {}).get('service_answers', {})
+    if booking.primary_service == 'packing':
+        scope = property_answers.get('packing_scope')
+        if scope in {'entire-property', 'selected-rooms'}:
+            services['packing'] = 'full' if scope == 'entire-property' else 'partial'
+    elif booking.primary_service == 'storage':
+        duration = property_answers.get('storage_duration')
+        if duration in {'1 week', '1 month', '3 months'}:
+            services['storage'] = duration
+    return services
+
+
+def _service_manual_review_flags(booking: Booking) -> list[str]:
+    workflow_data = booking.workflow_data or {}
+    property_data = workflow_data.get('property') or {}
+    answers = property_data.get('service_answers') or {}
+    inventory_answers = workflow_data.get('inventory_answers') or {}
+    addon_answers = workflow_data.get('addon_answers') or {}
+    services = workflow_data.get('services') or {}
+    active_addons = workflow_data.get('addon_answers') or {}
+    flags = []
+    if booking.primary_service == 'storage' or services.get('storage') not in {None, '', 'none', 'no'}:
+        flags.append('Storage facility capacity, availability, and billing need operations confirmation.')
+    if inventory_answers.get('specialist_equipment') == 'yes' or inventory_answers.get('shipment_special_equipment') == 'yes':
+        flags.append('Specialist equipment requires operations assessment; no specialist provider capability is assumed.')
+    primary_packing_materials = booking.primary_service == 'packing' and answers.get('packing_materials_needed') == 'yes'
+    addon_packing_materials = active_addons.get('packing', {}).get('property', {}).get('packing_materials_needed') == 'yes'
+    if primary_packing_materials or addon_packing_materials:
+        flags.append('Packing material supply is not priced until configured rates are confirmed.')
+    if services.get('home_decor') == 'yes' and 'home_decor' in active_addons:
+        flags.append('Home Décor scope and provider availability require operations confirmation.')
+    if services.get('cleaning') not in {None, '', 'none', 'no'} and 'cleaning' in active_addons:
+        flags.append('Cleaning scope and property-specific pricing require operations confirmation.')
+    return flags
 
 
 def save_vehicle_selection(booking: Booking, vehicle_type_id, user_id=None):
@@ -712,6 +793,7 @@ def check_availability(booking: Booking, mover_count: int, vehicle_type: Vehicle
 def calculate_quote(booking: Booking, user_id=None):
     if booking.workflow_state not in {'SCHEDULE_COMPLETED', 'QUOTE_READY'}:
         raise ValueError('Complete location, property, inventory, services, and schedule before requesting a quote.')
+    booking.workflow_data = validate_booking_question_data(booking)
     if booking.distance_km is None or float(booking.distance_km) <= 0:
         pickup = validate_coordinates(booking.pickup_latitude, booking.pickup_longitude)
         destination = validate_coordinates(booking.destination_latitude, booking.destination_longitude)
@@ -760,9 +842,13 @@ def calculate_quote(booking: Booking, user_id=None):
 
     duration = estimate_workforce_duration(booking, requirements, vehicle_count)
     crew = duration['movers']
-    services = (booking.workflow_data or {}).get('services', {})
+    services = _effective_service_selections(booking)
+    property_answers = ((booking.workflow_data or {}).get('property') or {}).get('service_answers', {})
+    inventory_answers = (booking.workflow_data or {}).get('inventory_answers', {}) or {}
+    addon_answers = (booking.workflow_data or {}).get('addon_answers', {}) or {}
     floors = sum(1 for floor in (booking.pickup_floor, booking.destination_floor) if floor not in {None, 'Ground'})
     access_count = sum(access in {'Moderate', 'Difficult'} for access in (booking.pickup_access, booking.destination_access))
+    access_count += sum(property_answers.get(key) == 'yes' for key in ('restricted_vehicle_access', 'long_carry_distance'))
     duration_minutes = duration['duration_minutes']
 
     lines = []
@@ -798,6 +884,7 @@ def calculate_quote(booking: Booking, user_id=None):
         ('cleaning', 'move-out'): ('cleaning_move_out', 1),
         ('cleaning', 'move-in'): ('cleaning_move_in', 1),
         ('cleaning', 'both'): ('cleaning_both', 1),
+        ('home_decor', 'yes'): ('home_decor', 1),
     }
     for service_name, service_value in services.items():
         configured = configured_services.get((service_name, str(service_value).casefold()))
@@ -821,6 +908,15 @@ def calculate_quote(booking: Booking, user_id=None):
         override_delta = round(float(booking.manually_overridden_total) - total, 2)
         add_line('manual_adjustment', 'Operations price adjustment', 1, override_delta)
         total = round(float(booking.manually_overridden_total), 2)
+    gross_total = total
+    discount = apply_referral_discount(booking, user_id, gross_total) if (
+        user_id and booking.customer_id == user_id
+    ) else 0.0
+    if discount:
+        add_line('referral_discount', 'Referral discount', 1, -discount)
+        total = round(total - discount, 2)
+    else:
+        booking.referral_discount_amount = 0.0
     deposit = round(total * pricing['deposit_percentage'] / 100, 2)
     availability = check_availability(booking, crew, vehicle, vehicle_count)
     slot_capacity = {'Morning': 8 * 60, 'Afternoon': 6 * 60, 'Evening': 5 * 60}.get(booking.preferred_time, 8 * 60)
@@ -841,7 +937,17 @@ def calculate_quote(booking: Booking, user_id=None):
     booking.balance_amount = round(total - deposit, 2)
     booking.quote_status = 'Ready'
     booking.workflow_state = 'QUOTE_READY'
+    manual_review_flags = _service_manual_review_flags(booking)
     booking.calculation_data = {
+        'service_inputs': {
+            'primary_service': booking.primary_service,
+            'property': property_answers,
+            'inventory': inventory_answers,
+            'addons': services,
+            'addon_answers': addon_answers,
+        },
+        'manual_review_flags': manual_review_flags,
+        'manual_review_resolved': not manual_review_flags or booking.manually_overridden_total is not None,
         'inventory': requirements, 'vehicle': {
             'id': vehicle.id, 'name': vehicle.name, 'quantity': vehicle_count,
             'recommended_id': recommended_vehicle.id, 'recommended_name': recommended_vehicle.name,
@@ -851,6 +957,7 @@ def calculate_quote(booking: Booking, user_id=None):
         'workforce': {'movers': crew}, 'duration_minutes': duration_minutes,
         'route': {'distance_km': booking.distance_km}, 'availability': availability,
         'subtotal': subtotal, 'tax': tax, 'total': total,
+        'original_total': gross_total, 'referral_discount': discount,
         'deposit': deposit, 'balance': booking.balance_amount,
         'recommendations': recommended_services(booking),
     }
@@ -863,6 +970,11 @@ def calculate_quote(booking: Booking, user_id=None):
 def accept_quote(booking: Booking, user_id):
     if booking.quote_status != 'Ready' or booking.workflow_state != 'QUOTE_READY':
         raise ValueError('Only a ready quote can be accepted.')
+    if float(booking.estimated_total or 0) <= 0 or not booking.quote_lines:
+        raise ValueError('A confirmed quote with a positive total is required before acceptance.')
+    calculation = booking.calculation_data or {}
+    if calculation.get('manual_review_flags') and not calculation.get('manual_review_resolved'):
+        raise ValueError('Operations must review this service scope and publish a confirmed quote before it can be accepted.')
     previous = booking.quote_status
     booking.quote_status = 'Accepted'
     booking.workflow_state = 'QUOTE_ACCEPTED'
@@ -873,23 +985,57 @@ def accept_quote(booking: Booking, user_id):
 def apply_price_override(booking: Booking, amount: float, reason: str, user_id):
     if not reason.strip() or amount < 0:
         raise ValueError('Provide a non-negative override amount and a reason.')
-    previous = {'amount': booking.manually_overridden_total or booking.estimated_total}
-    booking.manually_overridden_total = round(float(amount), 2)
+    previous_override = booking.manually_overridden_total
+    previous_adjustment = BookingQuoteLine.query.filter_by(
+        booking_id=booking.id, code='manual_adjustment',
+    ).first()
+    adjustment_amount = float(previous_adjustment.amount) if previous_adjustment else 0.0
+    calculation = dict(booking.calculation_data or {})
+    previous_gross = calculation.get('original_total')
+    if previous_gross is None:
+        previous_gross = previous_override if previous_override is not None else (
+            float(booking.estimated_total or 0) + float(booking.referral_discount_amount or 0)
+        )
+    raw_quote_total = round(float(previous_gross) - adjustment_amount, 2)
+    previous = {'amount': previous_override if previous_override is not None else booking.estimated_total}
+    gross_amount = round(float(amount), 2)
+    booking.manually_overridden_total = gross_amount
     booking.price_override_reason = reason.strip()[:1000]
     booking.overridden_by = user_id
     booking.overridden_at = datetime.utcnow()
+    discount = apply_referral_discount(booking, booking.customer_id, gross_amount) if booking.customer_id else 0.0
+    booking.referral_discount_amount = discount
+    booking.estimated_total = round(gross_amount - discount, 2)
+    BookingQuoteLine.query.filter_by(booking_id=booking.id, code='referral_discount').delete()
+    if discount:
+        db.session.add(BookingQuoteLine(
+            booking_id=booking.id, code='referral_discount', label='Referral discount',
+            quantity=1, unit_amount=-discount, amount=-discount, source='referral',
+        ))
     pricing = {row.key: float(row.value) for row in ServicePricing.query.all()}
     deposit_percentage = pricing.get('deposit_percentage')
     if deposit_percentage is not None:
-        booking.deposit_amount = round(float(amount) * deposit_percentage / 100, 2)
-        booking.balance_amount = round(float(amount) - booking.deposit_amount, 2)
+        booking.deposit_amount = round(booking.estimated_total * deposit_percentage / 100, 2)
+        booking.balance_amount = round(booking.estimated_total - booking.deposit_amount, 2)
     BookingQuoteLine.query.filter_by(booking_id=booking.id, code='manual_adjustment').delete()
-    delta = round(float(amount) - float(booking.estimated_total or 0), 2)
+    delta = round(gross_amount - raw_quote_total, 2)
     if delta:
         db.session.add(BookingQuoteLine(
             booking_id=booking.id, code='manual_adjustment', label='Operations price adjustment',
             quantity=1, unit_amount=delta, amount=delta, source='manual',
         ))
+    calculation.update({
+        'original_total': gross_amount,
+        'referral_discount': discount,
+        'total': booking.estimated_total,
+        'deposit': booking.deposit_amount,
+        'balance': booking.balance_amount,
+        'manual_review_resolved': True,
+    })
+    booking.calculation_data = calculation
     record_event(booking, 'quote.price_overridden', previous=previous,
-                 new={'amount': booking.manually_overridden_total, 'reason': booking.price_override_reason}, user_id=user_id)
+                 new={
+                     'amount': booking.estimated_total, 'gross_amount': gross_amount,
+                     'referral_discount': discount, 'reason': booking.price_override_reason,
+                 }, user_id=user_id)
     db.session.commit()

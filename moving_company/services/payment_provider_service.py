@@ -33,7 +33,7 @@ def _value(obj, key, default=None):
 
 
 def _record_payment_success(payment: Payment, checkout_session) -> Booking:
-    booking = Booking.query.get_or_404(payment.booking_id)
+    booking = db.get_or_404(Booking, payment.booking_id)
     metadata = _value(checkout_session, 'metadata', {}) or {}
     amount_total = _value(checkout_session, 'amount_total')
     currency = str(_value(checkout_session, 'currency', '') or '').lower()
@@ -153,7 +153,7 @@ def verify_payment(reference: str):
     if payment is None:
         raise ValueError('This Stripe session is not attached to a booking request.')
     if payment.status == 'Successful':
-        booking = Booking.query.get_or_404(payment.booking_id)
+        booking = db.get_or_404(Booking, payment.booking_id)
         queue_booking_conversion(booking, 'payment_success')
         queue_booking_conversion(booking, 'booking_completed')
         return booking

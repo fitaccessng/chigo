@@ -98,6 +98,7 @@ class SupportRequest(db.Model):
     conversation_id = db.Column(db.Integer, db.ForeignKey('support_conversations.id'), nullable=False)
     customer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id'), nullable=True)
+    service_type = db.Column(db.String(30), nullable=True)
     reason = db.Column(db.String(500), nullable=False)
     status = db.Column(db.String(30), nullable=False, default='WAITING_FOR_AGENT', index=True)
     assigned_at = db.Column(db.DateTime)
@@ -217,6 +218,8 @@ class Booking(db.Model):
     estimated_total = db.Column(db.Float, default=0.0)
     deposit_amount = db.Column(db.Float, default=0.0)
     balance_amount = db.Column(db.Float, default=0.0)
+    referral_id = db.Column(db.Integer, db.ForeignKey('referrals.id'), nullable=True, index=True)
+    referral_discount_amount = db.Column(db.Float, nullable=False, default=0.0)
     payment_status = db.Column(db.String(30), default='Pending')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -398,6 +401,119 @@ class Notification(db.Model):
 
     user = db.relationship('User', back_populates='notifications')
     booking = db.relationship('Booking', back_populates='notifications')
+
+
+class ReferralCampaign(db.Model):
+    __tablename__ = 'referral_campaigns'
+
+    id = db.Column(db.Integer, primary_key=True)
+    identifier = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    name = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text)
+    active = db.Column(db.Boolean, nullable=False, default=False)
+    starts_at = db.Column(db.DateTime)
+    ends_at = db.Column(db.DateTime)
+    reward_amount_kobo = db.Column(db.Integer, nullable=False, default=200000)
+    discount_amount_kobo = db.Column(db.Integer, nullable=False, default=200000)
+    minimum_booking_value_kobo = db.Column(db.Integer, nullable=False, default=1000000)
+    minimum_payable_kobo = db.Column(db.Integer, nullable=False, default=100000)
+    max_referrals_per_customer = db.Column(db.Integer, nullable=False, default=20)
+    max_referrals_total = db.Column(db.Integer, nullable=False, default=10000)
+    attribution_window_days = db.Column(db.Integer, nullable=False, default=30)
+    reward_expiration_days = db.Column(db.Integer, nullable=False, default=365)
+    eligible_services = db.Column(db.JSON, nullable=False, default=list)
+    allow_promotion_stacking = db.Column(db.Boolean, nullable=False, default=False)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    updated_by_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ReferralCode(db.Model):
+    __tablename__ = 'referral_codes'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, unique=True, index=True)
+    code = db.Column(db.String(24), nullable=False, unique=True, index=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class ReferralAttribution(db.Model):
+    __tablename__ = 'referral_attributions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    token = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    referral_code_id = db.Column(db.Integer, db.ForeignKey('referral_codes.id'), nullable=False, index=True)
+    campaign_id = db.Column(db.Integer, db.ForeignKey('referral_campaigns.id'), nullable=False, index=True)
+    source = db.Column(db.String(24), nullable=False, default='link')
+    captured_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class Referral(db.Model):
+    __tablename__ = 'referrals'
+    __table_args__ = (
+        db.UniqueConstraint('referred_user_id', name='uq_referrals_referred_user'),
+        db.UniqueConstraint('qualifying_booking_id', name='uq_referrals_qualifying_booking'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    referral_code_id = db.Column(db.Integer, db.ForeignKey('referral_codes.id'), nullable=False, index=True)
+    campaign_id = db.Column(db.Integer, db.ForeignKey('referral_campaigns.id'), nullable=False, index=True)
+    referrer_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    referred_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, unique=True, index=True)
+    qualifying_booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id'), nullable=True, unique=True)
+    attribution_source = db.Column(db.String(24), nullable=False, default='link')
+    attributed_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    status = db.Column(db.String(32), nullable=False, default='registered', index=True)
+    terms_snapshot = db.Column(db.JSON, nullable=False, default=dict)
+    rejection_reason = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ReferralReward(db.Model):
+    __tablename__ = 'referral_rewards'
+    __table_args__ = (
+        db.UniqueConstraint('idempotency_key', name='uq_referral_rewards_idempotency'),
+        db.UniqueConstraint('referral_id', 'reward_type', name='uq_referral_rewards_type'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    referral_id = db.Column(db.Integer, db.ForeignKey('referrals.id'), nullable=False, index=True)
+    beneficiary_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id'), nullable=False, index=True)
+    reward_type = db.Column(db.String(32), nullable=False)
+    amount_kobo = db.Column(db.Integer, nullable=False)
+    currency = db.Column(db.String(3), nullable=False, default='NGN')
+    status = db.Column(db.String(24), nullable=False, default='pending', index=True)
+    idempotency_key = db.Column(db.String(120), nullable=False, unique=True)
+    earned_at = db.Column(db.DateTime)
+    available_at = db.Column(db.DateTime)
+    expires_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class RewardTransaction(db.Model):
+    __tablename__ = 'reward_transactions'
+    __table_args__ = (
+        db.UniqueConstraint('idempotency_key', name='uq_reward_transactions_idempotency'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    reward_id = db.Column(db.Integer, db.ForeignKey('referral_rewards.id'), nullable=True, index=True)
+    referral_id = db.Column(db.Integer, db.ForeignKey('referrals.id'), nullable=False, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id'), nullable=False, index=True)
+    transaction_type = db.Column(db.String(32), nullable=False)
+    amount_kobo = db.Column(db.Integer, nullable=False)
+    previous_status = db.Column(db.String(24))
+    new_status = db.Column(db.String(24), nullable=False)
+    description = db.Column(db.String(500), nullable=False)
+    idempotency_key = db.Column(db.String(140), nullable=False, unique=True)
+    actor_user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    processed_at = db.Column(db.DateTime)
 
 
 class ServicePricing(db.Model):

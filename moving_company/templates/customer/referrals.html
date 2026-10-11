@@ -1,0 +1,118 @@
+{% extends 'dashboard_base.html' %}
+{% block dashboard_title %}Refer & Earn | Chigo Relocations{% endblock %}
+{% block dashboard_content %}
+<main class="mx-auto max-w-6xl space-y-7 px-4 py-7 sm:px-6">
+  <header class="flex flex-wrap items-end justify-between gap-4 border-b border-stone-200 pb-5">
+    <div>
+      <p class="text-xs font-bold uppercase tracking-[0.16em] text-brand-700">Chigo Refer &amp; Earn</p>
+      <h1 class="mt-2 text-2xl font-black text-stone-950">Share a better move</h1>
+      <p class="mt-1 max-w-2xl text-sm text-stone-600">Invite someone to Chigo. Referral credits are promotional, non-transferable and not redeemable for cash.</p>
+    </div>
+    <a href="{{ url_for('customer.dashboard') }}" class="text-sm font-semibold text-brand-700 underline underline-offset-4">Customer dashboard</a>
+  </header>
+
+  {% if campaign_active %}
+    <p role="status" class="border-l-4 border-emerald-600 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">A referred customer may receive ₦{{ '{:,.0f}'.format(discount_amount_kobo / 100) }} off their first eligible move. Your reward is earned after that move is completed and payment is verified.</p>
+  {% else %}
+    <p role="status" class="border-l-4 border-stone-400 bg-stone-100 px-4 py-3 text-sm text-stone-700">The referral programme is not currently active. Your code is reserved, but new referral discounts are unavailable.</p>
+  {% endif %}
+
+  <section aria-label="Referral totals" class="grid gap-px border border-stone-200 bg-stone-200 sm:grid-cols-2 lg:grid-cols-3">
+    {% set metrics = [
+      ('Successful referrals', successful_count),
+      ('Pending referrals', pending_count),
+      ('Available promotional credit', '₦{:,.0f}'.format(available_kobo / 100)),
+      ('Credits redeemed', '₦{:,.0f}'.format(redeemed_kobo / 100)),
+      ('Expired credits', '₦{:,.0f}'.format(expired_kobo / 100)),
+      ('Reversed credits', '₦{:,.0f}'.format(reversed_kobo / 100))
+    ] %}
+    {% for label, value in metrics %}<div class="bg-white p-4"><dt class="text-xs font-semibold uppercase tracking-wide text-stone-500">{{ label }}</dt><dd class="mt-2 text-xl font-black tabular-nums text-stone-950">{{ value }}</dd></div>{% endfor %}
+  </section>
+  <p class="text-xs text-stone-500">Total rewards earned: ₦{{ '{:,.0f}'.format(earned_kobo / 100) }} · Pending rewards: ₦{{ '{:,.0f}'.format(pending_kobo / 100) }}. Credits remain subject to the recorded programme terms and expiration date.</p>
+
+  <section class="grid gap-8 border-y border-stone-200 py-6 lg:grid-cols-[0.9fr_1.1fr]">
+    <div>
+      <h2 class="text-lg font-bold text-stone-950">Your referral code</h2>
+      <p class="mt-1 text-sm text-stone-600">This code is unique to your customer account.</p>
+      <div class="mt-4 flex flex-wrap items-center gap-3">
+        <code id="referral-code" class="border border-stone-300 bg-stone-50 px-4 py-3 font-mono text-lg font-bold tracking-wide text-stone-950">{{ code.code }}</code>
+        <button type="button" data-copy="{{ code.code }}" class="border border-stone-300 px-3 py-2.5 text-sm font-semibold text-stone-800 hover:bg-stone-50">Copy code</button>
+      </div>
+      <label for="referral-link" class="mt-5 block text-xs font-bold uppercase tracking-wide text-stone-500">Invitation link</label>
+      <div class="mt-1 flex flex-col gap-2 sm:flex-row">
+        <input id="referral-link" readonly value="{{ link }}" class="min-w-0 flex-1 border border-stone-300 bg-stone-50 px-3 py-2.5 text-sm text-stone-800" aria-label="Your referral link">
+        <button type="button" data-copy="{{ link }}" class="border border-stone-300 px-4 py-2.5 text-sm font-semibold text-stone-800 hover:bg-stone-50">Copy link</button>
+      </div>
+      {% set invite_text = "I'm inviting you to try Chigo for your next move in Abuja. Book using my referral link to get ₦" ~ '{:,.0f}'.format(discount_amount_kobo / 100) ~ " off your first eligible move. Terms apply: " ~ link %}
+      <div class="mt-3 flex flex-wrap gap-3">
+        <button type="button" id="share-referral" class="bg-brand-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-brand-800">Share invitation</button>
+        <a href="https://wa.me/?text={{ invite_text|urlencode }}" target="_blank" rel="noopener noreferrer" class="border border-emerald-700 px-4 py-2.5 text-sm font-bold text-emerald-800 hover:bg-emerald-50">Share on WhatsApp</a>
+      </div>
+      <p id="referral-copy-status" class="mt-2 min-h-5 text-xs text-stone-600" aria-live="polite"></p>
+    </div>
+
+    {% if can_apply_code %}
+    <section class="border-t border-stone-200 pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0" aria-labelledby="apply-referral-heading">
+      <h2 id="apply-referral-heading" class="text-lg font-bold text-stone-950">Have an invitation code?</h2>
+      <p class="mt-1 text-sm text-stone-600">Apply it before creating your first booking. Existing referrals cannot be replaced.</p>
+      <form method="post" class="mt-4 flex flex-col gap-3 sm:flex-row">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="sr-only" for="manual-referral-code">Referral code</label>
+        <input id="manual-referral-code" name="referral_code" required maxlength="24" autocomplete="off" placeholder="CHIGO-XXXXXXXX" class="min-w-0 flex-1 border border-stone-300 px-3 py-2.5 text-sm uppercase">
+        <button type="submit" class="bg-stone-900 px-4 py-2.5 text-sm font-bold text-white hover:bg-stone-800">Apply code</button>
+      </form>
+    </section>
+    {% endif %}
+  </section>
+
+  <section aria-labelledby="referral-activity-heading">
+    <div class="flex items-end justify-between gap-4 border-b border-stone-200 pb-3">
+      <div><p class="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Your account</p><h2 id="referral-activity-heading" class="mt-1 text-xl font-bold text-stone-950">Referral activity</h2></div>
+      <span class="text-xs text-stone-500">{{ total_referrals }} records</span>
+    </div>
+    {% if referrals %}
+      <div class="divide-y divide-stone-200">
+        {% for item in referrals %}
+          {% set referral = item.referral %}
+          <article class="grid gap-2 py-4 sm:grid-cols-[1fr_auto] sm:items-center">
+            <div>
+              <p class="font-semibold text-stone-900">{% if item.direction == 'incoming' %}Your referral · {% endif %}{{ referral.status|replace('_', ' ')|title }}{% if item.booking_reference %} · {{ item.booking_reference }}{% endif %}</p>
+              <p class="mt-1 text-xs text-stone-500">Attributed {{ referral.attributed_at.strftime('%b %-d, %Y') }} · {{ referral.attribution_source|title }}{% if item.reward and item.reward.expires_at %} · Credit expires {{ item.reward.expires_at.strftime('%b %-d, %Y') }}{% endif %}</p>
+              {% if item.direction == 'incoming' and item.discount_amount %}<p class="mt-1 text-xs font-semibold text-emerald-800">Referral discount applied: ₦{{ '{:,.0f}'.format(item.discount_amount) }}</p>{% endif %}
+              {% if referral.rejection_reason %}<p class="mt-1 text-xs text-rose-700">{{ referral.rejection_reason }}</p>{% endif %}
+            </div>
+            {% if item.reward %}<p class="text-sm font-bold tabular-nums text-emerald-800">₦{{ '{:,.0f}'.format(item.reward.amount_kobo / 100) }} · {{ item.reward.status|title }}</p>{% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="border-b border-stone-200 py-8">
+        <h3 class="font-semibold text-stone-900">No referrals yet</h3>
+        <p class="mt-1 text-sm text-stone-600">Share your personal link with someone planning a move. Their activity will appear here once they create an account.</p>
+      </div>
+    {% endif %}
+    {% if has_previous or has_next %}<nav aria-label="Referral activity pages" class="flex items-center justify-between border-b border-stone-200 py-4 text-sm">{% if has_previous %}<a href="{{ url_for('customer.referrals', page=page - 1) }}" class="font-semibold text-brand-700 underline underline-offset-4">Previous</a>{% else %}<span></span>{% endif %}<span class="text-xs text-stone-500">Page {{ page }}</span>{% if has_next %}<a href="{{ url_for('customer.referrals', page=page + 1) }}" class="font-semibold text-brand-700 underline underline-offset-4">Next</a>{% else %}<span></span>{% endif %}</nav>{% endif %}
+  </section>
+  <p class="border-t border-stone-200 pt-4 text-xs leading-5 text-stone-500">Referral discounts apply only to eligible first bookings and cannot be combined unless Chigo explicitly permits it. Promotional credits are not cash, cannot be transferred or withdrawn, and may be reversed for cancellations, refunds or substantiated abuse. Reward terms are fixed when your referral is recorded.</p>
+</main>
+<script>
+  const copyStatus = document.getElementById('referral-copy-status');
+  document.querySelectorAll('[data-copy]').forEach((button) => button.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(button.dataset.copy);
+      copyStatus.textContent = 'Copied to clipboard.';
+    } catch (_) {
+      copyStatus.textContent = 'Clipboard access is unavailable. Select and copy the value above.';
+    }
+  }));
+  document.getElementById('share-referral')?.addEventListener('click', async () => {
+    const shareData = {title: 'Chigo Refer & Earn', text: {{ invite_text|tojson }}, url: {{ link|tojson }}};
+    if (navigator.share) {
+      try { await navigator.share(shareData); } catch (_) { copyStatus.textContent = 'Sharing was cancelled.'; }
+    } else {
+      try { await navigator.clipboard.writeText(`${shareData.text}`); copyStatus.textContent = 'Invitation copied to clipboard.'; }
+      catch (_) { copyStatus.textContent = 'Sharing is unavailable in this browser.'; }
+    }
+  });
+</script>
+{% endblock %}

@@ -13,7 +13,10 @@ from ..services.booking_engine_service import (
     recommended_services, replace_inventory, save_inventory_photo, save_vehicle_selection,
     save_workflow_section, suggested_inventory, update_inventory_selections, vehicle_options,
 )
-from ..services.service_workflow import get_service_workflow, property_types_for_service, validate_property_type_for_service
+from ..services.service_workflow import (
+    addon_questions_for, get_service_workflow, property_types_for_service,
+    service_questions_for, validate_property_type_for_service, validate_question_answers,
+)
 from ..services.image_upload_service import save_image
 from ..services.location_service import (
     area_council_for_point, geocode_address, get_local_place, record_location_observation,
@@ -40,7 +43,9 @@ SERVICE_OPTIONS = {
     'packing': ('none', 'partial', 'full'), 'unpacking': ('no', 'yes'),
     'storage': ('none', '1 week', '1 month', '3 months'), 'assembly': ('no', 'yes'),
     'disassembly': ('no', 'yes'), 'cleaning': ('none', 'move-out', 'move-in', 'both'),
+    'home_decor': ('none', 'yes'),
 }
+MOVE_PROPERTY_SERVICES = frozenset({'residential', 'commercial'})
 SERVICE_CARD_CONFIG = (
     ('Packing & Protection', 'packing', 'partial', 'Partial packing', 'We safely pack selected rooms and items.', 'packing_partial', 30),
     ('Packing & Protection', 'packing', 'full', 'Full packing', 'Our team packs the complete move inventory.', 'packing_full', 0),
@@ -50,6 +55,7 @@ SERVICE_CARD_CONFIG = (
     ('Cleaning', 'cleaning', 'move-out', 'Move-out cleaning', 'Clean the property after items are removed.', 'cleaning_move_out', 90),
     ('Cleaning', 'cleaning', 'move-in', 'Move-in cleaning', 'Prepare the new property before unpacking.', 'cleaning_move_in', 90),
     ('Cleaning', 'cleaning', 'both', 'Move-in and move-out cleaning', 'Cleaning at both ends of the move.', 'cleaning_both', 150),
+    ('Home decor', 'home_decor', 'yes', 'Home decor setup', 'Arrange and style your space after the move.', 'home_decor', 120),
     ('Storage', 'storage', '1 week', 'Short-term storage · 1 week', 'Secure storage for a short transition.', 'storage_week', 0),
     ('Storage', 'storage', '1 month', 'Storage · 1 month', 'Storage for a longer move transition.', 'storage_week', 0),
     ('Storage', 'storage', '3 months', 'Storage · 3 months', 'Extended storage while plans settle.', 'storage_week', 0),
@@ -101,6 +107,71 @@ def service_cards(booking):
         }
         grouped.setdefault(category, []).append(card)
     return grouped
+
+
+def _validated_addon_answers(services, source, *, primary_service=None, prefixed=False):
+    selected = {
+        key for key in ('packing', 'storage', 'cleaning', 'home_decor')
+        if services.get(key) not in {None, '', 'none', 'no'}
+        and key != primary_service
+    }
+    schemas = addon_questions_for(selected)
+    if prefixed:
+        for addon in {'packing', 'storage', 'cleaning', 'home_decor'} - set(schemas) - ({primary_service} if primary_service else set()):
+            stale_keys = [
+                key for key, value in source.items()
+                if key.startswith(f'addon_{addon}_') and value not in (None, '', [])
+            ]
+            if stale_keys:
+                raise ValueError(f"Select the {addon.replace('_', ' ')} service before submitting its answers.")
+    else:
+        submitted_addons = set((source or {}).keys())
+        unsupported_addons = submitted_addons - set(schemas)
+        if unsupported_addons:
+            raise ValueError(f"Select the {', '.join(sorted(addon.replace('_', ' ') for addon in unsupported_addons))} service before submitting its answers.")
+    validated = {}
+    for addon, sections in schemas.items():
+        addon_values = {}
+        if not prefixed and not isinstance((source or {}).get(addon, {}), dict):
+            raise ValueError(f'Answers for {addon.replace("_", " ")} must be an object.')
+        submitted = (source or {}).get(addon, {}) if not prefixed else source
+        if not prefixed:
+            unknown_sections = set(submitted) - set(sections)
+            if unknown_sections:
+                raise ValueError(f'Unknown {addon.replace("_", " ")} answer sections: {", ".join(sorted(unknown_sections))}.')
+        for section, schema in sections.items():
+            if prefixed:
+                answers = {
+                    field['key']: source.get(f'addon_{addon}_{section}_{field["key"]}')
+                    for field in schema
+                    if f'addon_{addon}_{section}_{field["key"]}' in source
+                }
+            else:
+                answers = submitted.get(section, {})
+                if not isinstance(answers, dict):
+                    raise ValueError(f'Answers for {addon.replace("_", " ")} {section} must be an object.')
+            addon_values[section] = validate_question_answers(schema, answers)
+        validated[addon] = addon_values
+    return validated
+
+
+def _question_form_values(schema, form, prefix):
+    return {
+        field['key']: (
+            form.getlist(f'{prefix}{field["key"]}')
+            if field['type'] == 'multiselect' else form.get(f'{prefix}{field["key"]}')
+        )
+        for field in schema
+        if f'{prefix}{field["key"]}' in form
+    }
+
+
+def _store_inventory_answers(booking, answers, user_id=None):
+    workflow_data = dict(booking.workflow_data or {})
+    previous = workflow_data.get('inventory_answers', {})
+    workflow_data['inventory_answers'] = answers
+    booking.workflow_data = workflow_data
+    record_event(booking, 'inventory_answers.updated', previous=previous, new=answers, user_id=user_id)
 
 
 def _get_request(request_id):
@@ -239,6 +310,8 @@ def _location_payload(form):
     data['route_duration_minutes'] = float(route['duration_minutes']) if route else None
     data['route_provider'] = route.get('provider') if route else None
     data['distance_source'] = route.get('distance_source') if route else None
+    if route and route.get('distance_source') == 'approximate':
+        data['distance_source'] = 'approximate-landmark-or-district'
     data['distance_precision'] = route.get('distance_precision') if route else 'unresolved'
     data['route_status'] = 'CALCULATED' if route else 'PENDING'
     data['route_calculated_at'] = datetime.utcnow() if route else None
@@ -249,10 +322,39 @@ def _location_payload(form):
     return data
 
 
+def _location_access_payload(form):
+    answers = {}
+    for place in ('pickup', 'destination'):
+        floor = getattr(form, f'{place}_floor').data or 'Ground'
+        value = getattr(form, f'{place}_lift_available').data
+        if floor != 'Ground':
+            if value not in {'yes', 'no'}:
+                raise ValueError(f'Confirm whether a lift is available at the above-ground {place} location.')
+            answers[f'{place}_lift_available'] = value == 'yes'
+        else:
+            answers[f'{place}_lift_available'] = None
+    return answers
+
+
 @booking_bp.route('/start')
 @booking_bp.route('/start/<service_type>')
 @login_required
 def start(service_type='residential'):
+    try:
+        service_type = get_service_workflow({'primary_service': service_type})['service_type']
+    except ValueError:
+        abort(404)
+    addon = request.args.get('addon')
+    initial_services = {
+        'cleaning': {'cleaning': 'move-out'},
+        'home_decor': {'home_decor': 'yes'},
+    }
+    if addon is not None and addon not in initial_services:
+        abort(404)
+    session['booking_initial_services'] = {
+        'service_type': service_type,
+        'services': initial_services.get(addon, {}),
+    }
     booking_session_key = session.setdefault('_analytics_booking_session', secrets.token_urlsafe(12))
     queue_analytics_event('booking_started', dedupe_key=f'booking_started:{booking_session_key}', service_type=service_type)
     session.pop('active_booking_request_id', None)
@@ -285,7 +387,11 @@ def location(service_type='residential'):
                     location=_location_payload(form),
                     user_id=current_user.id if current_user.is_authenticated else None,
                     service_type=service_type,
+                    location_access=_location_access_payload(form),
+                    initial_services=(session.get('booking_initial_services') or {}).get('services', {})
+                    if (session.get('booking_initial_services') or {}).get('service_type') == service_type else None,
                 )
+                session.pop('booking_initial_services', None)
                 session['active_booking_request_id'] = booking.booking_request_id
                 queue_booking_conversion(booking, 'location_completed')
                 return redirect(url_for('booking.workflow', request_id=booking.booking_request_id, stage='property'))
@@ -313,10 +419,14 @@ def edit_location(request_id):
         else:
             try:
                 location_data = _location_payload(form)
+                location_access = _location_access_payload(form)
                 previous = {'pickup': booking.pickup_formatted_address or booking.pickup_address,
                             'destination': booking.destination_formatted_address or booking.destination_address}
                 for field, value in location_data.items():
                     setattr(booking, field, value)
+                workflow_data = dict(booking.workflow_data or {})
+                workflow_data['location_access'] = location_access
+                booking.workflow_data = workflow_data
                 invalidate_from(booking, 'location', current_user.id if current_user.is_authenticated else None)
                 record_event(booking, 'location.updated', previous=previous,
                              new={'pickup': booking.pickup_formatted_address or booking.pickup_address,
@@ -349,6 +459,15 @@ def workflow(request_id, stage):
     booking = _get_request(request_id)
     if not _stage_is_unlocked(booking, stage):
         return redirect(url_for('booking.workflow', request_id=request_id, stage=_next_stage(booking)))
+    if stage == 'services':
+        try:
+            validate_question_answers(
+                service_questions_for(booking.primary_service, 'inventory'),
+                (booking.workflow_data or {}).get('inventory_answers') or {},
+            )
+        except ValueError:
+            flash('Complete the service-specific inventory questions before choosing additional services.', 'error')
+            return redirect(url_for('booking.workflow', request_id=request_id, stage='inventory'))
     if stage == 'review':
         if not current_user.is_authenticated or booking.customer_id != current_user.id:
             abort(404)
@@ -359,7 +478,8 @@ def workflow(request_id, stage):
         try:
             if stage == 'property':
                 property_type = request.form.get('property_type', '')
-                if request.form.get('action') == 'choose_property_type':
+                requires_property_type = booking.primary_service in MOVE_PROPERTY_SERVICES
+                if request.form.get('action') == 'choose_property_type' and requires_property_type:
                     property_type = validate_property_type_for_service(booking.primary_service, property_type)
                     workflow_data = dict(booking.workflow_data or {})
                     previous = workflow_data.get('property', {})
@@ -369,24 +489,24 @@ def workflow(request_id, stage):
                                  user_id=current_user.id if current_user.is_authenticated else None)
                     db.session.commit()
                     return redirect(url_for('booking.workflow', request_id=request_id, stage='property'))
-                property_type = validate_property_type_for_service(booking.primary_service, property_type)
-                values = {key: request.form.get(key, type=int, default=0) for key in ('bedrooms', 'bathrooms', 'floors', 'rooms', 'workstations')}
-                values.update({
-                    'property_type': property_type,
-                    'approximate_size_m2': request.form.get('approximate_size_m2', type=float),
-                    'elevator': request.form.get('elevator') == 'yes',
-                    'loading_bay': request.form.get('loading_bay') == 'yes',
-                    'forklift': request.form.get('forklift') == 'yes',
-                })
-                commercial = property_type in {'Office', 'Shop', 'Warehouse', 'Construction Site'}
-                if property_type in {'Apartment', 'House', 'Duplex', 'Hotel', 'Estate'}:
-                    values['rooms'] = values['workstations'] = 0
-                elif commercial:
-                    values['bedrooms'] = values['bathrooms'] = 0
-                if property_type not in {'Office'}:
-                    values['workstations'] = 0
-                if any(values[key] < 0 for key in ('bedrooms', 'bathrooms', 'floors', 'rooms', 'workstations')) or values['floors'] < 1:
-                    raise ValueError('Enter valid property counts. Floors must be at least one.')
+                if requires_property_type:
+                    property_type = validate_property_type_for_service(booking.primary_service, property_type)
+                service_schema = service_questions_for(booking.primary_service, 'property')
+                service_answers = validate_question_answers(
+                    service_schema, _question_form_values(service_schema, request.form, 'service_'),
+                )
+                values = {'service_answers': service_answers}
+                if requires_property_type:
+                    values['property_type'] = property_type
+                    if booking.primary_service == 'residential':
+                        values['bedrooms'] = request.form.get('bedrooms', type=int, default=0)
+                        values['bathrooms'] = request.form.get('bathrooms', type=int, default=0)
+                        values['approximate_size_m2'] = request.form.get('approximate_size_m2', type=float)
+                    else:
+                        values['business_work_areas'] = service_answers['business_work_areas']
+                values['service_answers'] = service_answers
+                if any(values.get(key, 0) < 0 for key in ('bedrooms', 'bathrooms', 'business_work_areas')):
+                    raise ValueError('Property and business work-area counts must be non-negative.')
                 save_workflow_section(booking, 'property', values, current_user.id if current_user.is_authenticated else None)
                 if had_calculation:
                     flash('Property details changed. Downstream handling, duration, and quote estimates were invalidated.', 'success')
@@ -609,6 +729,10 @@ def workflow(request_id, stage):
                     return redirect(url_for('booking.workflow', request_id=request_id, stage='inventory'))
 
                 if request.form.get('action') == 'save_and_continue':
+                    inventory_schema = service_questions_for(booking.primary_service, 'inventory')
+                    inventory_answers = validate_question_answers(
+                        inventory_schema, _question_form_values(inventory_schema, request.form, 'inventory_'),
+                    )
                     selection_ids = request.form.getlist('selection_id[]')
                     quantities = request.form.getlist('quantity[]')
                     if not selection_ids or len(selection_ids) != len(quantities):
@@ -629,9 +753,11 @@ def workflow(request_id, stage):
                     update_inventory_selections(
                         booking, changes, current_user.id if current_user.is_authenticated else None,
                     )
+                    _store_inventory_answers(booking, inventory_answers, current_user.id if current_user.is_authenticated else None)
                     selected_vehicle = request.form.get('vehicle_type_id')
                     if selected_vehicle:
                         save_vehicle_selection(booking, selected_vehicle, current_user.id if current_user.is_authenticated else None)
+                    db.session.commit()
                     queue_booking_conversion(booking, 'inventory_completed')
                     return redirect(url_for('booking.workflow', request_id=request_id, stage='services'))
 
@@ -665,6 +791,15 @@ def workflow(request_id, stage):
                         'size': legacy_sizes[index] if index < len(legacy_sizes) else 'medium',
                     } for index, name in enumerate(legacy_names) if name.strip()]
                 replace_inventory(booking, items, current_user.id if current_user.is_authenticated else None)
+                raw_inventory_answers = _question_form_values(
+                    service_questions_for(booking.primary_service, 'inventory'), request.form, 'inventory_',
+                )
+                if raw_inventory_answers:
+                    inventory_answers = validate_question_answers(
+                        service_questions_for(booking.primary_service, 'inventory'), raw_inventory_answers,
+                    )
+                    _store_inventory_answers(booking, inventory_answers, current_user.id if current_user.is_authenticated else None)
+                    db.session.commit()
                 legacy_photo = request.files.get('item_photo_0')
                 if legacy_photo and legacy_photo.filename:
                     saved = save_image(legacy_photo, f'inventory/{booking.id}', current_app.config['MAX_IMAGE_SIZE'])
@@ -690,7 +825,7 @@ def workflow(request_id, stage):
             if stage == 'services':
                 services = {}
                 for key, allowed in SERVICE_OPTIONS.items():
-                    value = request.form.get(key, 'none' if key in {'packing', 'storage', 'cleaning'} else 'no')
+                    value = request.form.get(key, 'none' if key in {'packing', 'storage', 'cleaning', 'home_decor'} else 'no')
                     if value not in allowed:
                         raise ValueError(f'Choose a valid option for {key.replace("_", " ")}.')
                     if value not in {'none', 'no'}:
@@ -698,7 +833,39 @@ def workflow(request_id, stage):
                 for key in request.form.getlist('recommendation'):
                     if key in {'packing', 'assembly', 'disassembly'}:
                         services[key] = 'partial' if key == 'packing' else 'yes'
+                addon_answers = _validated_addon_answers(
+                    services, request.form, primary_service=booking.primary_service, prefixed=True,
+                )
+                service_photo_files = []
+                for addon in addon_answers:
+                    service_photo_files.extend((addon, upload) for upload in request.files.getlist(f'{addon}_photos') if upload and upload.filename)
+                if len(booking.photos) + len(service_photo_files) > current_app.config['MAX_BOOKING_ATTACHMENTS']:
+                    raise ValueError('This booking has reached its image limit.')
+                saved_service_photos = []
+                for addon, upload in service_photo_files:
+                    saved = save_image(upload, 'booking', current_app.config['MAX_IMAGE_SIZE'])
+                    saved_service_photos.append(BookingPhoto(
+                        booking_id=booking.id, uploaded_by_id=current_user.id if current_user.is_authenticated else None,
+                        file_name=saved['file_url'], original_filename=saved['original_filename'],
+                        mime_type=saved['mime_type'], file_size=saved['file_size'],
+                        category=f'service_{addon}',
+                        sort_order=BookingPhoto.query.filter_by(booking_id=booking.id, category=f'service_{addon}').count(),
+                    ))
                 save_workflow_section(booking, 'services', services, current_user.id if current_user.is_authenticated else None)
+                workflow_data = dict(booking.workflow_data or {})
+                previous_addon_answers = workflow_data.get('addon_answers', {})
+                workflow_data['addon_answers'] = addon_answers
+                active_addons = {
+                    key for key in ('packing', 'storage', 'cleaning', 'home_decor')
+                    if services.get(key) not in {None, '', 'none', 'no'} and key != booking.primary_service
+                }
+                for addon in set(previous_addon_answers) - active_addons:
+                    record_event(booking, 'addon_answers.cleared', previous=previous_addon_answers[addon],
+                                 new={}, user_id=current_user.id if current_user.is_authenticated else None)
+                booking.workflow_data = workflow_data
+                db.session.add_all(saved_service_photos)
+                record_event(booking, 'addon_answers.updated', previous=previous_addon_answers,
+                             new=addon_answers, user_id=current_user.id if current_user.is_authenticated else None)
                 booking.workflow_state = 'SERVICES_COMPLETED'
                 db.session.commit()
                 queue_booking_conversion(booking, 'services_selected')
@@ -745,7 +912,13 @@ def workflow(request_id, stage):
             flash(str(error), 'error')
     safety_factor = ServicePricing.query.filter_by(key='volume_safety_factor').first()
     property_data = (booking.workflow_data or {}).get('property', {})
-    inventory_property_type = property_data.get('property_type') or booking.property_type
+    property_answers = property_data.get('service_answers', {})
+    if booking.primary_service == 'packing':
+        inventory_property_type = 'Office' if property_answers.get('packing_for') == 'business' else 'Apartment'
+    elif booking.primary_service in {'storage', 'logistics'}:
+        inventory_property_type = None
+    else:
+        inventory_property_type = property_data.get('property_type') or booking.property_type
     estate_unit_type = request.args.get('unit_type', '')
     return render_template(
         'move_request/engine.html', stage=stage, stages=STAGES, booking=booking,
@@ -754,6 +927,11 @@ def workflow(request_id, stage):
         service_workflow=get_service_workflow(booking), service_type=booking.primary_service,
         property_types=property_types_for_service(booking.primary_service), service_options=SERVICE_OPTIONS,
         recommendations=recommended_services(booking),
+        service_questions=service_questions_for(booking.primary_service, 'property'),
+        inventory_questions=service_questions_for(booking.primary_service, 'inventory'),
+        addon_questions=addon_questions_for(
+            {'packing', 'storage', 'cleaning', 'home_decor'} - {booking.primary_service},
+        ),
         service_cards=service_cards(booking),
         inventory_suggestions=suggested_inventory(booking),
         inventory_catalog=catalogue_items_for_service(
@@ -861,20 +1039,31 @@ def api_update_property(request_id):
     if booking.workflow_state not in {'LOCATION_COMPLETED', 'PROPERTY_COMPLETED'}:
         return jsonify({'success': False, 'error': 'Complete location before adding property details.'}), 409
     payload = request.get_json(silent=True) or {}
+    requires_property_type = booking.primary_service in MOVE_PROPERTY_SERVICES
     property_type = payload.get('property_type')
     try:
-        property_type = validate_property_type_for_service(booking.primary_service, property_type)
-    except ValueError as error:
-        return jsonify({'success': False, 'error': str(error)}), 422
-    values = {key: payload.get(key, 0) for key in ('bedrooms', 'bathrooms', 'floors', 'rooms', 'workstations')}
-    values.update({key: payload.get(key) for key in ('approximate_size_m2', 'elevator', 'loading_bay', 'forklift')})
-    values['property_type'] = property_type
-    try:
-        values['floors'] = int(values.get('floors') or 1)
-        for key in ('bedrooms', 'bathrooms', 'rooms', 'workstations'):
-            values[key] = int(values.get(key) or 0)
-        if values['floors'] < 1 or any(values[key] < 0 for key in ('bedrooms', 'bathrooms', 'rooms', 'workstations')):
-            raise ValueError('Property counts must be non-negative and floors must be at least one.')
+        if requires_property_type:
+            property_type = validate_property_type_for_service(booking.primary_service, property_type)
+        values = {}
+        if requires_property_type:
+            values['property_type'] = property_type
+            if booking.primary_service == 'residential':
+                values.update({key: payload.get(key, 0) for key in ('bedrooms', 'bathrooms')})
+                values['approximate_size_m2'] = payload.get('approximate_size_m2')
+        answers = payload.get('service_answers') or {}
+        if not isinstance(answers, dict):
+            raise ValueError('service_answers must be an object.')
+        service_answers = validate_question_answers(
+            service_questions_for(booking.primary_service, 'property'), answers,
+        )
+        values['service_answers'] = service_answers
+        if booking.primary_service == 'commercial':
+            values['business_work_areas'] = service_answers['business_work_areas']
+        for key in ('bedrooms', 'bathrooms'):
+            if key in values:
+                values[key] = int(values.get(key) or 0)
+                if values[key] < 0:
+                    raise ValueError('Property counts must be non-negative.')
         save_workflow_section(booking, 'property', values, current_user.id if current_user.is_authenticated else None)
         return jsonify({'success': True, 'booking_request_id': request_id, 'state': booking.workflow_state})
     except (TypeError, ValueError) as error:
@@ -889,11 +1078,22 @@ def api_update_inventory(request_id):
     if booking.workflow_state not in {'PROPERTY_COMPLETED', 'INVENTORY_COMPLETED'}:
         return jsonify({'success': False, 'error': 'Complete property details before adding inventory.'}), 409
     payload = request.get_json(silent=True) or {}
+    unsupported = set(payload) - {'items', 'inventory_answers'}
+    if unsupported:
+        return jsonify({'success': False, 'error': f'Unknown inventory field: {", ".join(sorted(unsupported))}.'}), 422
     items = payload.get('items')
     if not isinstance(items, list):
         return jsonify({'success': False, 'error': 'Provide inventory as an array of items.'}), 422
     try:
+        raw_answers = payload.get('inventory_answers') or {}
+        if not isinstance(raw_answers, dict):
+            raise ValueError('inventory_answers must be an object.')
+        inventory_answers = validate_question_answers(
+            service_questions_for(booking.primary_service, 'inventory'), raw_answers,
+        )
         replace_inventory(booking, items, current_user.id if current_user.is_authenticated else None)
+        _store_inventory_answers(booking, inventory_answers, current_user.id if current_user.is_authenticated else None)
+        db.session.commit()
         return jsonify({'success': True, 'booking_request_id': request_id, 'state': booking.workflow_state,
                         'item_count': sum(item.quantity for item in booking.inventory)})
     except ValueError as error:
@@ -908,11 +1108,32 @@ def api_update_services(request_id):
     if booking.workflow_state not in {'INVENTORY_COMPLETED', 'SERVICES_COMPLETED'}:
         return jsonify({'success': False, 'error': 'Add inventory before selecting services.'}), 409
     payload = request.get_json(silent=True) or {}
+    unsupported = set(payload) - set(SERVICE_OPTIONS) - {'addon_answers'}
+    if unsupported:
+        return jsonify({'success': False, 'error': f'Unknown service field: {", ".join(sorted(unsupported))}.'}), 422
     for key, value in payload.items():
         if key in SERVICE_OPTIONS and value not in SERVICE_OPTIONS[key]:
             return jsonify({'success': False, 'error': f'Choose a valid option for {key.replace("_", " ")}.'}), 422
+    addon_answers = payload.get('addon_answers') or {}
+    if not isinstance(addon_answers, dict):
+        return jsonify({'success': False, 'error': 'addon_answers must be an object.'}), 422
     try:
-        save_workflow_section(booking, 'services', payload, current_user.id if current_user.is_authenticated else None)
+        services = {key: value for key, value in payload.items() if key in SERVICE_OPTIONS}
+        validated_answers = _validated_addon_answers(
+            services, addon_answers, primary_service=booking.primary_service,
+        )
+        save_workflow_section(booking, 'services', services, current_user.id if current_user.is_authenticated else None)
+        workflow_data = dict(booking.workflow_data or {})
+        previous_addon_answers = workflow_data.get('addon_answers', {})
+        workflow_data['addon_answers'] = validated_answers
+        active_addons = set(validated_answers)
+        for addon in set(previous_addon_answers) - active_addons:
+            record_event(booking, 'addon_answers.cleared', previous=previous_addon_answers[addon], new={},
+                         user_id=current_user.id if current_user.is_authenticated else None)
+        booking.workflow_data = workflow_data
+        record_event(booking, 'addon_answers.updated', previous=previous_addon_answers,
+                     new=validated_answers, user_id=current_user.id if current_user.is_authenticated else None)
+        db.session.commit()
         return jsonify({'success': True, 'booking_request_id': request_id, 'state': booking.workflow_state,
                         'recommendations': recommended_services(booking)})
     except ValueError as error:

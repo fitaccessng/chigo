@@ -5,6 +5,7 @@ from ..extensions import db
 from ..models import Booking, BookingItem, BookingPhoto, IncidentReport, Notification, Review
 from ..services.booking_engine_service import record_event
 from ..services.image_upload_service import delete_image, save_image
+from ..services.referral_service import record_manual_referral, referral_dashboard_data
 
 customer_bp = Blueprint('customer', __name__)
 
@@ -22,6 +23,24 @@ def dashboard():
 def bookings():
     bookings = Booking.query.filter_by(customer_id=current_user.id).order_by(Booking.created_at.desc()).all()
     return render_template('customer/bookings.html', bookings=bookings)
+
+
+@customer_bp.route('/referrals', methods=['GET', 'POST'])
+@login_required
+def referrals():
+    if current_user.role != 'customer':
+        abort(403)
+    if request.method == 'POST':
+        try:
+            record_manual_referral(current_user, request.form.get('referral_code'))
+            flash('Referral code applied to your account.', 'success')
+        except ValueError as error:
+            db.session.rollback()
+            flash(str(error), 'error')
+        return redirect(url_for('customer.referrals'))
+    dashboard_data = referral_dashboard_data(current_user, request.args.get('page', 1, type=int))
+    db.session.commit()
+    return render_template('customer/referrals.html', **dashboard_data)
 
 
 @customer_bp.route('/bookings/<int:booking_id>')
@@ -166,4 +185,10 @@ def report_incident(booking_id):
 def profile():
     from ..models import OAuthIdentity
     google_linked = OAuthIdentity.query.filter_by(user_id=current_user.id, provider='google').first() is not None
-    return render_template('customer/profile.html', user=current_user, google_linked=google_linked)
+    referral_summary = referral_dashboard_data(current_user)
+    return render_template(
+        'customer/profile.html',
+        user=current_user,
+        google_linked=google_linked,
+        referral_summary=referral_summary,
+    )

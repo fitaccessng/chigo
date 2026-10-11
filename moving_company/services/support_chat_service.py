@@ -91,7 +91,7 @@ def _serialize_context(conversation):
         'payment_status': None,
     }
     if conversation.booking_id:
-        booking = Booking.query.get(conversation.booking_id)
+        booking = db.session.get(Booking, conversation.booking_id)
         if booking:
             context.update({
                 'service_type': booking.primary_service,
@@ -193,6 +193,7 @@ def request_human(conversation_id, customer_id, reason):
         conversation_id=conversation_id,
         customer_id=customer_id,
         booking_id=conversation.booking_id,
+        service_type=(conversation.booking.primary_service if conversation.booking else None),
         reason=reason,
         status='WAITING_FOR_AGENT',
         created_at=datetime.utcnow(),
@@ -258,7 +259,7 @@ def get_conversation_messages(conversation_id, customer_id, after_id=None):
 
 
 def take_conversation(conversation_id, agent_id):
-    conversation = SupportConversation.query.get(conversation_id)
+    conversation = db.session.get(SupportConversation, conversation_id)
     if conversation is None or conversation.status == 'RESOLVED':
         return None
     conversation.status = 'HUMAN_ACTIVE'
@@ -278,7 +279,7 @@ def take_conversation(conversation_id, agent_id):
 
 
 def add_admin_message(conversation_id, agent_id, message):
-    conversation = SupportConversation.query.get(conversation_id)
+    conversation = db.session.get(SupportConversation, conversation_id)
     if conversation is None or conversation.status != 'HUMAN_ACTIVE':
         return None
     item = SupportMessage(
@@ -293,7 +294,7 @@ def add_admin_message(conversation_id, agent_id, message):
 
 
 def resolve_conversation(conversation_id):
-    conversation = SupportConversation.query.get(conversation_id)
+    conversation = db.session.get(SupportConversation, conversation_id)
     if conversation is None:
         return None
     conversation.status = 'RESOLVED'

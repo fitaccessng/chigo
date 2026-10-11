@@ -1,10 +1,11 @@
 from datetime import date
 
+from ..extensions import db
 from ..models import Booking, BookingAssignment
 
 
 def check_assignment_conflict(booking_id, truck_id=None, move_date=None, driver_name=None, mover_names=None, cleaner_name=None):
-    booking = Booking.query.get(booking_id)
+    booking = db.session.get(Booking, booking_id)
     target_date = move_date or (booking.move_date if booking else None)
     if isinstance(target_date, str):
         target_date = date.fromisoformat(target_date)

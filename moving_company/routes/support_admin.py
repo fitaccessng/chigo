@@ -46,7 +46,7 @@ def send_admin_message(conversation_id):
     if not _require_support_agent():
         return jsonify({'success': False, 'error': 'Unauthorized.'}), 403
     if request.method == 'GET':
-        conversation = SupportConversation.query.get(conversation_id)
+        conversation = db.session.get(SupportConversation, conversation_id)
         if conversation is None or conversation.customer_id is None:
             return jsonify({'success': False, 'error': 'Conversation not found.'}), 404
         try:

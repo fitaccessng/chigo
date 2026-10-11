@@ -1,0 +1,83 @@
+{% extends 'admin/admin_base.html' %}
+{% block admin_title %}Refer &amp; Earn | Chigo Operations{% endblock %}
+{% block dashboard_content %}
+<main class="space-y-8">
+  <header class="flex flex-wrap items-end justify-between gap-4 border-b border-stone-300 pb-5">
+    <div><p class="text-xs font-bold uppercase tracking-[0.16em] text-emerald-800">Customer growth</p><h1 class="mt-2 text-2xl font-black text-stone-950">Refer &amp; Earn</h1><p class="mt-1 text-sm text-stone-600">Referral conversion counts only completed, paid moves with an issued reward.</p></div>
+    <span class="border px-3 py-1.5 text-xs font-bold uppercase tracking-wide {% if campaign.active %}border-emerald-300 bg-emerald-50 text-emerald-900{% else %}border-stone-300 bg-stone-100 text-stone-700{% endif %}">{{ 'Active' if campaign.active else 'Inactive' }}</span>
+  </header>
+
+  <section aria-label="Referral programme metrics" class="grid gap-px overflow-hidden border border-stone-200 bg-stone-200 sm:grid-cols-2 xl:grid-cols-4">
+    {% set metrics_list = [
+      ('All referrals', metrics.total),
+      ('Successful referrals', metrics.successful),
+      ('Pending qualification', metrics.pending),
+      ('Rejected referrals', metrics.rejected),
+      ('New-customer discounts', '₦{:,.0f}'.format(metrics.discounts_kobo / 100)),
+      ('Rewards earned', '₦{:,.0f}'.format(metrics.rewards_kobo / 100)),
+      ('Outstanding credits', '₦{:,.0f}'.format(metrics.outstanding_kobo / 100)),
+      ('Credits redeemed', '₦{:,.0f}'.format(metrics.redeemed_kobo / 100)),
+      ('Completed referral conversion', '{}%'.format(metrics.conversion_percent)),
+      ('Acquisition cost / success', '₦{:,.0f}'.format(metrics.acquisition_cost_kobo / 100))
+    ] %}
+    {% for label, value in metrics_list %}<div class="bg-white p-4"><p class="text-xs font-semibold uppercase tracking-wide text-stone-500">{{ label }}</p><p class="mt-2 text-xl font-black tabular-nums text-stone-950">{{ value }}</p></div>{% endfor %}
+  </section>
+  <p class="text-xs leading-5 text-stone-500">Conversion = rewarded referrals / all recorded referrals. Acquisition cost = (issued discounts + earned credits) / successful referrals. Revenue and contribution margin are not included because booking-level net revenue/cost data is not currently modelled.</p>
+
+  <section class="border-y border-stone-300 py-6" aria-labelledby="programme-config-heading">
+    <div class="mb-5"><p class="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Campaign</p><h2 id="programme-config-heading" class="mt-1 text-xl font-bold text-stone-950">Programme configuration</h2><p class="mt-1 text-sm text-stone-600">Changes affect new attributions only. Existing referrals keep their recorded terms.</p></div>
+    <form method="post" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="configure">
+      <label class="flex min-h-11 items-center gap-3 border border-stone-300 px-3 py-2 text-sm font-semibold sm:col-span-2"><input type="checkbox" name="active" {% if campaign.active %}checked{% endif %} class="h-4 w-4 accent-emerald-700"> Programme active</label>
+      <label class="flex min-h-11 items-center gap-3 border border-stone-300 px-3 py-2 text-sm font-semibold sm:col-span-2"><input type="checkbox" name="allow_promotion_stacking" {% if campaign.allow_promotion_stacking %}checked{% endif %} class="h-4 w-4 accent-emerald-700"> Allow stacking with other promotions</label>
+      {% for field, label, value in [
+        ('reward_amount_naira', 'Referrer credit (NGN)', campaign.reward_amount_kobo // 100),
+        ('discount_amount_naira', 'New-customer discount (NGN)', campaign.discount_amount_kobo // 100),
+        ('minimum_booking_naira', 'Minimum eligible booking (NGN)', campaign.minimum_booking_value_kobo // 100),
+        ('minimum_payable_naira', 'Minimum payable after discount (NGN)', campaign.minimum_payable_kobo // 100),
+        ('max_referrals_per_customer', 'Maximum referrals / customer', campaign.max_referrals_per_customer),
+        ('max_referrals_total', 'Maximum campaign referrals', campaign.max_referrals_total),
+        ('attribution_window_days', 'Attribution window (days)', campaign.attribution_window_days),
+        ('reward_expiration_days', 'Credit expiration (days)', campaign.reward_expiration_days)
+      ] %}<label class="text-xs font-bold text-stone-700">{{ label }}<input type="number" name="{{ field }}" min="0" step="1" required value="{{ value }}" class="mt-1 block min-h-11 w-full border border-stone-300 bg-white px-3 py-2 text-sm font-normal text-stone-900"></label>{% endfor %}
+      <label class="text-xs font-bold text-stone-700 sm:col-span-2">Eligible services (comma-separated; blank means all)<input name="eligible_services" value="{{ (campaign.eligible_services or [])|join(', ') }}" placeholder="residential, commercial" class="mt-1 block min-h-11 w-full border border-stone-300 bg-white px-3 py-2 text-sm font-normal text-stone-900"></label>
+      <label class="text-xs font-bold text-stone-700">Starts at<input type="datetime-local" name="starts_at" value="{{ campaign.starts_at.strftime('%Y-%m-%dT%H:%M') if campaign.starts_at else '' }}" class="mt-1 block min-h-11 w-full border border-stone-300 bg-white px-3 py-2 text-sm font-normal text-stone-900"></label>
+      <label class="text-xs font-bold text-stone-700">Ends at<input type="datetime-local" name="ends_at" value="{{ campaign.ends_at.strftime('%Y-%m-%dT%H:%M') if campaign.ends_at else '' }}" class="mt-1 block min-h-11 w-full border border-stone-300 bg-white px-3 py-2 text-sm font-normal text-stone-900"></label>
+      <div class="flex items-end sm:col-span-2 xl:col-span-4"><button type="submit" class="min-h-11 bg-emerald-800 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-900">Save programme settings</button></div>
+    </form>
+  </section>
+
+  <section aria-labelledby="referral-records-heading">
+    <div class="flex flex-wrap items-end justify-between gap-4 border-b border-stone-300 pb-3">
+      <div><p class="text-xs font-bold uppercase tracking-[0.14em] text-stone-500">Review queue</p><h2 id="referral-records-heading" class="mt-1 text-xl font-bold text-stone-950">Referral records</h2></div>
+      <form method="get" class="flex flex-wrap gap-2">
+        <label class="sr-only" for="referral-query">Search referrals</label><input id="referral-query" name="q" value="{{ query_text }}" placeholder="Code, email, booking or ID" class="min-h-10 w-64 border border-stone-300 px-3 text-sm">
+        <label class="sr-only" for="referral-status">Filter by status</label><select id="referral-status" name="status" class="min-h-10 border border-stone-300 bg-white px-3 text-sm"><option value="">All statuses</option>{% for status in ['registered', 'booking_qualified', 'awaiting_completion', 'rewarded', 'rejected', 'reversed', 'expired'] %}<option value="{{ status }}" {% if status_filter == status %}selected{% endif %}>{{ status|replace('_', ' ')|title }}</option>{% endfor %}</select>
+        <button class="min-h-10 bg-stone-900 px-4 text-sm font-bold text-white">Search</button>
+      </form>
+    </div>
+    <p class="mt-2 text-xs text-stone-500">Showing up to 200 matching records. Email addresses are shown only to authorized staff.</p>
+    {% if rows %}
+    <div class="mt-3 overflow-x-auto">
+      <table class="min-w-full text-left text-sm">
+        <thead class="text-xs uppercase tracking-wide text-stone-500"><tr><th class="py-3 pr-4">Referral</th><th class="py-3 pr-4">Customers</th><th class="py-3 pr-4">Booking / reward</th><th class="py-3 pr-4">Status</th><th class="py-3">Review</th></tr></thead>
+        <tbody>
+          {% for referral, referral_code, referrer_email, referred_email, booking_reference, reward in rows %}
+          <tr class="border-t border-stone-200 align-top">
+            <td class="py-4 pr-4"><span class="font-mono font-bold">#{{ referral.id }}</span><span class="mt-1 block text-xs text-stone-500">{{ referral_code }} · {{ referral.attribution_source }} · {{ referral.attributed_at.strftime('%Y-%m-%d %H:%M') }}</span></td>
+            <td class="min-w-48 py-4 pr-4 text-xs"><span class="block">Referrer: {{ referrer_email }}</span><span class="mt-1 block">Referred: {{ referred_email }}</span></td>
+            <td class="min-w-40 py-4 pr-4 text-xs">{{ booking_reference or 'No qualifying booking' }}{% if reward %}<span class="mt-1 block font-semibold">₦{{ '{:,.0f}'.format(reward.amount_kobo / 100) }} · {{ reward.status }}</span>{% endif %}</td>
+            <td class="py-4 pr-4"><span class="text-xs font-bold uppercase">{{ referral.status|replace('_', ' ') }}</span>{% if referral.rejection_reason %}<span class="mt-1 block max-w-52 text-xs text-rose-700">{{ referral.rejection_reason }}</span>{% endif %}</td>
+            <td class="min-w-56 py-4">
+              {% if not reward and referral.status != 'rejected' %}<form method="post" action="{{ url_for('admin.reject_referral', referral_id=referral.id) }}" class="space-y-2"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="sr-only" for="reason-{{ referral.id }}">Rejection reason for referral {{ referral.id }}</label><input id="reason-{{ referral.id }}" name="reason" required maxlength="500" placeholder="Reason to reject" class="w-full border border-stone-300 px-2 py-1.5 text-xs"><button class="text-xs font-bold text-rose-800 underline underline-offset-2">Reject referral</button></form>{% endif %}
+              {% if reward and reward.status == 'available' %}<form method="post" action="{{ url_for('admin.reverse_referral_credit', reward_id=reward.id) }}" class="space-y-2"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="sr-only" for="reverse-{{ reward.id }}">Reversal reason</label><input id="reverse-{{ reward.id }}" name="reason" required maxlength="500" placeholder="Reason to reverse credit" class="w-full border border-stone-300 px-2 py-1.5 text-xs"><button class="text-xs font-bold text-rose-800 underline underline-offset-2">Reverse credit</button></form>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p class="border-b border-stone-200 py-8 text-sm text-stone-500">No referral records match this search.</p>{% endif %}
+  </section>
+</main>
+{% endblock %}

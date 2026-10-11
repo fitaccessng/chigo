@@ -1,6 +1,15 @@
 {% extends 'admin/admin_base.html' %}
 {% block admin_title %}{{ booking.booking_number }} | Chigo Operations{% endblock %}
 {% block dashboard_content %}
+{% macro render_workflow_value(value) %}
+  {% if value is mapping %}
+  <dl class="mt-1 space-y-1 border-l border-stone-200 pl-3">{% for key, nested_value in value.items() %}<div><dt class="text-stone-500">{{ key|replace('_', ' ')|title }}</dt><dd class="font-medium">{{ render_workflow_value(nested_value) }}</dd></div>{% endfor %}</dl>
+  {% elif value is sequence and value is not string %}
+  {{ value|join(', ') }}
+  {% else %}
+  {{ value if value not in [None, ''] else 'Not set' }}
+  {% endif %}
+{% endmacro %}
 <section class="mx-auto max-w-5xl px-4 py-12">
   <a href="{{ url_for('admin.bookings') }}" class="text-sm font-semibold text-brand-700 underline">Back to bookings</a>
   <div class="mt-4 flex flex-wrap items-start justify-between gap-4 border-b border-stone-200 pb-6">
@@ -36,10 +45,12 @@
       <div><dt class="text-stone-500">Payment</dt><dd class="font-semibold">{{ booking.payment_status }}</dd></div>
       <div><dt class="text-stone-500">Request ID</dt><dd class="font-mono font-semibold">{{ booking.booking_request_id }}</dd></div>
     </dl>
+    {% for review_flag in (booking.calculation_data or {}).get('manual_review_flags', []) %}<p class="mt-3 border-l-2 border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-900">{% if (booking.calculation_data or {}).get('manual_review_resolved') %}Reviewed quote: {% else %}Manual review required: {% endif %}{{ review_flag }}</p>{% endfor %}
     {% if booking.items %}<div class="mt-5 overflow-x-auto"><table class="min-w-full text-left text-sm"><thead><tr class="border-b text-stone-500"><th class="py-2">Inventory</th><th>Qty</th><th>Size</th><th>Handling</th></tr></thead><tbody>{% for item in booking.items %}<tr class="border-b"><td class="py-2">{{ item.name }}</td><td>{{ item.quantity }}</td><td>{{ item.size }}</td><td>{% if item.fragile %}Fragile {% endif %}{% if item.large %}Oversized {% endif %}{% if item.special_handling %}Special{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
     {% set request_data = booking.workflow_data or {} %}
     {% if request_data %}<div class="mt-6 grid gap-6 border-t border-stone-200 pt-5 md:grid-cols-3">
-      {% for section, values in request_data.items() %}<div><h3 class="font-bold">{{ section|title }}</h3><dl class="mt-2 space-y-1 text-sm">{% for key, value in values.items() %}<div class="flex justify-between gap-3"><dt class="text-stone-500">{{ key|replace('_',' ')|title }}</dt><dd class="text-right font-medium">{{ value if value not in [None, ''] else 'Not set' }}</dd></div>{% endfor %}</dl></div>{% endfor %}
+      <div><h3 class="font-bold">Primary service</h3><p class="mt-2 text-sm font-medium">{{ request_data.get('service_intent') or booking.primary_service|replace('_', ' ')|title }}</p></div>
+      {% for section, values in request_data.items() if values is mapping %}<div><h3 class="font-bold">{{ section|replace('_', ' ')|title }}</h3><dl class="mt-2 space-y-1 text-sm">{% for key, value in values.items() %}<div><dt class="text-stone-500">{{ key|replace('_',' ')|title }}</dt><dd class="text-right font-medium">{{ render_workflow_value(value) }}</dd></div>{% endfor %}</dl></div>{% endfor %}
       <div><h3 class="font-bold">Route</h3><dl class="mt-2 space-y-1 text-sm"><div class="flex justify-between"><dt class="text-stone-500">Distance</dt><dd>{{ booking.distance_km or 0 }} km</dd></div><div class="flex justify-between"><dt class="text-stone-500">Travel estimate</dt><dd>{{ booking.route_duration_minutes or 'Not available' }}{% if booking.route_duration_minutes %} min{% endif %}</dd></div><div class="flex justify-between"><dt class="text-stone-500">Service area</dt><dd>{{ booking.service_area_status or 'Not checked' }}</dd></div></dl></div>
     </div>{% endif %}
     {% if booking.quote_lines %}<h3 class="mt-6 font-bold">Quote breakdown</h3><dl class="mt-2 divide-y divide-stone-200">{% for line in booking.quote_lines %}<div class="flex justify-between gap-4 py-2 text-sm"><dt>{{ line.label }} <span class="text-stone-500">({{ line.source }})</span></dt><dd class="font-semibold">₦{{ '{:,.2f}'.format(line.amount) }}</dd></div>{% endfor %}</dl>{% endif %}

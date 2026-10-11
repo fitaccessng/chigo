@@ -27,7 +27,7 @@ login_manager.login_view = 'auth.login'
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return db.session.get(User, int(user_id))
 
 
 def validate_database_connection(app):
@@ -221,6 +221,7 @@ def seed_defaults():
         'cleaning_move_out': '15000',
         'cleaning_move_in': '15000',
         'cleaning_both': '25000',
+        'home_decor': '25000',
         'unpacking': '12000',
         'service_assembly_yes': '12000',
         'service_disassembly_yes': '10000',
@@ -296,6 +297,7 @@ def upgrade_booking_schema():
             'calculation_data': "JSON DEFAULT '{}' NOT NULL", 'estimated_duration_minutes': 'INTEGER',
             'flexible_date': 'BOOLEAN DEFAULT FALSE NOT NULL', 'flexible_time': 'BOOLEAN DEFAULT FALSE NOT NULL',
             'schedule_feasible': 'BOOLEAN', 'manually_overridden_total': 'FLOAT', 'price_override_reason': 'TEXT',
+            'primary_service': "VARCHAR(30) DEFAULT 'residential' NOT NULL",
             'pickup_country': "VARCHAR(100) DEFAULT 'Nigeria' NOT NULL", 'destination_country': "VARCHAR(100) DEFAULT 'Nigeria' NOT NULL",
             'pickup_area_council': 'VARCHAR(100)', 'pickup_district': 'VARCHAR(120)',
             'pickup_neighborhood': 'VARCHAR(120)', 'pickup_location_type': 'VARCHAR(60)',
@@ -305,6 +307,8 @@ def upgrade_booking_schema():
             'pickup_normalized_location': 'VARCHAR(500)', 'destination_normalized_location': 'VARCHAR(500)',
             'pickup_local_place_id': 'INTEGER REFERENCES local_places(id)',
             'destination_local_place_id': 'INTEGER REFERENCES local_places(id)',
+            'pickup_nearest_landmark': 'VARCHAR(180)', 'pickup_nearest_road': 'VARCHAR(180)',
+            'pickup_route_resolution': 'VARCHAR(40)', 'pickup_notes': 'TEXT',
             'route_duration_minutes': 'FLOAT', 'service_area_status': 'VARCHAR(40)',
             'route_provider': 'VARCHAR(40)', 'route_status': "VARCHAR(30) DEFAULT 'PENDING' NOT NULL",
             'route_calculated_at': 'TIMESTAMP',
@@ -319,6 +323,8 @@ def upgrade_booking_schema():
             'destination_access': "VARCHAR(30) DEFAULT 'Not sure'", 'destination_inside_estate': 'BOOLEAN DEFAULT FALSE',
             'destination_narrow_road': 'BOOLEAN DEFAULT FALSE', 'destination_parking_close': 'BOOLEAN DEFAULT TRUE',
             'destination_floor': "VARCHAR(20) DEFAULT 'Ground'", 'destination_stairs': 'BOOLEAN DEFAULT FALSE',
+            'destination_nearest_landmark': 'VARCHAR(180)', 'destination_nearest_road': 'VARCHAR(180)',
+            'destination_route_resolution': 'VARCHAR(40)', 'destination_notes': 'TEXT',
             'distance_km': 'FLOAT DEFAULT 0', 'number_of_bedrooms': 'INTEGER DEFAULT 0',
             'number_of_living_rooms': 'INTEGER DEFAULT 0', 'number_of_kitchens': 'INTEGER DEFAULT 0',
             'number_of_bathrooms': 'INTEGER DEFAULT 0', 'number_of_floors': 'INTEGER DEFAULT 1',
@@ -328,6 +334,9 @@ def upgrade_booking_schema():
             'assigned_partner_vehicle_id': 'INTEGER REFERENCES partner_vehicles(id)',
             'vehicle_review_required': 'BOOLEAN DEFAULT FALSE', 'vehicle_override_reason': 'TEXT',
             'overridden_by': 'INTEGER REFERENCES users(id)', 'overridden_at': 'TIMESTAMP',
+            'estimated_total': 'FLOAT DEFAULT 0', 'deposit_amount': 'FLOAT DEFAULT 0',
+            'balance_amount': 'FLOAT DEFAULT 0', 'referral_id': 'INTEGER REFERENCES referrals(id)',
+            'referral_discount_amount': 'FLOAT DEFAULT 0 NOT NULL', 'payment_status': "VARCHAR(30) DEFAULT 'Pending'",
         },
         'booking_items': {
             'size': "VARCHAR(20) DEFAULT 'medium'", 'special_handling': 'BOOLEAN DEFAULT FALSE',
@@ -340,21 +349,30 @@ def upgrade_booking_schema():
         },
         'local_places': {
             'parent_id': 'INTEGER REFERENCES local_places(id)', 'state': "VARCHAR(100) DEFAULT 'Federal Capital Territory' NOT NULL",
-            'country': "VARCHAR(100) DEFAULT 'Nigeria' NOT NULL", 'address': 'TEXT',
-            'search_keywords': 'TEXT', 'popularity_score': 'FLOAT DEFAULT 0 NOT NULL',
-            'place_type': "VARCHAR(60) DEFAULT 'AREA'", 'area_council': "VARCHAR(80) DEFAULT 'AMAC'",
-            'district': 'VARCHAR(120)', 'neighborhood': 'VARCHAR(120)', 'area': 'VARCHAR(120)',
-            'lga': 'VARCHAR(80)', 'aliases': 'TEXT', 'latitude': 'FLOAT DEFAULT 0',
-            'longitude': 'FLOAT DEFAULT 0', 'provider': "VARCHAR(50) DEFAULT 'local'",
-            'provider_place_id': 'VARCHAR(255)', 'verified': 'BOOLEAN DEFAULT FALSE', 'active': 'BOOLEAN DEFAULT TRUE',
+            'country': "VARCHAR(100) DEFAULT 'Nigeria' NOT NULL", 'city': 'VARCHAR(100)', 'address': 'TEXT',
+            'landmark': 'VARCHAR(180)', 'location_type': 'VARCHAR(60)', 'confidence': 'FLOAT',
+            'precision_level': 'VARCHAR(30)', 'aliases': 'TEXT', 'search_keywords': 'TEXT',
+            'popularity_score': 'FLOAT DEFAULT 0 NOT NULL', 'place_type': "VARCHAR(60) DEFAULT 'AREA'",
+            'area_council': "VARCHAR(80) DEFAULT 'AMAC'", 'district': 'VARCHAR(120)',
+            'neighborhood': 'VARCHAR(120)', 'area': 'VARCHAR(120)', 'lga': 'VARCHAR(80)',
+            'latitude': 'FLOAT DEFAULT 0', 'longitude': 'FLOAT DEFAULT 0', 'provider': "VARCHAR(50) DEFAULT 'local'",
+            'provider_place_id': 'VARCHAR(255)', 'coordinate_precision': "VARCHAR(30) DEFAULT 'unknown'",
+            'verified': 'BOOLEAN DEFAULT FALSE', 'active': 'BOOLEAN DEFAULT TRUE', 'search_count': 'INTEGER DEFAULT 0 NOT NULL',
+            'selection_count': 'INTEGER DEFAULT 0 NOT NULL', 'booking_count': 'INTEGER DEFAULT 0 NOT NULL',
+            'last_used_at': 'TIMESTAMP',
         },
     }
     with db.engine.begin() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
         for table, columns in additions.items():
+            if table not in existing_tables:
+                continue
             for name, sql_type in columns.items():
                 present = {column['name'] for column in inspect(connection).get_columns(table)}
                 if name not in present:
                     connection.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {sql_type}'))
-            connection.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS ix_bookings_booking_request_id ON bookings (booking_request_id)'))
-        connection.execute(text('CREATE INDEX IF NOT EXISTS ix_local_places_active_normalized_name ON local_places (active, normalized_name)'))
-        connection.execute(text('CREATE INDEX IF NOT EXISTS ix_local_places_council_normalized_name ON local_places (area_council, normalized_name)'))
+            if table == 'bookings':
+                connection.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS ix_bookings_booking_request_id ON bookings (booking_request_id)'))
+        if 'local_places' in existing_tables:
+            connection.execute(text('CREATE INDEX IF NOT EXISTS ix_local_places_active_normalized_name ON local_places (active, normalized_name)'))
+            connection.execute(text('CREATE INDEX IF NOT EXISTS ix_local_places_council_normalized_name ON local_places (area_council, normalized_name)'))

@@ -6,8 +6,20 @@ from ..services.seo_analytics import (
 )
 
 from ..services.pricing_catalog_service import get_pricing_map
+from ..services.referral_service import capture_referral_attribution
 
 public_bp = Blueprint('public', __name__)
+
+
+@public_bp.before_app_request
+def capture_referral_link():
+    referral_code = request.args.get('ref')
+    if referral_code:
+        try:
+            capture_referral_attribution(referral_code)
+        except Exception:
+            from flask import current_app
+            current_app.logger.exception('Unable to capture referral attribution')
 
 
 @public_bp.route('/robots.txt')

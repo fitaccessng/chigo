@@ -5,14 +5,15 @@ import json
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
 from flask_login import current_user, login_required, login_user
 from sqlalchemy import case, func, or_, text
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import aliased, joinedload, selectinload
 
 from ..extensions import db
 from ..forms import AdminAccountForm, InventoryItemForm, LoginForm, MoverForm, PricingForm, TruckPartnerForm
-from ..models import AuditLog, Booking, BookingAssignment, BookingPhoto, Cleaner, IncidentReport, InventoryItem, Mover, Payment, ServicePricing, SupportRequest, Team, Truck, TruckPartner, User, VehicleImage, VehicleType
+from ..models import AuditLog, Booking, BookingAssignment, BookingPhoto, Cleaner, IncidentReport, InventoryItem, Mover, Payment, Referral, ReferralCampaign, ReferralCode, ReferralReward, RewardTransaction, ServicePricing, SupportRequest, Team, Truck, TruckPartner, User, VehicleImage, VehicleType
 from ..services.assignment_service import save_assignment
 from ..services.booking_engine_service import apply_price_override, calculate_quote, record_event
 from ..services.image_upload_service import delete_image, save_image
+from ..services.referral_service import expire_referral_rewards, get_campaign, issue_referral_reward, reverse_referral_reward
 from ..services.location_service import (
     add_location_alias, merge_canonical_locations, merge_local_places,
     normalize_location_name, review_location_observation, upsert_location_records,
@@ -22,7 +23,7 @@ admin_bp = Blueprint('admin', __name__)
 
 PRICING_KEYS = (
     'base_moving_fee', 'price_per_km', 'property_surcharge', 'floor_surcharge',
-    'packing_partial', 'packing_full', 'cleaning_move_out', 'cleaning_move_in',
+    'packing_partial', 'packing_full', 'cleaning_move_out', 'cleaning_move_in', 'home_decor',
     'cleaning_both', 'unpacking', 'service_assembly_yes', 'service_disassembly_yes',
     'storage_week', 'special_handling', 'weekend_surcharge', 'holiday_surcharge',
     'additional_mover_fee', 'base_mover_hourly_fee', 'access_difficulty_surcharge',
@@ -419,7 +420,7 @@ def bookings():
 @login_required
 @admin_required('bookings')
 def booking_detail(booking_id):
-    booking = Booking.query.get_or_404(booking_id)
+    booking = db.get_or_404(Booking, booking_id)
     return render_template(
         'admin/booking_detail.html', booking=booking,
         trucks=Truck.query.order_by(Truck.registration_number).all(),
@@ -432,7 +433,7 @@ def booking_detail(booking_id):
 @login_required
 @admin_required('fleet')
 def upload_truck_image(truck_id):
-    truck = Truck.query.get_or_404(truck_id)
+    truck = db.get_or_404(Truck, truck_id)
     files = request.files.getlist('images')
     if not files or not any(file.filename for file in files):
         flash('Choose at least one vehicle image.', 'error')
@@ -459,7 +460,7 @@ def upload_truck_image(truck_id):
 @login_required
 @admin_required('fleet')
 def reorder_truck_image(truck_id, image_id):
-    truck = Truck.query.get_or_404(truck_id)
+    truck = db.get_or_404(Truck, truck_id)
     image = VehicleImage.query.filter_by(id=image_id, truck_id=truck.id).first_or_404()
     action = request.form.get('action', '').strip()
     if action == 'delete':
@@ -488,7 +489,7 @@ def reorder_truck_image(truck_id, image_id):
 @login_required
 @admin_required('fleet')
 def serve_truck_image(truck_id, filename):
-    truck = Truck.query.get_or_404(truck_id)
+    truck = db.get_or_404(Truck, truck_id)
     image = VehicleImage.query.filter_by(truck_id=truck.id, file_name=f'vehicles/{truck.id}/{filename}').first_or_404()
     return send_from_directory(current_app.config['UPLOAD_FOLDER'], image.file_name)
 
@@ -497,13 +498,16 @@ def serve_truck_image(truck_id, filename):
 @login_required
 @admin_required('bookings')
 def serve_booking_attachment(booking_id, filename):
-    booking = Booking.query.get_or_404(booking_id)
+    booking = db.get_or_404(Booking, booking_id)
     photo = BookingPhoto.query.filter_by(booking_id=booking.id, file_name=f'booking/{filename}').first_or_404()
     return send_from_directory(current_app.config['UPLOAD_FOLDER'], photo.file_name)
+
+
+@admin_bp.route('/bookings/<int:booking_id>/override', methods=['POST'])
 @login_required
 @admin_required('quotes')
 def override_booking(booking_id):
-    booking = Booking.query.get_or_404(booking_id)
+    booking = db.get_or_404(Booking, booking_id)
     before = {
         'total': booking.manually_overridden_total if booking.manually_overridden_total is not None else booking.estimated_total,
         'recommended_vehicle_type_id': booking.recommended_vehicle_type_id,
@@ -550,7 +554,7 @@ def override_booking(booking_id):
 @login_required
 @admin_required('schedule')
 def assign_booking(booking_id):
-    booking = Booking.query.get_or_404(booking_id)
+    booking = db.get_or_404(Booking, booking_id)
     previous_assignment = BookingAssignment.query.filter_by(booking_id=booking.id).first()
     before = {
         'truck_id': previous_assignment.truck_id if previous_assignment else None,
@@ -561,7 +565,7 @@ def assign_booking(booking_id):
     if truck_value and not truck_value.isdigit():
         flash('Select an available truck.', 'error')
         return redirect(url_for('admin.booking_detail', booking_id=booking.id))
-    truck = Truck.query.get(int(truck_value)) if truck_value.isdigit() else None
+    truck = db.session.get(Truck, int(truck_value)) if truck_value.isdigit() else None
     if truck_value and (truck is None or truck.status != 'Available'):
         flash('Select an available truck.', 'error')
         return redirect(url_for('admin.booking_detail', booking_id=booking.id))
@@ -599,7 +603,7 @@ def assign_booking(booking_id):
 @login_required
 @admin_required('support')
 def update_incident(incident_id):
-    incident = IncidentReport.query.get_or_404(incident_id)
+    incident = db.get_or_404(IncidentReport, incident_id)
     before = {'status': incident.status, 'resolution': incident.resolution}
     status = request.form.get('status', '').strip()
     resolution = request.form.get('resolution', '').strip()
@@ -619,7 +623,7 @@ def update_incident(incident_id):
 @login_required
 @admin_required('jobs')
 def update_booking_status(booking_id):
-    booking = Booking.query.get_or_404(booking_id)
+    booking = db.get_or_404(Booking, booking_id)
     target = request.form.get('status', '').strip()
     if target not in RIDE_STATUS_TRANSITIONS.get(booking.status, set()):
         flash('That booking status transition is not allowed.', 'error')
@@ -643,9 +647,183 @@ def update_booking_status(booking_id):
                  new={'status': booking.status, 'workflow_state': booking.workflow_state}, user_id=current_user.id)
     write_admin_audit('ride.status_changed', 'booking', booking.id, before=previous,
                       after={'status': booking.status, 'workflow_state': booking.workflow_state})
+    if target == 'Completed':
+        issue_referral_reward(booking, actor_user_id=current_user.id)
     db.session.commit()
     flash(f'Booking status changed to {target}.', 'success')
     return redirect(url_for('admin.booking_detail', booking_id=booking.id))
+
+
+@admin_bp.route('/referrals', methods=['GET', 'POST'])
+@login_required
+@admin_required('referrals')
+def referral_management():
+    campaign = get_campaign(create=True)
+    if expire_referral_rewards():
+        db.session.commit()
+    if campaign.id is None:
+        db.session.commit()
+        campaign = get_campaign()
+    if request.method == 'POST' and request.form.get('action') == 'configure':
+        try:
+            values = {
+                'reward_amount_kobo': int(request.form.get('reward_amount_naira', '')) * 100,
+                'discount_amount_kobo': int(request.form.get('discount_amount_naira', '')) * 100,
+                'minimum_booking_value_kobo': int(request.form.get('minimum_booking_naira', '')) * 100,
+                'minimum_payable_kobo': int(request.form.get('minimum_payable_naira', '')) * 100,
+                'max_referrals_per_customer': int(request.form.get('max_referrals_per_customer', '')),
+                'max_referrals_total': int(request.form.get('max_referrals_total', '')),
+                'attribution_window_days': int(request.form.get('attribution_window_days', '')),
+                'reward_expiration_days': int(request.form.get('reward_expiration_days', '')),
+            }
+            if any(value < 0 for value in values.values()):
+                raise ValueError('Referral amounts and limits must be zero or greater.')
+            if not values['reward_amount_kobo'] or not values['discount_amount_kobo']:
+                raise ValueError('Reward and discount amounts must be greater than zero.')
+            if not values['max_referrals_per_customer'] or not values['max_referrals_total']:
+                raise ValueError('Referral limits must be greater than zero.')
+            if not 1 <= values['attribution_window_days'] <= 365 or not 1 <= values['reward_expiration_days'] <= 3650:
+                raise ValueError('Attribution must be 1-365 days and expiration must be 1-3650 days.')
+            starts_at_raw = request.form.get('starts_at', '').strip()
+            ends_at_raw = request.form.get('ends_at', '').strip()
+            starts_at = datetime.fromisoformat(starts_at_raw) if starts_at_raw else None
+            ends_at = datetime.fromisoformat(ends_at_raw) if ends_at_raw else None
+            if starts_at and ends_at and ends_at <= starts_at:
+                raise ValueError('Campaign end must be after its start.')
+            services = sorted({value.strip().casefold() for value in request.form.get('eligible_services', '').split(',') if value.strip()})
+            allowed_services = {'residential', 'commercial', 'packing', 'storage', 'logistics'}
+            if not set(services).issubset(allowed_services):
+                raise ValueError('Choose only supported services: residential, commercial, packing, storage, logistics.')
+            before = {
+                'active': campaign.active, 'reward_amount_kobo': campaign.reward_amount_kobo,
+                'discount_amount_kobo': campaign.discount_amount_kobo,
+                'minimum_booking_value_kobo': campaign.minimum_booking_value_kobo,
+                'minimum_payable_kobo': campaign.minimum_payable_kobo,
+                'max_referrals_per_customer': campaign.max_referrals_per_customer,
+                'max_referrals_total': campaign.max_referrals_total,
+                'attribution_window_days': campaign.attribution_window_days,
+                'reward_expiration_days': campaign.reward_expiration_days,
+                'eligible_services': campaign.eligible_services,
+                'allow_promotion_stacking': campaign.allow_promotion_stacking,
+                'starts_at': campaign.starts_at, 'ends_at': campaign.ends_at,
+            }
+            campaign.active = request.form.get('active') == 'on'
+            campaign.starts_at = starts_at
+            campaign.ends_at = ends_at
+            campaign.eligible_services = services
+            campaign.allow_promotion_stacking = request.form.get('allow_promotion_stacking') == 'on'
+            campaign.updated_by_id = current_user.id
+            for key, value in values.items():
+                setattr(campaign, key, value)
+            after = {key: getattr(campaign, key) for key in before}
+            write_admin_audit('referral.campaign_updated', 'referral_campaign', campaign.id, before=before, after=after)
+            db.session.commit()
+            flash('Referral programme settings saved. Existing referrals retain their recorded terms.', 'success')
+            return redirect(url_for('admin.referral_management'))
+        except (TypeError, ValueError) as error:
+            db.session.rollback()
+            flash(str(error), 'error')
+            campaign = get_campaign(create=True)
+
+    query_text = request.args.get('q', '').strip()[:120]
+    status_filter = request.args.get('status', '').strip()
+    query = Referral.query
+    if status_filter in {'registered', 'booking_qualified', 'awaiting_completion', 'rewarded', 'rejected', 'reversed', 'expired'}:
+        query = query.filter(Referral.status == status_filter)
+    if query_text:
+        referrer = aliased(User)
+        referred = aliased(User)
+        query = query.join(ReferralCode, ReferralCode.id == Referral.referral_code_id)
+        query = query.join(referrer, referrer.id == Referral.referrer_user_id)
+        query = query.join(referred, referred.id == Referral.referred_user_id)
+        query = query.outerjoin(Booking, Booking.id == Referral.qualifying_booking_id)
+        filters = [
+            ReferralCode.code.ilike(f'%{query_text}%'),
+            referrer.email.ilike(f'%{query_text}%'),
+            referred.email.ilike(f'%{query_text}%'),
+            Booking.booking_number.ilike(f'%{query_text}%'),
+        ]
+        if query_text.isdigit():
+            filters.append(Referral.id == int(query_text))
+        query = query.filter(or_(*filters))
+    referrals = query.order_by(Referral.created_at.desc()).limit(200).all()
+    referrer_alias = aliased(User)
+    referred_alias = aliased(User)
+    rows = []
+    if referrals:
+        rows = db.session.query(
+            Referral, ReferralCode.code, referrer_alias.email, referred_alias.email,
+            Booking.booking_number, ReferralReward,
+        ).join(ReferralCode, ReferralCode.id == Referral.referral_code_id).join(
+            referrer_alias, referrer_alias.id == Referral.referrer_user_id
+        ).join(referred_alias, referred_alias.id == Referral.referred_user_id).outerjoin(
+            Booking, Booking.id == Referral.qualifying_booking_id
+        ).outerjoin(ReferralReward, ReferralReward.referral_id == Referral.id).filter(
+            Referral.id.in_([row.id for row in referrals])
+        ).order_by(Referral.created_at.desc()).all()
+
+    total_referrals = Referral.query.count()
+    successful = Referral.query.filter_by(status='rewarded').count()
+    pending = Referral.query.filter(Referral.status.in_(['registered', 'booking_qualified', 'awaiting_completion'])).count()
+    rejected = Referral.query.filter_by(status='rejected').count()
+    discounts_kobo = int(round((db.session.query(func.coalesce(func.sum(Booking.referral_discount_amount), 0)).filter(Booking.referral_id.isnot(None)).scalar() or 0) * 100))
+    rewards_kobo = int(db.session.query(func.coalesce(func.sum(ReferralReward.amount_kobo), 0)).filter(ReferralReward.status.in_(['available', 'redeemed', 'expired'])).scalar() or 0)
+    outstanding_kobo = int(db.session.query(func.coalesce(func.sum(ReferralReward.amount_kobo), 0)).filter_by(status='available').scalar() or 0)
+    redeemed_kobo = int(-1 * (db.session.query(func.coalesce(func.sum(RewardTransaction.amount_kobo), 0)).filter_by(transaction_type='credit_redeemed').scalar() or 0))
+    metrics = {
+        'total': total_referrals, 'successful': successful, 'pending': pending,
+        'rejected': rejected, 'discounts_kobo': discounts_kobo,
+        'rewards_kobo': rewards_kobo, 'outstanding_kobo': outstanding_kobo,
+        'redeemed_kobo': redeemed_kobo,
+        'conversion_percent': round(successful * 100 / total_referrals, 1) if total_referrals else 0,
+        'acquisition_cost_kobo': int((discounts_kobo + rewards_kobo) / successful) if successful else 0,
+    }
+    return render_template(
+        'admin/referrals.html', campaign=campaign, rows=rows,
+        metrics=metrics, query_text=query_text, status_filter=status_filter,
+    )
+
+
+@admin_bp.route('/referrals/<int:referral_id>/reject', methods=['POST'])
+@login_required
+@admin_required('referrals')
+def reject_referral(referral_id):
+    referral = db.get_or_404(Referral, referral_id)
+    reason = request.form.get('reason', '').strip()[:500]
+    if referral.status == 'rewarded' or ReferralReward.query.filter_by(referral_id=referral.id).first():
+        flash('An issued reward must be handled through an audited reversal.', 'error')
+    elif not reason:
+        flash('A reason is required to reject a referral.', 'error')
+    else:
+        before = {'status': referral.status, 'reason': referral.rejection_reason}
+        referral.status = 'rejected'
+        referral.rejection_reason = reason
+        write_admin_audit('referral.rejected', 'referral', referral.id, before=before, after={
+            'status': referral.status, 'reason': reason,
+        })
+        db.session.commit()
+        flash('Referral marked rejected with an audit reason.', 'success')
+    return redirect(url_for('admin.referral_management'))
+
+
+@admin_bp.route('/referral-rewards/<int:reward_id>/reverse', methods=['POST'])
+@login_required
+@admin_required('referrals')
+def reverse_referral_credit(reward_id):
+    reward = db.get_or_404(ReferralReward, reward_id)
+    reason = request.form.get('reason', '').strip()[:500]
+    try:
+        previous = reward.status
+        reverse_referral_reward(reward, current_user.id, reason)
+        write_admin_audit('referral.reward_reversed', 'referral_reward', reward.id, before={
+            'status': previous, 'amount_kobo': reward.amount_kobo,
+        }, after={'status': reward.status, 'reason': reason})
+        db.session.commit()
+        flash('Promotional credit reversed through the reward ledger.', 'success')
+    except ValueError as error:
+        db.session.rollback()
+        flash(str(error), 'error')
+    return redirect(url_for('admin.referral_management'))
 
 
 @admin_bp.route('/pricing', methods=['GET', 'POST'])

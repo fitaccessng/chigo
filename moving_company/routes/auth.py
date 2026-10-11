@@ -13,6 +13,7 @@ from ..models import Booking, OAuthIdentity, User
 from .admin import has_admin_permission
 from ..services.password_reset_service import generate_reset_token, send_password_reset_email, verify_reset_token
 from ..services.welcome_email_service import send_welcome_email
+from ..services.referral_service import attach_attribution_to_user
 from ..services.google_oauth_service import google_oauth
 
 auth_bp = Blueprint('auth', __name__)
@@ -165,6 +166,7 @@ def google_callback():
     db.session.add(user)
     try:
         db.session.flush()
+        attach_attribution_to_user(user)
         db.session.add(OAuthIdentity(
             user_id=user.id, provider='google', subject=subject,
             email=email, email_verified=True,
@@ -252,6 +254,8 @@ def register():
         )
         user.set_password(form.password.data)
         db.session.add(user)
+        db.session.flush()
+        attach_attribution_to_user(user)
         db.session.commit()
         try:
             send_welcome_email(user, url_for('customer.dashboard', _external=True))

@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from io import BytesIO
 import re
 from types import SimpleNamespace
@@ -7,15 +7,19 @@ import pytest
 
 from moving_company import create_app
 from moving_company.extensions import db
-from moving_company.models import Booking, BookingEvent, BookingQuoteLine, Payment, User, VehicleType
+from moving_company.models import Booking, BookingEvent, BookingQuoteLine, Payment, Referral, ReferralAttribution, ReferralCampaign, ReferralCode, ReferralReward, RewardTransaction, User, VehicleType
 from moving_company.services.booking_engine_service import (
-    BULK_ITEM_OPTIONS, INVENTORY_CATALOG, accept_quote, calculate_quote, create_booking_request,
+    BULK_ITEM_OPTIONS, INVENTORY_CATALOG, accept_quote, apply_price_override, calculate_quote, create_booking_request,
     catalogue_items_for_service, inventory_requirements, preview_move_duration,
     replace_inventory, save_vehicle_selection, save_workflow_section, vehicle_options,
 )
 from moving_company.services import booking_engine_service
 from moving_company.services import payment_provider_service
 from moving_company.services.payment_provider_service import initialize_payment, process_stripe_webhook
+from moving_company.services.referral_service import (
+    ensure_referral_code, expire_referral_rewards, get_campaign,
+    issue_referral_reward, reverse_referral_reward,
+)
 
 
 @pytest.fixture
@@ -56,10 +60,26 @@ def csrf_token(response):
 
 def complete_quote(booking):
     save_workflow_section(booking, 'property', {
-        'property_type': 'Apartment', 'bedrooms': 2, 'bathrooms': 2, 'floors': 1,
+        'property_type': 'Apartment', 'bedrooms': 2, 'bathrooms': 2,
+        'service_answers': {
+            'destination_property_type': 'Apartment',
+            'restricted_vehicle_access': 'no', 'long_carry_distance': 'no',
+        },
     })
     replace_inventory(booking, [{'name': 'Sofa', 'quantity': 1, 'category': 'Furniture', 'size': 'large'}])
+    booking.workflow_data = {**booking.workflow_data, 'inventory_answers': {'heavy_or_oversized': 'no'}}
     save_workflow_section(booking, 'services', {'packing': 'partial'})
+    booking.workflow_data = {
+        **booking.workflow_data,
+        'addon_answers': {'packing': {
+            'property': {
+                'packing_areas': 'Living room items',
+                'packing_materials_needed': 'no',
+                'packing_materials_available': 'yes',
+            },
+            'inventory': {},
+        }},
+    }
     save_workflow_section(booking, 'schedule', {
         'date': (date.today() + timedelta(days=7)).isoformat(), 'time': 'Morning',
         'flexible_date': False, 'flexible_time': False,
@@ -75,6 +95,18 @@ def test_request_has_one_durable_identifier_and_audit_trail(app):
         assert booking.workflow_state == 'LOCATION_COMPLETED'
         assert [event.action for event in booking.events] == ['location.completed']
         assert booking.distance_km == 20
+
+
+def test_new_booking_quote_rejects_missing_service_answers(app):
+    with app.app_context():
+        booking = create_request()
+        replace_inventory(booking, [{'name': 'Sofa', 'quantity': 1, 'category': 'Living Room'}])
+        booking.move_date = date.today() + timedelta(days=7)
+        booking.preferred_time = 'Morning'
+        booking.workflow_state = 'SCHEDULE_COMPLETED'
+        db.session.commit()
+        with pytest.raises(ValueError, match='Destination property type is required'):
+            calculate_quote(booking)
 
 
 def test_quote_calculates_operational_requirements_from_persisted_inventory(app):
@@ -93,6 +125,106 @@ def test_quote_calculates_operational_requirements_from_persisted_inventory(app)
         assert booking.estimated_total > 0
         assert BookingQuoteLine.query.filter_by(booking_id=booking.id).count() > 0
         assert BookingEvent.query.filter_by(booking_id=booking.id, action='quote.calculated').count() == 1
+
+
+def test_quote_uses_validated_service_answers_for_access_and_audit_snapshot(app):
+    with app.app_context():
+        booking = create_request()
+        answers = {
+            'destination_property_type': 'Apartment',
+            'restricted_vehicle_access': 'yes',
+            'long_carry_distance': 'yes',
+        }
+        save_workflow_section(booking, 'property', {
+            'property_type': 'Apartment', 'bedrooms': 2, 'bathrooms': 1,
+            'floors': 1, 'service_answers': answers,
+        })
+        replace_inventory(booking, [{'name': 'Sofa', 'quantity': 1, 'category': 'Furniture'}])
+        booking.workflow_data = {**booking.workflow_data, 'inventory_answers': {'heavy_or_oversized': 'no'}}
+        save_workflow_section(booking, 'services', {})
+        save_workflow_section(booking, 'schedule', {
+            'date': (date.today() + timedelta(days=7)).isoformat(), 'time': 'Morning',
+        })
+        calculation = calculate_quote(booking)
+        access_line = BookingQuoteLine.query.filter_by(booking_id=booking.id, code='access').one()
+        assert access_line.quantity == 2
+        assert calculation['service_inputs']['property'] == answers
+
+
+def test_standalone_packing_scope_uses_existing_packing_rates(app):
+    with app.app_context():
+        booking = create_booking_request(
+            customer_id=None,
+            location={
+                'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT',
+                'pickup_latitude': 9.05, 'pickup_longitude': 7.49,
+                'pickup_formatted_address': '12 Yakubu Gowon Way, Abuja',
+                'destination_address': 'Plot 405 Constitution Avenue', 'destination_city': 'Abuja', 'destination_state': 'FCT',
+                'destination_latitude': 9.08, 'destination_longitude': 7.45,
+                'destination_formatted_address': 'Plot 405 Constitution Avenue, Abuja',
+                'distance_km': 20, 'pickup_floor': 'Ground', 'destination_floor': 'Ground',
+            },
+            service_type='packing',
+        )
+        save_workflow_section(booking, 'property', {
+            'property_type': 'Apartment', 'bedrooms': 1, 'bathrooms': 1, 'floors': 1,
+            'service_answers': {
+                'packing_for': 'home', 'packing_scope': 'selected-rooms', 'packing_rooms': 2,
+                'packing_materials_needed': 'no', 'packing_materials_available': 'yes',
+            },
+        })
+        replace_inventory(booking, [{'name': 'Sofa', 'quantity': 1, 'category': 'Furniture'}])
+        save_workflow_section(booking, 'services', {})
+        save_workflow_section(booking, 'schedule', {
+            'date': (date.today() + timedelta(days=7)).isoformat(), 'time': 'Morning',
+        })
+        calculation = calculate_quote(booking)
+        packing_line = BookingQuoteLine.query.filter_by(booking_id=booking.id, code='packing_partial').one()
+        assert packing_line.amount > 0
+        assert calculation['service_inputs']['property']['packing_scope'] == 'selected-rooms'
+
+
+def test_unpriced_addon_scope_is_flagged_for_operations_review(app):
+    with app.app_context():
+        booking = create_request()
+        save_workflow_section(booking, 'property', {
+            'property_type': 'Apartment', 'bedrooms': 1, 'bathrooms': 1, 'floors': 1,
+            'service_answers': {
+                'destination_property_type': 'Apartment',
+                'restricted_vehicle_access': 'no', 'long_carry_distance': 'no',
+            },
+        })
+        replace_inventory(booking, [{'name': 'Sofa', 'quantity': 1, 'category': 'Furniture'}])
+        save_workflow_section(booking, 'services', {'home_decor': 'yes', 'cleaning': 'move-out'})
+        booking.workflow_data = {
+            **booking.workflow_data,
+            'inventory_answers': {'heavy_or_oversized': 'no'},
+            'addon_answers': {
+                'home_decor': {
+                    'property': {'decor_at': 'destination', 'decor_setup_type': 'new-home-setup', 'decor_rooms': ['living-room'], 'decor_room_count': 2},
+                    'inventory': {'decor_furniture_available': 'yes', 'decor_tasks': 'Furniture placement', 'decor_assembly_needed': 'no', 'decor_transport_needed': 'no'},
+                },
+                'cleaning': {
+                    'property': {'cleaning_at': 'pickup', 'cleaning_property_type': 'Apartment', 'cleaning_bedrooms': 1, 'cleaning_bathrooms': 1, 'cleaning_occupancy': 'no'},
+                    'inventory': {'cleaning_condition': 'normal', 'cleaning_areas': 'Kitchen'},
+                },
+            },
+        }
+        save_workflow_section(booking, 'schedule', {
+            'date': (date.today() + timedelta(days=7)).isoformat(), 'time': 'Morning',
+        })
+
+        calculation = calculate_quote(booking)
+        flags = calculation['manual_review_flags']
+        assert any('Home Décor scope' in flag for flag in flags)
+        assert any('Cleaning scope' in flag for flag in flags)
+        assert calculation['manual_review_resolved'] is False
+        with pytest.raises(ValueError, match='Operations must review'):
+            accept_quote(booking, user_id=None)
+
+        apply_price_override(booking, booking.estimated_total, 'Confirmed service scope and rate', user_id=None)
+        assert booking.calculation_data['manual_review_resolved'] is True
+        accept_quote(booking, user_id=None)
 
 
 def test_inventory_update_invalidates_quote_and_recalculates_vehicle_and_total(app):
@@ -144,8 +276,15 @@ def test_inventory_catalog_estimates_fragile_items_and_optional_overrides(app):
 def test_vehicle_override_changes_server_quote_and_service_changes_duration(app):
     with app.app_context():
         booking = create_request()
-        save_workflow_section(booking, 'property', {'property_type': 'Apartment', 'bedrooms': 1, 'bathrooms': 1, 'floors': 1})
+        save_workflow_section(booking, 'property', {
+            'property_type': 'Apartment', 'bedrooms': 1, 'bathrooms': 1,
+            'service_answers': {
+                'destination_property_type': 'Apartment',
+                'restricted_vehicle_access': 'no', 'long_carry_distance': 'no',
+            },
+        })
         replace_inventory(booking, [{'name': 'Sofa', 'quantity': 1, 'size': 'large'}])
+        booking.workflow_data = {**booking.workflow_data, 'inventory_answers': {'heavy_or_oversized': 'no'}}
         save_workflow_section(booking, 'services', {})
         save_workflow_section(booking, 'schedule', {
             'date': (date.today() + timedelta(days=7)).isoformat(), 'time': 'Morning',
@@ -156,6 +295,17 @@ def test_vehicle_override_changes_server_quote_and_service_changes_duration(app)
         save_vehicle_selection(booking, recommended['id'])
         booking.workflow_state = 'SCHEDULE_COMPLETED'
         save_workflow_section(booking, 'services', {'packing': 'full', 'additional_hours': 48})
+        booking.workflow_data = {
+            **booking.workflow_data,
+            'addon_answers': {'packing': {
+                'property': {
+                    'packing_areas': 'Entire home',
+                    'packing_materials_needed': 'no',
+                    'packing_materials_available': 'yes',
+                },
+                'inventory': {},
+            }},
+        }
         assert 'additional_hours' not in booking.workflow_data['services']
         save_workflow_section(booking, 'schedule', {
             'date': (date.today() + timedelta(days=7)).isoformat(), 'time': 'Morning',
@@ -206,6 +356,8 @@ def test_inventory_and_service_pages_have_previous_and_no_manual_service_hours(a
         booking = create_request()
         save_workflow_section(booking, 'property', {'property_type': 'Apartment', 'bedrooms': 1, 'bathrooms': 1, 'floors': 1})
         replace_inventory(booking, [{'name': 'Wardrobe', 'quantity': 1}])
+        booking.workflow_data = {**booking.workflow_data, 'inventory_answers': {'heavy_or_oversized': 'no'}}
+        db.session.commit()
         request_id = booking.booking_request_id
     with client.session_transaction() as session:
         session['active_booking_request_id'] = request_id
@@ -272,6 +424,7 @@ def test_customer_can_add_catalogue_items_with_quantity_only(app):
             'action': 'save_and_continue',
             'selection_id[]': str(selection_id),
             'quantity[]': '2',
+            'inventory_heavy_or_oversized': 'no',
         },
     )
     assert continued.status_code == 302
@@ -341,6 +494,10 @@ def test_bulk_material_submission_saves_unit_estimates_and_flags(app):
 
     continued = client.post(f'/booking/{request_id}/inventory', data={
         'action': 'save_and_continue', 'selection_id[]': str(selection_id), 'quantity[]': '50',
+        'inventory_business_inventory_notes': 'Construction materials',
+        'inventory_it_equipment_handling': 'no',
+        'inventory_confidential_files': 'no',
+        'inventory_specialist_equipment': 'no',
     })
     assert continued.status_code == 302
     assert continued.location.endswith(f'/booking/{request_id}/services')
@@ -372,6 +529,7 @@ def test_inventory_photo_upload_is_saved_with_booking_and_owner_checked(app, tmp
     response = client.post(f'/booking/{request_id}/inventory', data={
         'item_name[]': 'Glass table', 'item_quantity[]': '1',
         'item_category[]': 'Fragile / Valuable', 'item_size[]': 'medium',
+        'inventory_heavy_or_oversized': 'yes',
         'item_photo_0': (BytesIO(png_payload), 'table.png'),
     })
     assert response.status_code == 302
@@ -593,6 +751,9 @@ def test_customer_routes_complete_one_request_through_quote_acceptance(app):
         'csrf_token': csrf_token(property_response),
         'property_type': 'Apartment', 'bedrooms': '2', 'bathrooms': '2',
         'floors': '1', 'approximate_size_m2': '90',
+        'service_destination_property_type': 'Apartment',
+        'service_restricted_vehicle_access': 'no',
+        'service_long_carry_distance': 'no',
     })
     assert property_saved.location.endswith(f'/booking/{request_id}/inventory')
     inventory_page = client.get(property_saved.location)
@@ -600,11 +761,15 @@ def test_customer_routes_complete_one_request_through_quote_acceptance(app):
         'csrf_token': csrf_token(inventory_page),
         'item_name[]': ['Sofa', 'Wardrobe'], 'item_quantity[]': ['1', '1'],
         'item_category[]': ['Furniture', 'Bedroom'], 'item_size[]': ['large', 'large'],
+        'inventory_heavy_or_oversized': 'no',
     })
     assert inventory_response.location.endswith(f'/booking/{request_id}/services')
     services_page = client.get(inventory_response.location)
     services_response = client.post(f'/booking/{request_id}/services', data={
         'csrf_token': csrf_token(services_page), 'packing': 'partial',
+        'addon_packing_property_packing_areas': 'Living room and bedroom items',
+        'addon_packing_property_packing_materials_needed': 'no',
+        'addon_packing_property_packing_materials_available': 'yes',
     })
     assert services_response.location.endswith(f'/booking/{request_id}/schedule')
     schedule_page = client.get(services_response.location)
@@ -693,6 +858,9 @@ def test_property_csrf_retry_preserves_booking_and_advances_from_database(app):
     saved_property = client.post(property_url, data={
         'csrf_token': refreshed_token.group(1), 'property_type': 'Apartment',
         'bedrooms': '2', 'bathrooms': '2', 'floors': '1',
+        'service_destination_property_type': 'Apartment',
+        'service_restricted_vehicle_access': 'no',
+        'service_long_carry_distance': 'no',
     })
     assert saved_property.status_code == 302
     assert saved_property.location.endswith(f'/booking/{request_id}/inventory')
@@ -752,13 +920,265 @@ def test_json_api_updates_same_request_and_rejects_stage_skips(app):
 
     updated = client.put(f'/api/bookings/{request_id}/property', json={
         'property_type': 'Apartment', 'bedrooms': 2, 'bathrooms': 1, 'floors': 1,
+        'service_answers': {
+            'destination_property_type': 'Apartment',
+            'restricted_vehicle_access': 'no',
+            'long_carry_distance': 'no',
+        },
     })
     assert updated.status_code == 200
     item_response = client.post(f'/api/bookings/{request_id}/inventory', json={
         'items': [{'name': 'Sofa', 'quantity': 1, 'category': 'Furniture', 'size': 'large'}],
+        'inventory_answers': {'heavy_or_oversized': 'no'},
     })
     assert item_response.status_code == 200
     snapshot = client.get(f'/api/bookings/{request_id}').get_json()
     assert snapshot['booking_request_id'] == request_id
     assert snapshot['state'] == 'INVENTORY_COMPLETED'
     assert snapshot['inventory'][0]['name'] == 'Sofa'
+
+
+def test_referral_link_attribution_survives_new_customer_registration(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    with app.app_context():
+        campaign = get_campaign(create=True)
+        campaign.active = True
+        referrer = User(first_name='Referral', last_name='Owner', email='referrer@example.com', phone='', role='customer')
+        referrer.set_password('password123')
+        db.session.add(referrer)
+        db.session.flush()
+        code = ensure_referral_code(referrer)
+        code_text = code.code
+        db.session.commit()
+
+    client = app.test_client()
+    assert client.get(f'/?ref={code_text.lower()}').status_code == 200
+    with client.session_transaction() as browser_session:
+        assert browser_session.get('referral_attribution_token')
+    registered = client.post('/auth/register', data={
+        'full_name': 'New Customer', 'email': 'new-customer@example.com',
+        'password': 'password123',
+    })
+    assert registered.status_code == 302
+    with app.app_context():
+        customer = User.query.filter_by(email='new-customer@example.com').one()
+        referral = Referral.query.filter_by(referred_user_id=customer.id).one()
+        assert referral.attribution_source == 'link'
+        assert referral.status == 'registered'
+        assert referral.referrer_user_id != customer.id
+        assert ReferralAttribution.query.count() == 1
+
+
+def test_new_customer_can_apply_a_manual_referral_code_once(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    with app.app_context():
+        campaign = get_campaign(create=True)
+        campaign.active = True
+        referrer = User(first_name='Referral', last_name='Owner', email='manual-referrer@example.com', phone='')
+        customer = User(first_name='Manual', last_name='Customer', email='manual-customer@example.com', phone='')
+        referrer.set_password('password123')
+        customer.set_password('password123')
+        db.session.add_all([referrer, customer])
+        db.session.flush()
+        code = ensure_referral_code(referrer)
+        code_text, customer_id = code.code, customer.id
+        db.session.commit()
+
+    client = app.test_client()
+    with client.session_transaction() as browser_session:
+        browser_session['_user_id'] = str(customer_id)
+        browser_session['_fresh'] = True
+    response = client.post('/customer/referrals', data={'referral_code': code_text.lower()})
+    assert response.status_code == 302
+    with app.app_context():
+        referral = Referral.query.filter_by(referred_user_id=customer_id).one()
+        assert referral.attribution_source == 'manual'
+        assert referral.status == 'registered'
+
+
+def test_referral_discount_uses_server_quote_and_is_ledgered_once(app):
+    with app.app_context():
+        campaign = get_campaign(create=True)
+        campaign.active = True
+        campaign.minimum_booking_value_kobo = 1
+        campaign.minimum_payable_kobo = 100000
+        referrer = User(first_name='Referral', last_name='Owner', email='discount-referrer@example.com', phone='')
+        referred = User(first_name='Referred', last_name='Customer', email='discount-customer@example.com', phone='')
+        referrer.set_password('password123')
+        referred.set_password('password123')
+        db.session.add_all([referrer, referred])
+        db.session.flush()
+        code = ensure_referral_code(referrer)
+        referral = Referral(
+            referral_code_id=code.id, campaign_id=campaign.id,
+            referrer_user_id=referrer.id, referred_user_id=referred.id,
+            attributed_at=datetime.utcnow(), status='registered',
+            terms_snapshot={
+                'reward_amount_kobo': 200000, 'discount_amount_kobo': 200000,
+                'minimum_booking_value_kobo': 1, 'minimum_payable_kobo': 100000,
+                'eligible_services': [], 'reward_expiration_days': 365,
+            },
+        )
+        db.session.add(referral)
+        db.session.commit()
+        booking = create_request()
+        booking.customer_id = referred.id
+        complete_quote(booking)
+        calculation = calculate_quote(booking, user_id=referred.id)
+        assert booking.referral_id == referral.id
+        assert booking.referral_discount_amount == 2000
+        assert calculation['original_total'] - calculation['total'] == 2000
+        assert BookingQuoteLine.query.filter_by(booking_id=booking.id, code='referral_discount').one().amount == -2000
+        assert RewardTransaction.query.filter_by(referral_id=referral.id, transaction_type='discount_applied').count() == 1
+
+        calculate_quote(booking, user_id=referred.id)
+        assert RewardTransaction.query.filter_by(referral_id=referral.id, transaction_type='discount_applied').count() == 1
+        apply_price_override(booking, 18000, 'Approved quote adjustment', referrer.id)
+        assert booking.referral_discount_amount == 2000
+        assert booking.estimated_total == 16000
+        assert booking.deposit_amount == booking.calculation_data['deposit']
+        assert BookingQuoteLine.query.filter_by(booking_id=booking.id, code='referral_discount').one().amount == -2000
+        assert BookingQuoteLine.query.filter_by(booking_id=booking.id, code='manual_adjustment').one().amount == round(18000 - (calculation['original_total'] - 0), 2)
+
+
+def test_referral_reward_requires_paid_completion_and_is_idempotent(app):
+    with app.app_context():
+        campaign = get_campaign(create=True)
+        referrer = User(first_name='Referral', last_name='Owner', email='reward-referrer@example.com', phone='')
+        referred = User(first_name='Referred', last_name='Customer', email='reward-customer@example.com', phone='')
+        referrer.set_password('password123')
+        referred.set_password('password123')
+        db.session.add_all([referrer, referred])
+        db.session.flush()
+        code = ensure_referral_code(referrer)
+        referral = Referral(
+            referral_code_id=code.id, campaign_id=campaign.id,
+            referrer_user_id=referrer.id, referred_user_id=referred.id,
+            attributed_at=datetime.utcnow(), status='booking_qualified',
+            terms_snapshot={'reward_amount_kobo': 200000, 'reward_expiration_days': 365},
+        )
+        db.session.add(referral)
+        db.session.flush()
+        booking = create_request()
+        booking.customer_id = referred.id
+        booking.status = 'Completed'
+        booking.workflow_state = 'COMPLETED'
+        booking.payment_status = 'Paid'
+        booking.referral_id = referral.id
+        booking.referral_discount_amount = 2000
+        referral.qualifying_booking_id = booking.id
+        db.session.commit()
+
+        assert issue_referral_reward(booking) is None
+        payment = Payment(
+            booking_id=booking.id, amount=1000, status='Successful',
+            payment_reference='verified-referral-payment', gateway='stripe', currency='NGN',
+        )
+        db.session.add(payment)
+        db.session.flush()
+        reward = issue_referral_reward(booking, actor_user_id=referrer.id)
+        db.session.flush()
+        repeated = issue_referral_reward(booking, actor_user_id=referrer.id)
+        assert repeated.id == reward.id
+        assert reward.amount_kobo == 200000
+        assert reward.status == 'available'
+        assert ReferralReward.query.filter_by(referral_id=referral.id).count() == 1
+        assert RewardTransaction.query.filter_by(reward_id=reward.id, transaction_type='credit_issued').count() == 1
+        expiration_time = datetime.utcnow() + timedelta(days=366)
+        assert expire_referral_rewards(expiration_time) == 1
+        assert expire_referral_rewards(expiration_time) == 0
+        assert reward.status == 'expired'
+        assert RewardTransaction.query.filter_by(reward_id=reward.id, transaction_type='credit_expired').count() == 1
+
+
+def test_referral_credit_reversal_is_append_only_and_requires_a_reason(app):
+    with app.app_context():
+        campaign = get_campaign(create=True)
+        referrer = User(first_name='Referral', last_name='Owner', email='reversal-referrer@example.com', phone='')
+        referred = User(first_name='Referred', last_name='Customer', email='reversal-customer@example.com', phone='')
+        referrer.set_password('password123')
+        referred.set_password('password123')
+        db.session.add_all([referrer, referred])
+        db.session.flush()
+        code = ensure_referral_code(referrer)
+        booking = create_request()
+        referral = Referral(
+            referral_code_id=code.id, campaign_id=campaign.id,
+            referrer_user_id=referrer.id, referred_user_id=referred.id,
+            qualifying_booking_id=booking.id, status='rewarded',
+            attributed_at=datetime.utcnow(), terms_snapshot={},
+        )
+        db.session.add(referral)
+        db.session.flush()
+        reward = ReferralReward(
+            referral_id=referral.id, beneficiary_user_id=referrer.id,
+            booking_id=booking.id, reward_type='referrer_credit',
+            amount_kobo=200000, status='available',
+            idempotency_key=f'referral:{referral.id}:test-credit',
+        )
+        db.session.add(reward)
+        db.session.commit()
+
+        with pytest.raises(ValueError, match='reason is required'):
+            reverse_referral_reward(reward, referrer.id, '')
+        reverse_referral_reward(reward, referrer.id, 'Confirmed duplicate account after review')
+        db.session.commit()
+        assert reward.status == 'reversed'
+        assert ReferralReward.query.filter_by(id=reward.id).count() == 1
+        transaction = RewardTransaction.query.filter_by(reward_id=reward.id, transaction_type='credit_reversed').one()
+        assert transaction.amount_kobo == -200000
+        assert transaction.description == 'Confirmed duplicate account after review'
+
+
+def test_referral_dashboards_are_authorized_and_campaign_changes_are_audited(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    with app.app_context():
+        get_campaign(create=True)
+        customer = User(first_name='Dashboard', last_name='Customer', email='referral-dashboard@example.com', phone='')
+        admin = User(first_name='Referral', last_name='Admin', email='referral-admin@example.com', phone='', role='super_admin')
+        customer.set_password('password123')
+        admin.set_password('password123')
+        db.session.add_all([customer, admin])
+        db.session.commit()
+        customer_id, admin_id = customer.id, admin.id
+
+    customer_client = app.test_client()
+    with customer_client.session_transaction() as browser_session:
+        browser_session['_user_id'] = str(customer_id)
+        browser_session['_fresh'] = True
+    dashboard = customer_client.get('/customer/referrals')
+    assert dashboard.status_code == 200
+    assert b'Your referral code' in dashboard.data
+    with app.app_context():
+        assert ReferralCode.query.filter_by(user_id=customer_id).count() == 1
+
+    forbidden_client = app.test_client()
+    with forbidden_client.session_transaction() as browser_session:
+        browser_session['_user_id'] = str(customer_id)
+        browser_session['_fresh'] = True
+    assert forbidden_client.get('/admin/referrals').status_code == 403
+
+    admin_client = app.test_client()
+    with admin_client.session_transaction() as browser_session:
+        browser_session['_user_id'] = str(admin_id)
+        browser_session['_fresh'] = True
+    page = admin_client.get('/admin/referrals')
+    assert page.status_code == 200
+    assert b'Programme configuration' in page.data
+    saved = admin_client.post('/admin/referrals', data={
+        'action': 'configure', 'active': 'on',
+        'reward_amount_naira': '2000', 'discount_amount_naira': '2000',
+        'minimum_booking_naira': '10000', 'minimum_payable_naira': '1000',
+        'max_referrals_per_customer': '20', 'max_referrals_total': '10000',
+        'attribution_window_days': '30', 'reward_expiration_days': '365',
+        'eligible_services': 'residential, commercial',
+        'starts_at': '', 'ends_at': '',
+    })
+    assert saved.status_code == 302
+    with app.app_context():
+        campaign = get_campaign()
+        assert campaign.active is True
+        assert campaign.reward_amount_kobo == 200000
+        assert campaign.eligible_services == ['commercial', 'residential']
+        from moving_company.models import AuditLog
+        assert AuditLog.query.filter_by(action='referral.campaign_updated').count() == 1

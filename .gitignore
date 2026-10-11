@@ -4,3 +4,6 @@ __pycache__/
 .pytest_cache/
 data/geodata/
 *.py[cod]
+.env
+.env.*
+!.env.example

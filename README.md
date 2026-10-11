@@ -161,6 +161,16 @@ Google tag delivery, consent, domain verification, sitemap ingestion, and indexi
 
 Stripe deposits use Checkout in NGN. Configure both Stripe values in `.env`, and register `POST /booking/payment/webhook` as a Stripe webhook endpoint for `checkout.session.completed` and `checkout.session.async_payment_succeeded`. For local webhook testing, forward Stripe CLI events to `http://localhost:5000/booking/payment/webhook` and use the CLI-provided signing secret as `STRIPE_WEBHOOK_SECRET`.
 
+### Customer referrals
+
+The additive `20261010_customer_referrals` migration creates the campaign, referral-code, attribution, referral, reward, and append-only reward-transaction tables. Apply it with `flask --app run.py db upgrade`; downgrade with `flask --app run.py db downgrade 20261009_add_oauth_identities` only after reviewing the data-loss impact, because downgrade removes referral records and ledger history.
+
+The migration creates the **Chigo Refer & Earn** campaign inactive. After reviewing actual booking contribution margins, refund handling, and the outstanding-credit exposure, an authorized administrator can configure and activate it at `/admin/referrals`. Proposed initial amounts are ₦2,000 for the customer discount and ₦2,000 for the referrer credit; the admin form also controls eligible services, minimum booking/payable amounts, per-customer and campaign limits, attribution window, expiration, promotion stacking, and active dates. New referrals snapshot their terms, so subsequent configuration edits do not change historical referral terms.
+
+First-valid referral attribution is stored server-side and attached only to a newly created customer account. Existing email accounts, staff roles, self-referrals, prior-booking customers, expired attributions, and referrals beyond configured limits do not qualify. The existing quote calculator recomputes and displays the discount; Stripe checkout continues to use that server-side quote/deposit amount. A referrer credit is recorded once only when operations marks the qualifying booking complete and the booking has a successful provider-verified payment. Discount and credit issue, expiration, and administrator reversal events are recorded in the reward ledger. Reversals require a reason and do not delete the original issue transaction.
+
+Credits are promotional, non-transferable and not cash. This release records available balances but does **not** redeem credits against a future booking: the existing payment workflow only supports a Stripe deposit and has no atomic balance-payment, full-settlement, or refund-reconciliation operation. Refunds therefore require a reviewed administrator reversal; Stripe refund webhooks are not yet connected to the referral ledger. Expiration is processed on referral customer/admin dashboard reads rather than by a scheduled worker. The current admin supports one customer programme; the schema is campaign-aware, but campaign creation and partner commissions are not implemented. Link-visit analytics, automated suspicious-activity review, contribution-margin reporting, and customer SMS/email referral notifications are also not implemented. Keep the campaign inactive until those financial and operational limitations are acceptable.
+
 ## Local setup
 
 1. Create and activate a virtual environment
