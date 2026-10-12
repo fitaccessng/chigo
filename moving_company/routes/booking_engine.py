@@ -286,6 +286,10 @@ def _location_payload(form, service_type, places=None):
         field: getattr(form, field).data for field in fields
         if hasattr(form, field) and field.startswith(tuple(f'{place}_' for place in places))
     }
+    for place in places:
+        data[f'{place}_address'] = (
+            data.get(f'{place}_address') or request.form.get(f'{place}_search', '').strip()
+        )
     required = tuple(f'{place}_address' for place in places)
     missing = [field for field in required if not str(data.get(field) or '').strip()]
     if missing:

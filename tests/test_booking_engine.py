@@ -97,6 +97,24 @@ def test_request_has_one_durable_identifier_and_audit_trail(app):
         assert booking.distance_km == 20
 
 
+def test_manual_location_search_text_is_saved_as_address(app, monkeypatch):
+    app.config['WTF_CSRF_ENABLED'] = False
+    monkeypatch.setattr('moving_company.routes.booking_engine.geocode_address', lambda address: None)
+    client = app.test_client()
+    login_customer(app, client)
+
+    response = client.post('/booking/location/residential', data={
+        'pickup_search': '12 Example Road, Abuja',
+        'destination_search': '8 Sample Avenue, Abuja',
+    })
+
+    assert response.status_code == 302
+    with app.app_context():
+        booking = Booking.query.order_by(Booking.id.desc()).first()
+        assert booking.pickup_address == '12 Example Road, Abuja'
+        assert booking.destination_address == '8 Sample Avenue, Abuja'
+
+
 def test_new_booking_quote_rejects_missing_service_answers(app):
     with app.app_context():
         booking = create_request()
@@ -640,6 +658,8 @@ def test_stripe_checkout_creates_and_reuses_deposit_session(app, monkeypatch):
         assert payment.payment_reference == 'cs_test_checkout_1'
         assert payment.amount == expected_deposit
         assert payment.authorization_url == session.url
+        assert calls[0][0]['automatic_payment_methods'] == {'enabled': True}
+        assert 'payment_method_types' not in calls[0][0]
         assert calls[0][0]['line_items'][0]['price_data']['currency'] == 'ngn'
         assert calls[0][0]['line_items'][0]['price_data']['unit_amount'] == round(expected_deposit * 100)
         assert '{CHECKOUT_SESSION_ID}' in calls[0][0]['success_url']

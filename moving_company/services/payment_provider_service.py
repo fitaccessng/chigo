@@ -88,13 +88,18 @@ def initialize_payment(booking: Booking, customer_email: str):
             pending.status = 'Expired'
             db.session.commit()
         except stripe.StripeError as error:
+            current_app.logger.warning(
+                'Stripe session reuse failed for booking %s: %s code=%s param=%s',
+                booking.booking_request_id, error.__class__.__name__,
+                getattr(error, 'code', None), getattr(error, 'param', None),
+            )
             raise ValueError('The payment provider could not be reached. Please try again later.') from error
 
     try:
         checkout_session = client.v1.checkout.sessions.create(
             {
                 'mode': 'payment',
-                'payment_method_types': ['card'],
+                'automatic_payment_methods': {'enabled': True},
                 'customer_email': customer_email,
                 'client_reference_id': booking.booking_request_id,
                 'line_items': [{
@@ -118,6 +123,11 @@ def initialize_payment(booking: Booking, customer_email: str):
             options={'idempotency_key': f'chigo-deposit-{booking.id}-{previous_attempts + 1}-{int(round(amount * 100))}'},
         )
     except stripe.StripeError as error:
+        current_app.logger.warning(
+            'Stripe checkout creation failed for booking %s: %s code=%s param=%s',
+            booking.booking_request_id, error.__class__.__name__,
+            getattr(error, 'code', None), getattr(error, 'param', None),
+        )
         raise ValueError('The payment provider could not start checkout. Your booking request is unchanged; try again later.') from error
 
     session_id = _value(checkout_session, 'id')
@@ -162,6 +172,11 @@ def verify_payment(reference: str):
     try:
         checkout_session = client.v1.checkout.sessions.retrieve(reference)
     except stripe.StripeError as error:
+        current_app.logger.warning(
+            'Stripe checkout verification failed for session %s: %s code=%s param=%s',
+            reference, error.__class__.__name__,
+            getattr(error, 'code', None), getattr(error, 'param', None),
+        )
         raise ValueError('Stripe could not verify this payment yet. Please try again shortly.') from error
     return _record_payment_success(payment, checkout_session)
 
