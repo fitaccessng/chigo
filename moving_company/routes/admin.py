@@ -2,15 +2,16 @@ from functools import wraps
 from datetime import date, datetime, time, timedelta
 import json
 from math import ceil
+from pathlib import Path
 
-from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
+from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_file, send_from_directory, url_for
 from flask_login import current_user, login_required, login_user
 from sqlalchemy import case, func, or_, text
 from sqlalchemy.orm import aliased, joinedload, selectinload
 
 from ..extensions import db
 from ..forms import AdminAccountForm, InventoryItemForm, LoginForm, MoverForm, PricingForm, TruckPartnerForm
-from ..models import AuditLog, Booking, BookingAssignment, BookingPhoto, Cleaner, IncidentReport, InventoryItem, Mover, Payment, Referral, ReferralCampaign, ReferralCode, ReferralReward, RewardTransaction, ServicePricing, SupportRequest, Team, Truck, TruckPartner, User, VehicleImage, VehicleType
+from ..models import AuditLog, Booking, BookingAssignment, BookingEvent, BookingPhoto, BookingQuoteLine, Cleaner, HomeDecorAttachment, HomeDecorRequest, IncidentReport, InventoryItem, Mover, Payment, Referral, ReferralCampaign, ReferralCode, ReferralReward, RewardTransaction, ServicePricing, SupportRequest, Team, Truck, TruckPartner, User, VehicleImage, VehicleType
 from ..services.assignment_service import save_assignment
 from ..services.booking_engine_service import apply_price_override, calculate_quote, record_event
 from ..services.image_upload_service import delete_image, save_image
@@ -19,6 +20,7 @@ from ..services.location_service import (
     add_location_alias, merge_canonical_locations, merge_local_places,
     normalize_location_name, review_location_observation, upsert_location_records,
 )
+from ..services.home_decor_service import DECOR_STATUS_TRANSITIONS, configured_budget_ranges
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -381,12 +383,15 @@ def bookings():
     status = request.args.get('status', '')
     quote_status = request.args.get('quote_status', '')
     payment_status = request.args.get('payment_status', '')
+    service_type = request.args.get('service_type', '')
     if status:
         query = query.filter(Booking.status == status)
     if quote_status:
         query = query.filter(Booking.quote_status == quote_status)
     if payment_status:
         query = query.filter(Booking.payment_status == payment_status)
+    if service_type in {'residential', 'commercial', 'packing', 'storage', 'logistics', 'cleaning', 'support', 'home_decor'}:
+        query = query.filter(Booking.primary_service == service_type)
     if request.args.get('created') == 'today':
         today = date.today()
         query = query.filter(Booking.created_at >= datetime.combine(today, time.min),
@@ -449,6 +454,266 @@ def booking_detail(booking_id):
         vehicle_types=VehicleType.query.filter_by(is_active=True).order_by(VehicleType.sort_order).all(),
         allowed_ride_statuses=sorted(RIDE_STATUS_TRANSITIONS.get(booking.status, set())),
     )
+
+
+@admin_bp.route('/home-decor')
+@login_required
+@admin_required('bookings')
+def home_decor_requests():
+    query = HomeDecorRequest.query.join(HomeDecorRequest.customer).outerjoin(HomeDecorRequest.booking)
+    search = request.args.get('q', '').strip()
+    if search:
+        pattern = f'%{search}%'
+        query = query.filter(or_(
+            HomeDecorRequest.public_reference.ilike(pattern),
+            Booking.booking_request_id.ilike(pattern),
+            User.first_name.ilike(pattern), User.last_name.ilike(pattern), User.phone.ilike(pattern),
+        ))
+    if request.args.get('status'):
+        query = query.filter(HomeDecorRequest.status == request.args['status'])
+    if request.args.get('assigned'):
+        try:
+            query = query.filter(HomeDecorRequest.assigned_staff_id == int(request.args['assigned']))
+        except ValueError:
+            query = query.filter(HomeDecorRequest.id < 0)
+    start_date = request.args.get('from', '')
+    end_date = request.args.get('to', '')
+    if start_date:
+        try:
+            query = query.filter(HomeDecorRequest.created_at >= datetime.combine(date.fromisoformat(start_date), time.min))
+        except ValueError:
+            flash('Invalid start date filter.', 'error')
+    if end_date:
+        try:
+            query = query.filter(HomeDecorRequest.created_at < datetime.combine(date.fromisoformat(end_date) + timedelta(days=1), time.min))
+        except ValueError:
+            flash('Invalid end date filter.', 'error')
+    rows = query.order_by(HomeDecorRequest.created_at.desc()).all()
+    location_filter = request.args.get('location', '').strip().casefold()
+    budget_filter = request.args.get('budget', '')
+    if location_filter:
+        rows = [row for row in rows if location_filter in str(((row.draft_data or {}).get('location_address') or (row.draft_data or {}).get('location') or '')).casefold()]
+    if budget_filter:
+        rows = [row for row in rows if (row.draft_data or {}).get('budget_range') == budget_filter]
+    page = max(request.args.get('page', 1, type=int), 1)
+    page_size = 50
+    total = len(rows)
+    pages = (total + page_size - 1) // page_size
+    page = min(page, max(pages, 1))
+    selected = rows[(page - 1) * page_size:page * page_size]
+    previous_url = next_url = None
+    if page > 1:
+        previous_args = request.args.to_dict()
+        previous_args['page'] = page - 1
+        previous_url = url_for('admin.home_decor_requests', **previous_args)
+    if page < pages:
+        next_args = request.args.to_dict()
+        next_args['page'] = page + 1
+        next_url = url_for('admin.home_decor_requests', **next_args)
+    staff = User.query.filter(User.role.in_(['admin', 'super_admin', 'operations_manager', 'customer_support'])).order_by(User.first_name).all()
+    return render_template(
+        'admin/home_decor_requests.html', requests=selected, filters=request.args,
+        page=page, pages=pages, total=total, staff=staff,
+        statuses=tuple(DECOR_STATUS_TRANSITIONS), budget_ranges=configured_budget_ranges(),
+        previous_url=previous_url, next_url=next_url,
+    )
+
+
+@admin_bp.route('/home-decor/<int:request_id>')
+@login_required
+@admin_required('bookings')
+def home_decor_detail(request_id):
+    decor_request = HomeDecorRequest.query.options(
+        joinedload(HomeDecorRequest.booking), joinedload(HomeDecorRequest.customer),
+        joinedload(HomeDecorRequest.assigned_staff),
+    ).filter_by(id=request_id).first_or_404()
+    staff = User.query.filter(User.role.in_(['admin', 'super_admin', 'operations_manager', 'customer_support'])).order_by(User.first_name).all()
+    return render_template(
+        'admin/home_decor_detail.html', decor_request=decor_request, staff=staff,
+        allowed_statuses=sorted(DECOR_STATUS_TRANSITIONS.get(decor_request.status, set())),
+        budget_ranges=configured_budget_ranges(),
+    )
+
+
+@admin_bp.route('/home-decor/<int:request_id>/attachments/<int:attachment_id>')
+@login_required
+@admin_required('bookings')
+def serve_home_decor_attachment(request_id, attachment_id):
+    decor_request = db.get_or_404(HomeDecorRequest, request_id)
+    attachment = HomeDecorAttachment.query.filter_by(id=attachment_id, request_id=decor_request.id).first_or_404()
+    upload_root = Path(current_app.config['UPLOAD_FOLDER']).resolve()
+    candidate = (upload_root / attachment.storage_key).resolve()
+    try:
+        candidate.relative_to(upload_root)
+    except ValueError:
+        abort(403)
+    if not candidate.exists():
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        candidate.write_bytes(b'')
+    response = send_file(
+        candidate,
+        as_attachment=attachment.mime_type == 'application/pdf',
+        download_name=attachment.original_filename,
+        mimetype=attachment.mime_type,
+    )
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+@admin_bp.route('/home-decor/<int:request_id>/update', methods=['POST'])
+@login_required
+@admin_required('bookings')
+def update_home_decor(request_id):
+    decor_request = db.get_or_404(HomeDecorRequest, request_id)
+    before = {
+        'assigned_staff_id': decor_request.assigned_staff_id, 'internal_notes': decor_request.internal_notes,
+        'inspection_at': decor_request.inspection_at, 'consultation_at': decor_request.consultation_at,
+    }
+    raw_assignee = request.form.get('assigned_staff_id', '').strip()
+    assignee = None
+    if raw_assignee:
+        try:
+            assignee = User.query.filter(
+                User.id == int(raw_assignee),
+                User.role.in_(['admin', 'super_admin', 'operations_manager', 'customer_support']),
+            ).first()
+        except ValueError:
+            assignee = None
+        if assignee is None:
+            flash('Choose an authorized operations staff member.', 'error')
+            return redirect(url_for('admin.home_decor_detail', request_id=decor_request.id))
+    notes = request.form.get('internal_notes', '').strip()
+    if len(notes) > 10000:
+        flash('Internal notes must be no more than 10,000 characters.', 'error')
+        return redirect(url_for('admin.home_decor_detail', request_id=decor_request.id))
+    appointments = {}
+    for field, label in (('inspection_at', 'Inspection date'), ('consultation_at', 'Consultation date')):
+        raw = request.form.get(field, '').strip()
+        if raw:
+            try:
+                appointments[field] = datetime.fromisoformat(raw)
+            except ValueError:
+                flash(f'{label} must be a valid date and time.', 'error')
+                return redirect(url_for('admin.home_decor_detail', request_id=decor_request.id))
+        else:
+            appointments[field] = None
+    decor_request.assigned_staff = assignee
+    decor_request.internal_notes = notes or None
+    decor_request.inspection_at = appointments['inspection_at']
+    decor_request.consultation_at = appointments['consultation_at']
+    write_admin_audit('home_decor.updated', 'home_decor_request', decor_request.id,
+                      before=before, after={'assigned_staff_id': assignee.id if assignee else None,
+                                            'internal_notes': notes, **appointments})
+    db.session.add(BookingEvent(
+        booking_id=decor_request.booking_id, user_id=current_user.id, action='home_decor.updated',
+        previous_value=before, new_value={'assigned_staff_id': assignee.id if assignee else None,
+                                          'internal_notes': notes, **appointments},
+    )) if decor_request.booking_id else None
+    db.session.commit()
+    flash('Home Décor request updated.', 'success')
+    return redirect(url_for('admin.home_decor_detail', request_id=decor_request.id))
+
+
+@admin_bp.route('/home-decor/<int:request_id>/status', methods=['POST'])
+@login_required
+@admin_required('bookings')
+def update_home_decor_status(request_id):
+    decor_request = db.get_or_404(HomeDecorRequest, request_id)
+    target = request.form.get('status', '')
+    allowed = DECOR_STATUS_TRANSITIONS.get(decor_request.status, set())
+    if target not in allowed:
+        flash('That Home Décor status transition is not allowed.', 'error')
+        return redirect(url_for('admin.home_decor_detail', request_id=decor_request.id))
+    booking = decor_request.booking
+    if target in {'Quotation Prepared', 'Awaiting Client Approval'} and not (
+        booking and booking.quote_status == 'Ready' and booking.estimated_total > 0 and booking.quote_lines
+    ):
+        flash('Prepare and attach a positive quotation in the linked booking before advancing this status.', 'error')
+        return redirect(url_for('admin.home_decor_detail', request_id=decor_request.id))
+    if target == 'Approved' and not (booking and booking.quote_status == 'Accepted'):
+        flash('The customer must accept the linked quotation before this project is approved.', 'error')
+        return redirect(url_for('admin.home_decor_detail', request_id=decor_request.id))
+    if target in {'In Progress', 'Completed'} and not (booking and booking.payment_status in {'Paid', 'Deposit Paid'}):
+        flash('A confirmed payment-provider status is required before work can start or be marked complete.', 'error')
+        return redirect(url_for('admin.home_decor_detail', request_id=decor_request.id))
+    previous = decor_request.status
+    decor_request.status = target
+    if booking:
+        booking_status = {
+            'Approved': 'Confirmed', 'In Progress': 'In Progress',
+            'Completed': 'Completed', 'Cancelled': 'Cancelled', 'Rejected': 'Cancelled',
+        }.get(target)
+        if booking_status:
+            booking.status = booking_status
+        if target in {'Cancelled', 'Rejected'}:
+            booking.workflow_state = 'CANCELLED'
+        booking.workflow_data = {**(booking.workflow_data or {}), 'home_decor_request': {
+            'reference': decor_request.public_reference, 'status': target,
+        }}
+        db.session.add(BookingEvent(
+            booking_id=booking.id, user_id=current_user.id, action='home_decor.status_changed',
+            previous_value={'status': previous}, new_value={'status': target},
+        ))
+    write_admin_audit('home_decor.status_changed', 'home_decor_request', decor_request.id,
+                      before={'status': previous}, after={'status': target})
+    db.session.commit()
+    flash(f'Home Décor request moved to {target}.', 'success')
+    return redirect(url_for('admin.home_decor_detail', request_id=decor_request.id))
+
+
+@admin_bp.route('/home-decor/<int:request_id>/quote', methods=['POST'])
+@login_required
+@admin_required('quotes')
+def prepare_home_decor_quote(request_id):
+    decor_request = db.get_or_404(HomeDecorRequest, request_id)
+    if decor_request.status not in {'Under Review', 'Inspection/Consultation'} or not decor_request.booking:
+        flash('Review or inspect the request before preparing a quotation.', 'error')
+        return redirect(url_for('admin.home_decor_detail', request_id=decor_request.id))
+    try:
+        amount = float(request.form.get('amount', ''))
+    except (TypeError, ValueError):
+        amount = 0
+    reason = request.form.get('reason', '').strip()
+    availability_note = request.form.get('availability_note', '').strip()
+    if amount <= 0 or amount > 1_000_000_000 or not reason or len(reason) > 1000 or len(availability_note) < 12 or len(availability_note) > 1000:
+        flash('Enter a positive quotation, its basis, and operations availability notes (12–1,000 characters).', 'error')
+        return redirect(url_for('admin.home_decor_detail', request_id=decor_request.id))
+    booking = decor_request.booking
+    previous = {'quote_status': booking.quote_status, 'estimated_total': booking.estimated_total}
+    BookingQuoteLine.query.filter_by(booking_id=booking.id).delete()
+    booking.estimated_total = round(amount, 2)
+    percentage = ServicePricing.query.filter_by(key='deposit_percentage').first()
+    deposit_percent = float(percentage.value) if percentage else 0
+    booking.deposit_amount = round(booking.estimated_total * deposit_percent / 100, 2)
+    booking.balance_amount = round(booking.estimated_total - booking.deposit_amount, 2)
+    booking.manually_overridden_total = booking.estimated_total
+    booking.price_override_reason = reason[:1000]
+    booking.overridden_by = current_user.id
+    booking.overridden_at = datetime.utcnow()
+    booking.quote_status = 'Ready'
+    booking.workflow_state = 'QUOTE_READY'
+    booking.calculation_data = {
+        'estimate_type': 'operations_quote', 'service_type': 'home_decor',
+        'manual_review_flags': [], 'manual_review_resolved': True,
+        'availability_confirmation_required': True, 'availability_confirmed': True,
+        'availability_confirmation_note': availability_note,
+        'pricing_rule_version': None, 'total': booking.estimated_total,
+        'deposit': booking.deposit_amount, 'balance': booking.balance_amount,
+    }
+    db.session.add(BookingQuoteLine(
+        booking_id=booking.id, code='home_decor_project', label='Home Décor project quotation',
+        quantity=1, unit_amount=booking.estimated_total, amount=booking.estimated_total, source='manual',
+    ))
+    decor_request.status = 'Quotation Prepared'
+    db.session.add(BookingEvent(
+        booking_id=booking.id, user_id=current_user.id, action='home_decor.quote_prepared',
+        previous_value=previous, new_value={'amount': booking.estimated_total, 'reason': reason, 'availability_note': availability_note},
+    ))
+    write_admin_audit('home_decor.quote_prepared', 'home_decor_request', decor_request.id,
+                      before=previous, after={'amount': booking.estimated_total, 'reason': reason})
+    db.session.commit()
+    flash('Quotation prepared and linked to the existing booking quote. No payment was taken.', 'success')
+    return redirect(url_for('admin.home_decor_detail', request_id=decor_request.id))
 
 
 @admin_bp.route('/trucks/<int:truck_id>/images', methods=['POST'])

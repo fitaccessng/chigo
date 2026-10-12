@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-SERVICE_TYPES = frozenset({'cleaning', 'residential', 'commercial', 'packing', 'storage', 'logistics', 'support'})
+SERVICE_TYPES = frozenset({'cleaning', 'residential', 'commercial', 'packing', 'storage', 'logistics', 'support', 'home_decor'})
 QUESTION_SCHEMA_VERSION = 3
 LEGACY_PACKING_QUESTION_KEYS = {
     'property': frozenset({'packing_for', 'packing_scope', 'packing_rooms', 'packing_materials_needed', 'packing_materials_available'}),
@@ -17,6 +17,7 @@ PROPERTY_TYPES_BY_SERVICE = {
     'storage': ('Apartment', 'House', 'Duplex', 'Office', 'Shop', 'Warehouse', 'Hotel', 'Estate'),
     'logistics': ('Office', 'Shop', 'Warehouse', 'Hotel', 'Estate', 'Construction Site'),
     'support': (),
+    'home_decor': (),
 }
 
 SERVICE_WORKFLOWS = {
@@ -79,6 +80,12 @@ SERVICE_WORKFLOWS = {
         'questions': {'property': ('support_category', 'support_urgency', 'support_description', 'onsite_required'),
                       'inventory': ('booking_reference', 'support_contact_preference')},
     },
+    'home_decor': {
+        'label': 'Home Décor',
+        'description': 'Share your property, design preferences, project scope and timeline for an operations-reviewed décor enquiry.',
+        'steps': ('property', 'inventory', 'services', 'schedule', 'quote'),
+        'questions': {'property': ('home_decor_request',), 'inventory': ('home_decor_attachments',)},
+    },
 }
 
 SERVICE_RECOMMENDATIONS = {
@@ -106,6 +113,7 @@ SERVICE_RECOMMENDATIONS = {
         ('special_handling', 'recommended', 'Special Handling', 'The item is fragile or requires specialist handling.'),
     ),
     'support': (),
+    'home_decor': (),
 }
 
 SERVICE_COMPATibilities = {
@@ -116,6 +124,7 @@ SERVICE_COMPATibilities = {
     'storage': frozenset({'storage', 'residential', 'commercial', 'logistics'}),
     'logistics': frozenset({'logistics', 'packing', 'storage'}),
     'support': frozenset({'support'}),
+    'home_decor': frozenset({'home_decor'}),
 }
 
 def _question(key, label, input_type, *, required=False, options=(), minimum=None, maximum=None, step=None, condition=None):
@@ -326,6 +335,7 @@ SERVICE_QUESTION_SCHEMAS = {
                       options=('phone', 'email')),
         ),
     },
+    'home_decor': {'property': (), 'inventory': ()},
 }
 
 ADDON_QUESTION_SCHEMAS = {
@@ -533,6 +543,13 @@ def validate_booking_question_data(booking: Mapping[str, Any] | Any) -> dict[str
     service_intent = workflow_data.get('service_intent')
     if service_intent != service_type:
         raise ValueError('The primary service for this booking cannot be changed. Start a new booking to choose another service.')
+    if service_type == 'home_decor':
+        property_data = workflow_data.get('property') or {}
+        if not isinstance(property_data, Mapping) or not isinstance(property_data.get('service_answers', {}), Mapping):
+            raise ValueError('Home Décor request details must be an object.')
+        if not _booking_value(booking, 'pickup_address'):
+            raise ValueError('A verified property location is required for this décor request.')
+        return workflow_data
     location_access = workflow_data.get('location_access') or {}
     for place in ('pickup', 'destination'):
         floor = _booking_value(booking, f'{place}_floor') or 'Ground'

@@ -61,6 +61,14 @@ class Config:
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
     MAX_IMAGE_SIZE = 10 * 1024 * 1024
     MAX_BOOKING_ATTACHMENTS = 20
+    MAX_DECOR_ATTACHMENTS = int(os.getenv('MAX_DECOR_ATTACHMENTS', '10'))
+    MAX_DECOR_ATTACHMENT_SIZE = int(os.getenv('MAX_DECOR_ATTACHMENT_SIZE', str(8 * 1024 * 1024)))
+    MAX_DECOR_TOTAL_UPLOAD_SIZE = int(os.getenv('MAX_DECOR_TOTAL_UPLOAD_SIZE', str(15 * 1024 * 1024)))
+    MAX_DECOR_DRAFTS_PER_CUSTOMER = int(os.getenv('MAX_DECOR_DRAFTS_PER_CUSTOMER', '8'))
+    HOME_DECOR_BUDGET_RANGES_JSON = os.getenv(
+        'HOME_DECOR_BUDGET_RANGES_JSON',
+        '[{"value":"below_250k","label":"Below ₦250,000"},{"value":"250k_500k","label":"₦250,000–₦500,000"},{"value":"500k_1m","label":"₦500,000–₦1,000,000"},{"value":"above_1m","label":"Above ₦1,000,000"},{"value":"not_sure","label":"Not sure — need guidance"}]',
+    )
     MAX_VEHICLE_IMAGES = 12
     PASSWORD_RESET_MAX_AGE = int(os.getenv('PASSWORD_RESET_MAX_AGE', '3600'))
     NOMINATIM_BASE_URL = os.getenv('NOMINATIM_BASE_URL', 'https://nominatim.openstreetmap.org')

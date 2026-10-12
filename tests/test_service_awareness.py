@@ -999,7 +999,7 @@ def test_property_types_are_service_specific_and_validated():
 
 
 def test_question_schemas_are_service_specific_and_validate_conditionals():
-    assert set(SERVICE_QUESTION_SCHEMAS) == {'cleaning', 'residential', 'commercial', 'packing', 'storage', 'logistics', 'support'}
+    assert set(SERVICE_QUESTION_SCHEMAS) == {'cleaning', 'residential', 'commercial', 'packing', 'storage', 'logistics', 'support', 'home_decor'}
     assert 'shipment_weight_kg' in {field['key'] for field in service_questions_for('logistics', 'inventory')}
     assert 'business_operating_during_move' in {field['key'] for field in service_questions_for('commercial', 'property')}
     assert 'packing_scope' in {field['key'] for field in service_questions_for('packing', 'property')}

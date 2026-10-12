@@ -15,6 +15,7 @@ from .routes.auth import auth_bp
 from .routes.booking_engine import booking_api_bp, booking_bp
 from .routes.customer import customer_bp
 from .routes.locations import locations_bp
+from .routes.home_decor import home_decor_bp
 from .routes.public import public_bp
 from .routes.support_admin import support_admin_bp
 from .routes.support_chat import support_bp
@@ -71,6 +72,7 @@ def create_app(testing=False):
     app.register_blueprint(public_bp)
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(booking_bp, url_prefix='/booking')
+    app.register_blueprint(home_decor_bp, url_prefix='/booking')
     app.register_blueprint(booking_api_bp)
     app.register_blueprint(customer_bp, url_prefix='/customer')
     app.register_blueprint(locations_bp)

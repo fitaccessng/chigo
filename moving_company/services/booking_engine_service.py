@@ -63,7 +63,7 @@ def record_event(booking: Booking, action: str, previous=None, new=None, user_id
     ))
 
 
-def create_booking_request(customer_id=None, location=None, user_id=None, service_type='residential', initial_services=None, location_access=None, initial_service_answers=None):
+def create_booking_request(customer_id=None, location=None, user_id=None, service_type='residential', initial_services=None, location_access=None, initial_service_answers=None, commit=True):
     location = dict(location or {})
     service_type = normalize_service_type(service_type)
     required = (
@@ -114,7 +114,8 @@ def create_booking_request(customer_id=None, location=None, user_id=None, servic
         'pickup': booking.pickup_formatted_address or booking.pickup_address,
         'destination': booking.destination_formatted_address or booking.destination_address,
     }, user_id=user_id)
-    db.session.commit()
+    if commit:
+        db.session.commit()
     return booking
 
 
@@ -1040,6 +1041,12 @@ def calculate_quote(booking: Booking, user_id=None):
             estimate_details={'basis': 'admin-configured route, vehicle-trip, weight, volume and handling rates', 'tax_included': False, 'lines': rate_lines},
             user_id=user_id,
         )
+    if booking.primary_service == 'home_decor':
+        return _save_quote_required(
+            booking,
+            'Home Décor projects require a scope review and operations-prepared quotation; no automatic décor pricing is configured.',
+            user_id=user_id,
+        )
     if booking.primary_service == 'packing':
         pricing = {row.key: float(row.value) for row in ServicePricing.query.all()}
         property_answers = (booking.workflow_data.get('property') or {}).get('service_answers', {})
@@ -1059,6 +1066,7 @@ def calculate_quote(booking: Booking, user_id=None):
             'storage': 'Storage capacity, availability, duration and billing require operations confirmation.',
             'logistics': 'Shipment routing, vehicle fit, urgency and service pricing require operations confirmation.',
             'support': 'Support availability and callback timing must be confirmed by the operations team.',
+            'home_decor': 'Home Décor requires an operations-prepared quotation; no automatic décor pricing is configured.',
         }
         booking.quote_status = 'Quote Required'
         booking.workflow_state = 'QUOTE_READY'

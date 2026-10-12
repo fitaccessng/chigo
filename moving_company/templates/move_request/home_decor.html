@@ -1,0 +1,167 @@
+{% extends 'dashboard_base.html' %}
+{% block title %}Home Décor Request | Chigo Relocations{% endblock %}
+{% block content %}
+{% set step_title = steps[step][0] %}
+<main class="mx-auto max-w-5xl px-4 py-8 sm:px-7 sm:py-10">
+  <a href="{{ url_for('public.services') }}" class="inline-flex items-center gap-2 text-sm font-semibold text-stone-600 hover:text-brand-800" aria-label="Back to services"><span aria-hidden="true">←</span><span>Back to services</span></a>
+  <header class="mt-6 border-b border-stone-200 pb-6">
+    <p class="text-xs font-bold uppercase text-brand-700">Home Décor · {{ decor_request.public_reference }}</p>
+    <h1 class="mt-2 text-3xl font-extrabold text-stone-900">Home Décor Request</h1>
+    <p class="mt-3 max-w-3xl text-sm leading-6 text-stone-600">Tell us about your space, your style, and what you have in mind. Our team will review your requirements and help you plan the next steps.</p>
+  </header>
+
+  <nav aria-label="Request progress" class="mt-6 overflow-x-auto">
+    <ol class="flex min-w-max items-center gap-3">
+      {% for number, (label, subtitle) in steps.items() %}
+      <li class="flex items-center gap-2 {% if number == step %}text-brand-800{% else %}text-stone-500{% endif %}" {% if number == step %}aria-current="step"{% endif %}>
+        <span class="grid h-8 w-8 place-items-center rounded-full border text-xs font-bold {% if number == step %}border-brand-700 bg-brand-700 text-white{% elif number < step %}border-emerald-700 bg-emerald-700 text-white{% else %}border-stone-300 bg-white{% endif %}">{{ number }}</span>
+        <span class="pr-2 text-xs font-semibold">{{ label }}</span>
+        {% if not loop.last %}<span class="h-px w-7 bg-stone-300" aria-hidden="true"></span>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </nav>
+
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+  <p role="alert" class="mt-5 border-l-4 border-red-700 bg-red-50 px-4 py-3 text-sm text-red-900">{{ message }}</p>
+  {% endfor %}
+
+  <section class="mt-7 border-y border-stone-200 py-6">
+    <h2 class="text-xl font-bold text-stone-900">Step {{ step }} · {{ step_title }}</h2>
+    <p class="mt-1 text-sm text-stone-600">{{ steps[step][1] }}</p>
+    <form method="post" enctype="multipart/form-data" class="mt-6 space-y-6" data-decor-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% if step == 1 %}
+      <div class="grid gap-4 sm:grid-cols-2">
+        <label class="text-sm font-semibold text-stone-800">Full name <span class="text-red-700">*</span><input name="full_name" required maxlength="160" autocomplete="name" value="{{ values.get('full_name', '') }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"></label>
+        <label class="text-sm font-semibold text-stone-800">Phone number <span class="text-red-700">*</span><input name="phone" required maxlength="30" autocomplete="tel" value="{{ values.get('phone', '') }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"></label>
+        <label class="text-sm font-semibold text-stone-800">Email address<input type="email" name="email" maxlength="254" autocomplete="email" value="{{ values.get('email', '') }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"></label>
+        <label class="text-sm font-semibold text-stone-800">Preferred contact method <span class="text-red-700">*</span><select name="contact_method" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal">{% for option in contact_methods %}<option value="{{ option }}" {% if values.get('contact_method', 'WhatsApp') == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+      </div>
+      {% elif step == 2 %}
+      <div class="grid gap-4 sm:grid-cols-2">
+        <label class="text-sm font-semibold text-stone-800">Property type <span class="text-red-700">*</span><select name="property_type" required data-property-type class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"><option value="">Choose an option</option>{% for option in property_types %}<option {% if values.get('property_type') == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+        <label class="text-sm font-semibold text-stone-800">Property status <span class="text-red-700">*</span><select name="property_status" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"><option value="">Choose an option</option>{% for option in property_statuses %}<option {% if values.get('property_status') == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+        <div class="sm:col-span-2">
+          <label for="location_search" class="text-sm font-semibold text-stone-800">Property location in FCT <span class="text-red-700">*</span></label>
+          <div class="relative mt-1.5"><input id="location_search" name="location_search" role="combobox" aria-autocomplete="list" aria-expanded="false" autocomplete="off" value="{{ values.get('location_search', values.get('location', '')) }}" placeholder="Search area, estate, district or street" class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-sm"><div id="location_suggestions" role="listbox" class="absolute z-30 mt-1 hidden max-h-60 w-full overflow-y-auto rounded-lg border border-stone-200 bg-white shadow-lg"></div></div>
+          <input type="hidden" name="location" value="{{ values.get('location', '') }}"><input type="hidden" name="location_address" value="{{ values.get('location_address', '') }}"><input type="hidden" name="location_city" value="{{ values.get('location_city', '') }}"><input type="hidden" name="location_state" value="{{ values.get('location_state', '') }}"><input type="hidden" name="location_country" value="{{ values.get('location_country', '') }}"><input type="hidden" name="location_area" value="{{ values.get('location_area', '') }}"><input type="hidden" name="location_area_council" value="{{ values.get('location_area_council', '') }}"><input type="hidden" name="location_district" value="{{ values.get('location_district', '') }}"><input type="hidden" name="location_neighborhood" value="{{ values.get('location_neighborhood', '') }}"><input type="hidden" name="location_formatted_address" value="{{ values.get('location_formatted_address', '') }}"><input type="hidden" name="location_latitude" value="{{ values.get('location_latitude', '') }}"><input type="hidden" name="location_longitude" value="{{ values.get('location_longitude', '') }}"><input type="hidden" name="location_place_id" value="{{ values.get('location_place_id', '') }}"><input type="hidden" name="location_provider" value="{{ values.get('location_provider', '') }}"><input type="hidden" name="location_provider_raw_id" value="{{ values.get('location_provider_raw_id', '') }}"><input type="hidden" name="location_type" value="{{ values.get('location_type', '') }}">
+        </div>
+        <label data-bedroom-field class="text-sm font-semibold text-stone-800">Bedrooms <span class="text-red-700">*</span><input type="number" name="bedroom_count" min="0" max="100" value="{{ values.get('bedroom_count', '') }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"></label>
+        <label class="text-sm font-semibold text-stone-800">Approximate property size, if known<input name="property_size" maxlength="80" value="{{ values.get('property_size', '') }}" placeholder="For example, 90 m²" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"></label>
+        <label class="text-sm font-semibold text-stone-800 sm:col-span-2">Inspection accessibility <span class="text-red-700">*</span><select name="inspection_access" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"><option value="">Choose an option</option>{% for option in inspection_options %}<option {% if values.get('inspection_access') == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+      </div>
+      {% elif step == 3 %}
+      <fieldset><legend class="text-sm font-semibold text-stone-800">Décor services <span class="text-red-700">*</span></legend><div class="mt-3 grid gap-2 sm:grid-cols-2">{% for option in decor_services %}<label class="flex items-start gap-2 rounded-lg border border-stone-200 p-3 text-sm text-stone-700"><input type="checkbox" name="decor_services" value="{{ option }}" {% if option in values.get('decor_services', []) %}checked{% endif %} data-decor-other class="mt-0.5 accent-emerald-700"><span>{{ option }}</span></label>{% endfor %}</div></fieldset>
+      <label data-other-service class="hidden text-sm font-semibold text-stone-800">Describe the additional service <span class="text-red-700">*</span><textarea name="other_service" maxlength="500" rows="3" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal">{{ values.get('other_service', '') }}</textarea></label>
+      <fieldset><legend class="text-sm font-semibold text-stone-800">Rooms or areas <span class="text-red-700">*</span></legend><div class="mt-3 grid gap-2 sm:grid-cols-3">{% for option in rooms %}<label class="flex items-center gap-2 rounded-lg border border-stone-200 p-3 text-sm text-stone-700"><input type="checkbox" name="rooms" value="{{ option }}" {% if option in values.get('rooms', []) %}checked{% endif %} class="accent-emerald-700">{{ option }}</label>{% endfor %}</div></fieldset>
+      {% elif step == 4 %}
+      <div class="grid gap-4 sm:grid-cols-2">
+        <label class="text-sm font-semibold text-stone-800">Preferred design style <span class="text-red-700">*</span><select name="design_style" required data-design-style class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"><option value="">Choose an option</option>{% for option in styles %}<option {% if values.get('design_style') == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+        <label data-other-style class="hidden text-sm font-semibold text-stone-800">Describe your style <span class="text-red-700">*</span><input name="other_style" maxlength="300" value="{{ values.get('other_style', '') }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"></label>
+        <label class="text-sm font-semibold text-stone-800">Preferred colours<input name="preferred_colours" maxlength="300" value="{{ values.get('preferred_colours', '') }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"></label>
+        <label class="text-sm font-semibold text-stone-800 sm:col-span-2">Describe the desired outcome <span class="text-red-700">*</span><textarea name="desired_outcome" required maxlength="2000" rows="3" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal">{{ values.get('desired_outcome', '') }}</textarea></label>
+        <label class="text-sm font-semibold text-stone-800">Furniture or décor to retain<textarea name="retain_items" maxlength="1000" rows="3" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal">{{ values.get('retain_items', '') }}</textarea></label>
+        <label class="text-sm font-semibold text-stone-800">Items to source<textarea name="items_to_source" maxlength="1000" rows="3" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal">{{ values.get('items_to_source', '') }}</textarea></label>
+        <label class="text-sm font-semibold text-stone-800">Optional room measurements<textarea name="room_measurements" maxlength="1000" rows="2" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal">{{ values.get('room_measurements', '') }}</textarea></label>
+        <label class="text-sm font-semibold text-stone-800">Pinterest or other reference links{% for index in range(3) %}<input name="reference_links" type="url" maxlength="500" value="{{ (values.get('reference_links') or ['', '', ''])[index] if index < (values.get('reference_links') or ['', '', ''])|length else '' }}" placeholder="https://..." class="mt-1.5 {% if not loop.first %}block{% endif %} w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal">{% endfor %}</label>
+      </div>
+      {% if decor_request.attachments %}<section class="border-y border-stone-200 py-4"><h3 class="text-sm font-bold text-stone-800">Attached files</h3><ul class="mt-2 space-y-1 text-sm text-stone-600">{% for attachment in decor_request.attachments %}<li>{{ attachment.original_filename }} · {{ attachment.category|replace('_', ' ')|title }}</li>{% endfor %}</ul></section>{% endif %}
+      <section class="border-y border-stone-200 py-4"><h3 class="text-sm font-bold text-stone-800">Optional reference files</h3><p class="mt-1 text-xs text-stone-600">JPG, PNG or WebP images and PDF floor plans. Maximum {{ config.MAX_DECOR_ATTACHMENT_SIZE // (1024 * 1024) }} MB per file; up to {{ config.MAX_DECOR_ATTACHMENTS }} total. The request upload limit is {{ (config.MAX_CONTENT_LENGTH / (1024 * 1024))|round|int }} MB per upload.</p><div class="mt-4 grid gap-4 sm:grid-cols-3"><label class="text-xs font-semibold text-stone-700">Current space photographs<input name="current_space_files" type="file" accept="image/jpeg,image/png,image/webp" multiple class="mt-1.5 block w-full text-xs"></label><label class="text-xs font-semibold text-stone-700">Inspiration images<input name="inspiration_files" type="file" accept="image/jpeg,image/png,image/webp" multiple class="mt-1.5 block w-full text-xs"></label><label class="text-xs font-semibold text-stone-700">Floor plan (PDF or image)<input name="floor_plan_files" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" multiple class="mt-1.5 block w-full text-xs"></label></div><button name="action" value="upload" class="mt-4 rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-700">Upload selected files</button><div data-upload-progress hidden class="mt-4"><label for="decor-upload-progress" class="text-xs font-semibold text-stone-700">Uploading selected files</label><progress id="decor-upload-progress" max="100" value="0" class="mt-2 block h-2 w-full accent-emerald-700"></progress><p data-upload-message class="mt-1 text-xs text-stone-600">0%</p></div></section>
+      {% elif step == 5 %}
+      <div class="grid gap-4 sm:grid-cols-2">
+        <label class="text-sm font-semibold text-stone-800">Estimated budget <span class="text-red-700">*</span><select name="budget_range" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"><option value="">Choose an option</option>{% for option in budget_ranges %}<option value="{{ option.value }}" {% if values.get('budget_range') == option.value %}selected{% endif %}>{{ option.label }}</option>{% endfor %}</select><span class="mt-1 block text-xs font-normal text-stone-500">Budget preference only; it is not a service price or quotation.</span></label>
+        <label class="text-sm font-semibold text-stone-800">Intended project scope <span class="text-red-700">*</span><select name="project_scope" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"><option value="">Choose an option</option>{% for option in project_scopes %}<option {% if values.get('project_scope') == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+        <fieldset class="text-sm font-semibold text-stone-800"><legend>Should Chigo source furniture or materials? <span class="text-red-700">*</span></legend><label class="mt-2 mr-4 inline-flex items-center gap-2 font-normal"><input type="radio" name="source_materials" value="yes" required {% if values.get('source_materials') == 'yes' %}checked{% endif %}>Yes</label><label class="inline-flex items-center gap-2 font-normal"><input type="radio" name="source_materials" value="no" required {% if values.get('source_materials') == 'no' %}checked{% endif %}>No</label></fieldset>
+        <label class="text-sm font-semibold text-stone-800 sm:col-span-2">Known material, furniture or installation requirements<textarea name="material_requirements" maxlength="1000" rows="3" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal">{{ values.get('material_requirements', '') }}</textarea></label>
+      </div>
+      {% elif step == 6 %}
+      <div class="grid gap-4 sm:grid-cols-2">
+        <label class="text-sm font-semibold text-stone-800">Preferred project start date<input type="date" name="preferred_start_date" min="{{ now_date }}" value="{{ values.get('preferred_start_date', '') }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"></label>
+        <label class="text-sm font-semibold text-stone-800">Desired completion date<input type="date" name="desired_completion_date" min="{{ values.get('preferred_start_date', now_date) or now_date }}" value="{{ values.get('desired_completion_date', '') }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"></label>
+        <fieldset class="text-sm font-semibold text-stone-800"><legend>Timeline flexibility <span class="text-red-700">*</span></legend><label class="mt-2 mr-4 inline-flex items-center gap-2 font-normal"><input type="radio" name="timeline_flexible" value="yes" required {% if values.get('timeline_flexible') == 'yes' %}checked{% endif %}>Flexible</label><label class="inline-flex items-center gap-2 font-normal"><input type="radio" name="timeline_flexible" value="no" required {% if values.get('timeline_flexible') == 'no' %}checked{% endif %}>Fixed</label></fieldset>
+        <label class="text-sm font-semibold text-stone-800">Preferred inspection or consultation date<input type="date" name="preferred_consultation_date" min="{{ now_date }}" value="{{ values.get('preferred_consultation_date', '') }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"></label>
+        <label class="text-sm font-semibold text-stone-800 sm:col-span-2">Additional instructions<textarea name="instructions" maxlength="2000" rows="3" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal">{{ values.get('instructions', '') }}</textarea></label>
+      </div>
+      <section class="border-y border-stone-200 py-5"><h3 class="text-base font-bold text-stone-900">Review your request</h3><dl class="mt-3 grid gap-3 text-sm sm:grid-cols-2"><div><dt class="text-stone-500">Client</dt><dd class="font-semibold">{{ values.get('full_name') }} · {{ values.get('phone') }} · {{ values.get('email') or 'No email provided' }}</dd></div><div><dt class="text-stone-500">Property</dt><dd class="font-semibold">{{ values.get('property_type') }} · {{ values.get('property_status') }} · {{ values.get('location_address') or values.get('location') }}</dd></div><div><dt class="text-stone-500">Services</dt><dd class="font-semibold">{{ values.get('decor_services', [])|join(', ') }}</dd></div><div><dt class="text-stone-500">Rooms</dt><dd class="font-semibold">{{ values.get('rooms', [])|join(', ') }}</dd></div><div><dt class="text-stone-500">Style and scope</dt><dd class="font-semibold">{{ values.get('design_style') }} · {{ values.get('project_scope') }}</dd></div><div><dt class="text-stone-500">Budget preference</dt><dd class="font-semibold">{% for option in budget_ranges if option.value == values.get('budget_range') %}{{ option.label }}{% endfor %}</dd></div><div><dt class="text-stone-500">Timeline</dt><dd class="font-semibold">{{ values.get('preferred_start_date') or 'Flexible' }} to {{ values.get('desired_completion_date') or 'To be discussed' }}</dd></div></dl><h4 class="mt-4 text-sm font-bold">Attachments</h4><ul class="mt-1 text-sm text-stone-600">{% for attachment in decor_request.attachments %}<li>{{ attachment.original_filename }} · {{ attachment.category|replace('_', ' ')|title }}</li>{% else %}<li>No files attached</li>{% endfor %}</ul></section>
+        <label class="flex items-start gap-3 text-sm text-stone-700"><input type="checkbox" name="contact_consent" required {% if values.get('contact_consent') == 'on' %}checked{% endif %} class="mt-1 accent-emerald-700"><span>I agree that Chigo may contact me about this décor enquiry. <span class="text-red-700">Required</span></span></label>
+      {% endif %}
+
+      <div class="flex flex-col-reverse justify-between gap-3 border-t border-stone-200 pt-5 sm:flex-row">
+        {% if step > 1 %}<button name="action" value="back" formnovalidate class="rounded-lg border border-stone-300 px-5 py-3 text-sm font-semibold text-stone-700">Previous</button>{% else %}<span></span>{% endif %}
+        {% if step < 6 %}<button name="action" value="continue" class="rounded-lg bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800">Continue</button>{% else %}<button name="action" value="submit" class="rounded-lg bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800">Submit Décor Request</button>{% endif %}
+      </div>
+    </form>
+  </section>
+</main>
+{% if step == 2 or step == 3 or step == 4 %}
+<script>
+  (() => {
+    const form = document.querySelector('[data-decor-form]');
+    if (!form) return;
+    const sync = () => {
+      const commercial = form.elements.namedItem('property_type')?.value === 'Office or commercial space';
+      const bedrooms = form.querySelector('[data-bedroom-field]');
+      if (bedrooms) { bedrooms.hidden = commercial; bedrooms.querySelector('input').required = !commercial; }
+      const otherService = form.querySelector('[data-other-service]');
+      if (otherService) { const visible = [...form.querySelectorAll('[name="decor_services"]')].some(input => input.checked && input.value === 'Other'); otherService.classList.toggle('hidden', !visible); otherService.querySelector('textarea').required = visible; }
+      const otherStyle = form.querySelector('[data-other-style]');
+      if (otherStyle) { const visible = form.elements.namedItem('design_style')?.value === 'Other'; otherStyle.classList.toggle('hidden', !visible); otherStyle.querySelector('input').required = visible; }
+    };
+    form.addEventListener('change', sync); sync();
+    form.addEventListener('submit', event => {
+      if (event.submitter?.value !== 'upload') return;
+      const selected = [...form.querySelectorAll('input[type="file"]')].some(file => file.files.length);
+      if (!selected) return;
+      event.preventDefault();
+      const progress = form.querySelector('[data-upload-progress]');
+      const bar = form.querySelector('#decor-upload-progress');
+      const message = form.querySelector('[data-upload-message]');
+      progress.hidden = false;
+      const body = new FormData(form);
+      body.set('action', 'upload');
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', window.location.href);
+      xhr.upload.onprogress = uploadEvent => {
+        if (!uploadEvent.lengthComputable) return;
+        const percent = Math.round(uploadEvent.loaded / uploadEvent.total * 100);
+        bar.value = percent;
+        message.textContent = `${percent}% uploaded`;
+      };
+      xhr.onload = () => { window.location.assign(xhr.responseURL || window.location.href); };
+      xhr.onerror = () => { message.textContent = 'Upload failed. Check your connection and try again.'; };
+      xhr.send(body);
+    });
+    const input = document.getElementById('location_search');
+    const panel = document.getElementById('location_suggestions');
+    if (!input || !panel) return;
+    let timer; let controller; let sequence = 0;
+    const close = () => { panel.classList.add('hidden'); input.setAttribute('aria-expanded', 'false'); };
+    const set = (key, value) => { const field = form.elements.namedItem(key ? `location_${key}` : 'location'); if (field) field.value = value ?? ''; };
+    input.addEventListener('input', () => {
+      const query = input.value.trim(); clearTimeout(timer); controller?.abort(); const current = ++sequence;
+      set('', query); set('address', ''); set('place_id', ''); set('latitude', ''); set('longitude', '');
+      if (query.length < 2) { close(); return; }
+      panel.replaceChildren(); const loading = document.createElement('p'); loading.className = 'px-4 py-3 text-xs text-stone-500'; loading.textContent = 'Searching FCT locations...'; panel.append(loading); panel.classList.remove('hidden'); input.setAttribute('aria-expanded', 'true');
+      timer = setTimeout(async () => {
+        controller = new AbortController();
+        try {
+          const response = await fetch(`/api/locations/autocomplete?q=${encodeURIComponent(query)}&limit=8`, {signal: controller.signal});
+          const payload = await response.json(); if (!response.ok || !payload.success) throw new Error('search failed'); if (current !== sequence) return;
+          panel.replaceChildren(); const results = payload.results || [];
+          if (!results.length) { const noMatch = document.createElement('p'); noMatch.className = 'px-4 py-3 text-xs text-stone-500'; noMatch.textContent = 'No matching FCT location. Try a nearby area or landmark.'; panel.append(noMatch); return; }
+          for (const result of results) {
+            const option = document.createElement('button'); option.type = 'button'; option.className = 'block w-full border-b border-stone-100 px-4 py-3 text-left hover:bg-emerald-50';
+            const name = document.createElement('span'); name.className = 'block text-sm font-semibold text-stone-900'; name.textContent = result.name || result.formatted_address || result.display_name;
+            const context = document.createElement('span'); context.className = 'mt-1 block text-xs text-stone-500'; context.textContent = [result.area_council, result.district || result.neighborhood, result.state || 'FCT'].filter(Boolean).join(' · '); option.append(name, context);
+            option.addEventListener('click', () => { const formatted = result.formatted_address || result.display_name || result.name; input.value = formatted; set('', formatted); set('address', result.name || formatted); set('city', result.city || 'Abuja'); set('state', result.state || 'Federal Capital Territory'); set('country', result.country || 'Nigeria'); set('area', result.area); set('area_council', result.area_council); set('district', result.district); set('neighborhood', result.neighborhood); set('formatted_address', formatted); set('latitude', result.latitude); set('longitude', result.longitude); set('place_id', result.place_id || result.provider_place_id || result.id); set('provider', result.provider); set('provider_raw_id', result.provider_raw_id || result.provider_place_id || result.id); set('location_type', result.location_type || result.type); close(); });
+            panel.append(option);
+          }
+        } catch (error) { if (error.name === 'AbortError' || current !== sequence) return; panel.replaceChildren(); const failed = document.createElement('p'); failed.className = 'px-4 py-3 text-xs text-amber-800'; failed.textContent = 'Location search is unavailable. Try again shortly.'; panel.append(failed); }
+      }, 250);
+    });
+    document.addEventListener('click', event => { if (!input.contains(event.target) && !panel.contains(event.target)) close(); });
+  })();
+</script>
+{% endif %}
+{% endblock %}

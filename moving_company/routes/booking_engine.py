@@ -1085,13 +1085,35 @@ def workflow(request_id, stage):
 
             if stage == 'quote' and request.form.get('action') == 'accept_quote':
                 accept_quote(booking, current_user.id if current_user.is_authenticated else None)
+                if booking.primary_service == 'home_decor' and booking.home_decor_request:
+                    decor_request = booking.home_decor_request
+                    previous = decor_request.status
+                    decor_request.status = 'Approved'
+                    booking.workflow_data = {**(booking.workflow_data or {}), 'home_decor_request': {
+                        'reference': decor_request.public_reference, 'status': decor_request.status,
+                    }}
+                    record_event(booking, 'home_decor.quote_accepted', previous={'status': previous},
+                                 new={'status': decor_request.status}, user_id=current_user.id)
+                    db.session.commit()
                 return redirect(url_for('booking.workflow', request_id=request_id, stage='payment'))
             raise ValueError('This action is not valid for this workflow step.')
         except (ValueError, TypeError) as error:
             db.session.rollback()
             flash(str(error), 'error')
 
-    if stage == 'quote' and booking.workflow_state == 'SCHEDULE_COMPLETED':
+    if stage == 'quote' and booking.primary_service == 'home_decor' and booking.home_decor_request:
+        decor_request = booking.home_decor_request
+        if decor_request.status == 'Quotation Prepared' and booking.quote_status == 'Ready':
+            previous = decor_request.status
+            decor_request.status = 'Awaiting Client Approval'
+            booking.workflow_data = {**(booking.workflow_data or {}), 'home_decor_request': {
+                'reference': decor_request.public_reference, 'status': decor_request.status,
+            }}
+            record_event(booking, 'home_decor.quote_sent_for_approval',
+                         previous={'status': previous}, new={'status': decor_request.status},
+                         user_id=current_user.id if current_user.is_authenticated else None)
+            db.session.commit()
+    if stage == 'quote' and booking.workflow_state == 'SCHEDULE_COMPLETED' and booking.primary_service != 'home_decor':
         try:
             calculate_quote(booking, current_user.id if current_user.is_authenticated else None)
             queue_booking_conversion(booking, 'quote_generated')

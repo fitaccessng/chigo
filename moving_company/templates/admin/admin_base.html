@@ -25,6 +25,7 @@
       <section>
         <p class="sidebar-label px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-500">Operations</p>
         <a href="{{ url_for('admin.bookings') }}" class="sidebar-link mt-2 {% if request.endpoint in ['admin.bookings', 'admin.booking_detail'] %}sidebar-link-active{% endif %}"><span class="nav-icon">▤</span><span class="sidebar-label">Bookings</span></a>
+        <a href="{{ url_for('admin.home_decor_requests') }}" class="sidebar-link {% if request.endpoint in ['admin.home_decor_requests', 'admin.home_decor_detail'] %}sidebar-link-active{% endif %}"><span class="nav-icon">⌂</span><span class="sidebar-label">Home Décor</span></a>
       </section>
       {% endif %}
       <section>

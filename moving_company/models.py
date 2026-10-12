@@ -235,6 +235,7 @@ class Booking(db.Model):
     assignments = db.relationship('BookingAssignment', back_populates='booking', cascade='all, delete-orphan')
     events = db.relationship('BookingEvent', back_populates='booking', cascade='all, delete-orphan')
     quote_lines = db.relationship('BookingQuoteLine', back_populates='booking', cascade='all, delete-orphan')
+    home_decor_request = db.relationship('HomeDecorRequest', back_populates='booking', uselist=False, cascade='all, delete-orphan')
     recommended_vehicle_type = db.relationship('VehicleType', foreign_keys=[recommended_vehicle_type_id])
     assigned_vehicle_type = db.relationship('VehicleType', foreign_keys=[assigned_vehicle_type_id])
     assigned_partner_vehicle = db.relationship('PartnerVehicle', foreign_keys=[assigned_partner_vehicle_id])
@@ -347,6 +348,48 @@ class BookingEvent(db.Model):
 
     booking = db.relationship('Booking', back_populates='events')
     user = db.relationship('User')
+
+
+class HomeDecorRequest(db.Model):
+    __tablename__ = 'home_decor_requests'
+
+    id = db.Column(db.Integer, primary_key=True)
+    booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id', ondelete='SET NULL'), nullable=True, unique=True, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    public_reference = db.Column(db.String(32), nullable=False, unique=True, index=True)
+    idempotency_key = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    draft_step = db.Column(db.Integer, nullable=False, default=1)
+    draft_data = db.Column(db.JSON, nullable=False, default=dict)
+    status = db.Column(db.String(40), nullable=False, default='Draft', index=True)
+    assigned_staff_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
+    internal_notes = db.Column(db.Text)
+    inspection_at = db.Column(db.DateTime)
+    consultation_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    submitted_at = db.Column(db.DateTime)
+
+    booking = db.relationship('Booking', back_populates='home_decor_request')
+    customer = db.relationship('User', foreign_keys=[customer_id], backref=db.backref('home_decor_requests', lazy='dynamic'))
+    assigned_staff = db.relationship('User', foreign_keys=[assigned_staff_id])
+    attachments = db.relationship('HomeDecorAttachment', back_populates='request', cascade='all, delete-orphan')
+
+
+class HomeDecorAttachment(db.Model):
+    __tablename__ = 'home_decor_attachments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    request_id = db.Column(db.Integer, db.ForeignKey('home_decor_requests.id', ondelete='CASCADE'), nullable=False, index=True)
+    uploaded_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    storage_key = db.Column(db.String(255), nullable=False, unique=True)
+    original_filename = db.Column(db.String(255), nullable=False)
+    mime_type = db.Column(db.String(120), nullable=False)
+    file_size = db.Column(db.Integer, nullable=False)
+    category = db.Column(db.String(30), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    request = db.relationship('HomeDecorRequest', back_populates='attachments')
+    uploaded_by = db.relationship('User')
 
 
 class BookingPhoto(db.Model):
