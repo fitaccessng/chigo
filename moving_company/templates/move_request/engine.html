@@ -218,6 +218,159 @@
           </button>
         </div>
       </form>
+      <script>
+        (() => {
+          const form = document.querySelector('[data-location-form]');
+          if (!form) return;
+          const places = (form.dataset.locationPlaces || '').split(',').filter(Boolean);
+          const cache = new Map();
+          for (const place of places) {
+            const input = document.getElementById(`${place}_search`);
+            const panel = document.getElementById(`${place}_suggestions`);
+            const address = document.getElementById(`${place}_address`);
+            if (!input || !panel || !address) continue;
+            let timer;
+            let controller;
+            let sequence = 0;
+            let results = [];
+            let activeIndex = -1;
+
+            const close = () => {
+              panel.classList.add('hidden');
+              input.setAttribute('aria-expanded', 'false');
+              activeIndex = -1;
+            };
+            const setField = (suffix, value) => {
+              const field = document.getElementById(`${place}_${suffix}`);
+              if (field) field.value = value ?? '';
+            };
+            const select = (result, query) => {
+              const formatted = result.formatted_address || result.display_name || result.name || query;
+              address.value = result.name || formatted;
+              setField('formatted_address', formatted);
+              setField('city', result.city || 'Abuja');
+              setField('state', result.state || 'Federal Capital Territory');
+              setField('country', result.country || 'Nigeria');
+              setField('area', result.area);
+              setField('area_council', result.area_council);
+              setField('district', result.district);
+              setField('neighborhood', result.neighborhood);
+              setField('location_type', result.location_type || result.type);
+              setField('original_input', query);
+              setField('normalized_location', result.normalized_location || formatted);
+              setField('latitude', result.latitude);
+              setField('longitude', result.longitude);
+              setField('place_id', result.place_id || result.provider_place_id || result.id);
+              setField('provider', result.provider || 'manual');
+              setField('provider_raw_id', result.provider_raw_id || result.provider_place_id || result.id);
+              const locationId = place === 'pickup' ? 'pickup_location_id' : 'dropoff_location_id';
+              const localId = result.local_place_id || (result.provider === 'local-reference' && /^\d+$/.test(String(result.id)) ? result.id : '');
+              const localField = document.getElementById(locationId);
+              if (localField) localField.value = localId;
+              input.value = formatted;
+              close();
+              address.focus();
+            };
+            const render = (items, query) => {
+              panel.replaceChildren();
+              results = items;
+              activeIndex = -1;
+              if (!items.length) {
+                const empty = document.createElement('p');
+                empty.className = 'px-4 py-3 text-xs text-stone-500';
+                empty.textContent = 'No matching locations. You can still enter the address manually.';
+                panel.append(empty);
+              } else {
+                items.forEach((result, index) => {
+                  const option = document.createElement('button');
+                  option.type = 'button';
+                  option.setAttribute('role', 'option');
+                  option.className = 'block w-full border-b border-stone-100 px-4 py-3 text-left hover:bg-brand-50 last:border-0';
+                  const title = document.createElement('span');
+                  title.className = 'block text-sm font-semibold text-stone-900';
+                  title.textContent = result.name || result.formatted_address || result.display_name || 'Location';
+                  const detail = document.createElement('span');
+                  detail.className = 'mt-1 block text-xs text-stone-500';
+                  detail.textContent = [result.area_council, result.district || result.neighborhood, result.state || 'FCT'].filter(Boolean).join(' · ');
+                  option.append(title, detail);
+                  option.addEventListener('click', () => select(result, query));
+                  panel.append(option);
+                });
+              }
+              panel.classList.remove('hidden');
+              input.setAttribute('aria-expanded', 'true');
+            };
+
+            input.setAttribute('role', 'combobox');
+            input.setAttribute('aria-autocomplete', 'list');
+            input.setAttribute('aria-expanded', 'false');
+            input.addEventListener('input', () => {
+              const query = input.value.trim();
+              clearTimeout(timer);
+              controller?.abort();
+              const requestSequence = ++sequence;
+              if (query.length < 2) {
+                close();
+                return;
+              }
+              panel.replaceChildren();
+              const searching = document.createElement('p');
+              searching.className = 'px-4 py-3 text-xs text-stone-500';
+              searching.textContent = 'Searching locations...';
+              panel.append(searching);
+              panel.classList.remove('hidden');
+              input.setAttribute('aria-expanded', 'true');
+              const key = query.toLowerCase().replace(/\s+/g, ' ');
+              if (cache.has(key)) {
+                render(cache.get(key), query);
+                return;
+              }
+              timer = setTimeout(async () => {
+                controller = new AbortController();
+                try {
+                  const response = await fetch(`/api/locations/autocomplete?q=${encodeURIComponent(query)}&limit=8`, {signal: controller.signal});
+                  const payload = await response.json();
+                  if (!response.ok || !payload.success) throw new Error('Location search failed');
+                  if (requestSequence !== sequence) return;
+                  const matches = Array.isArray(payload.results) ? payload.results : [];
+                  cache.set(key, matches);
+                  render(matches, query);
+                } catch (error) {
+                  if (error.name === 'AbortError' || requestSequence !== sequence) return;
+                  panel.replaceChildren();
+                  const message = document.createElement('p');
+                  message.className = 'px-4 py-3 text-xs text-amber-800';
+                  message.textContent = 'Location search is temporarily unavailable. You can enter the address manually.';
+                  panel.append(message);
+                  panel.classList.remove('hidden');
+                }
+              }, 250);
+            });
+            input.addEventListener('keydown', (event) => {
+              if (panel.classList.contains('hidden')) return;
+              const options = [...panel.querySelectorAll('[role="option"]')];
+              if (event.key === 'Escape') close();
+              if (event.key === 'ArrowDown' && options.length) {
+                event.preventDefault();
+                activeIndex = (activeIndex + 1) % options.length;
+                options[activeIndex].focus();
+              }
+              if (event.key === 'ArrowUp' && options.length) {
+                event.preventDefault();
+                activeIndex = activeIndex <= 0 ? options.length - 1 : activeIndex - 1;
+                options[activeIndex].focus();
+              }
+              if (event.key === 'Enter' && activeIndex >= 0 && results[activeIndex]) {
+                event.preventDefault();
+                select(results[activeIndex], input.value.trim());
+              }
+            });
+            document.addEventListener('click', (event) => {
+              if (!input.contains(event.target) && !panel.contains(event.target)) close();
+            });
+          }
+        })();
+      </script>
     {% elif stage == 'property' %}
       {% set property_data = (booking.workflow_data or {}).get('property', {}) %}
       {% set property_answers = property_data.get('service_answers', {}) %}

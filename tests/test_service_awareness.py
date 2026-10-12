@@ -149,6 +149,8 @@ def test_cleaning_starts_with_three_options_and_saves_one_service_location(app):
     location_page = client.get(chosen.headers['Location']).get_data(as_text=True)
     assert 'Service Location' in location_page
     assert 'Destination Location' not in location_page
+    assert 'data-location-form' in location_page
+    assert '/api/locations/autocomplete' in location_page
 
     response = client.post('/booking/location/cleaning', data={
         'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT',
