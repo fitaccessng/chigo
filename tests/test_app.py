@@ -1560,6 +1560,8 @@ def test_customer_dashboard_shows_booking_details_and_unique_numbers():
     assert second_booking.booking_number.encode() in response.data
     assert f'href="/customer/bookings/{first_booking.id}"'.encode() in response.data
     assert f'href="/customer/bookings/{second_booking.id}"'.encode() in response.data
+    assert b'data-coming-soon="home-decor"' in response.data
+    assert b'id="coming-soon-modal"' in response.data
 
 
 def test_dashboard_pages_have_role_specific_navigation():
@@ -1732,6 +1734,9 @@ def test_public_services_page_renders():
     assert b'Our Services' in response.data
     assert b'href="/booking/start/commercial"' in response.data
     assert b'href="/booking/start?addon=home_decor"' in response.data
+    assert b'data-coming-soon="home-decor"' in response.data
+    assert b'id="coming-soon-modal"' in response.data
+    assert b'Home D\xc3\xa9cor is coming soon' in response.data
     assert b'href="/booking/start/cleaning"' in response.data
     assert b'href="/booking/start/support"' in response.data
     assert b'Home Decor' in response.data

@@ -141,6 +141,7 @@ def test_cleaning_starts_with_three_options_and_saves_one_service_location(app):
     assert 'Cleaning at home' in html
     assert 'Office cleaning' in html
     assert 'Move-in / move-out' in html
+    assert 'aria-label="Back to services"' in html
 
     chosen = client.post('/booking/start/cleaning', data={'cleaning_subtype': 'home'})
     assert chosen.status_code == 302
@@ -480,6 +481,10 @@ def test_home_cleaning_details_survive_to_quote_required_review(app):
     with client.session_transaction() as session:
         session['active_booking_request_id'] = request_id
 
+    property_page = client.get(f'/booking/{request_id}/property')
+    assert property_page.status_code == 200
+    assert b'Cleaning details' in property_page.data
+
     details = client.post(f'/booking/{request_id}/property', data={
         'service_cleaning_subtype': 'home', 'service_cleaning_property_type': 'flat',
         'service_cleaning_bedrooms': '2', 'service_cleaning_bathrooms': '1',
@@ -494,7 +499,11 @@ def test_home_cleaning_details_survive_to_quote_required_review(app):
     })
     assert inventory.status_code == 302
     assert inventory.headers['Location'].endswith('/schedule')
+    inventory_page = client.get(f'/booking/{request_id}/inventory')
+    assert inventory_page.status_code == 200
 
+    schedule_page = client.get(f'/booking/{request_id}/schedule')
+    assert schedule_page.status_code == 200
     scheduled = client.post(f'/booking/{request_id}/schedule', data={
         'move_date': (date.today() + timedelta(days=3)).isoformat(),
         'preferred_time': 'Morning',

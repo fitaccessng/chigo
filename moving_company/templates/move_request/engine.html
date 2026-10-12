@@ -218,31 +218,129 @@
           </button>
         </div>
       </form>
-    {% else %}
-      <!-- Generic Stage Form Container for Inventory/Services/Property -->
-      <form method="post" class="space-y-6">
-        {{ form.hidden_tag() }}
-        
-        {% if form_sections %}
-          {% for section in form_sections %}
-            <div class="space-y-4">
-              <h3 class="text-lg font-bold text-stone-900 border-b border-stone-100 pb-2">{{ section.title }}</h3>
-              {{ question_fields(section.fields, section.prefix, answers) }}
-            </div>
-          {% endfor %}
-        {% else %}
-          <!-- Fallback or custom single group rendering -->
-          <div class="space-y-4">
-            {{ question_fields(fields, prefix, answers) }}
-          </div>
-        {% endif %}
-
-        <div class="pt-6 border-t border-stone-200 flex flex-col sm:flex-row justify-end gap-3">
-          <button type="submit" class="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-700 px-8 py-3 text-sm font-bold text-white transition hover:bg-brand-800 focus:outline-none focus:ring-2 focus:ring-brand-500 w-full sm:w-auto">
-            <span>Save and Continue</span>
-          </button>
+    {% elif stage == 'property' %}
+      {% set property_data = (booking.workflow_data or {}).get('property', {}) %}
+      {% set property_answers = property_data.get('service_answers', {}) %}
+      <form method="post" data-question-form class="space-y-6">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div>
+          <h2 class="text-lg font-bold text-stone-900">{{ service_workflow.label }} details</h2>
+          <p class="mt-1 text-sm text-stone-600">{% if service_type == 'cleaning' %}Tell us about the property and cleaning scope.{% elif service_type == 'residential' %}Tell us about your home and destination property.{% elif service_type == 'commercial' %}Tell us about your premises and move requirements.{% elif service_type == 'packing' %}Tell us what needs packing and how much assistance you need.{% elif service_type == 'storage' %}Tell us about the storage duration and collection or delivery needs.{% elif service_type == 'support' %}Describe the support you need; operations will confirm availability.{% else %}Shipment details are collected in the next step.{% endif %}</p>
         </div>
+        {% if service_type in ['residential', 'commercial'] %}
+        <label class="block text-xs font-semibold text-stone-800">{{ 'Business premises type' if service_type == 'commercial' else 'Property type' }}
+          <select name="property_type" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm text-stone-900">
+            <option value="">Choose an option</option>
+            {% for option in property_types %}<option value="{{ option }}" {% if property_data.get('property_type', booking.property_type) == option %}selected{% endif %}>{{ option }}</option>{% endfor %}
+          </select>
+        </label>
+        {% endif %}
+        {% if service_type == 'residential' %}
+        <div class="grid gap-4 sm:grid-cols-2">
+          <label class="block text-xs font-semibold text-stone-800">Bedrooms at pickup<input type="number" name="bedrooms" min="0" value="{{ property_data.get('bedrooms', booking.number_of_bedrooms or 0) }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm"></label>
+          <label class="block text-xs font-semibold text-stone-800">Bathrooms at pickup<input type="number" name="bathrooms" min="0" value="{{ property_data.get('bathrooms', booking.number_of_bathrooms or 0) }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm"></label>
+        </div>
+        {% endif %}
+        {% if service_questions %}{{ question_fields(service_questions, 'service_', property_answers) }}{% endif %}
+        <button type="submit" class="w-full rounded-xl bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800 sm:w-auto">Save details and continue</button>
       </form>
+      <script>
+        (() => {
+          document.querySelectorAll('form[data-question-form]').forEach((form) => {
+            const sync = () => form.querySelectorAll('[data-question-field]').forEach((wrapper) => {
+              const key = wrapper.dataset.conditionKey;
+              const dependency = key ? form.elements.namedItem(key) : null;
+              const visible = !key || String(dependency?.value || '').toLowerCase() === String(wrapper.dataset.conditionValue || '').toLowerCase();
+              wrapper.hidden = !visible;
+              wrapper.querySelectorAll('input,select,textarea').forEach((input) => {
+                if (input.dataset.initialRequired === undefined) input.dataset.initialRequired = input.required ? 'true' : 'false';
+                input.disabled = !visible;
+                input.required = visible && input.dataset.initialRequired === 'true';
+                if (!visible) input.value = '';
+              });
+            });
+            form.addEventListener('change', sync);
+            sync();
+          });
+        })();
+      </script>
+    {% elif stage == 'inventory' %}
+      {% set inventory_answers = (booking.workflow_data or {}).get('inventory_answers', {}) %}
+      <form method="post" class="space-y-6">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="save_and_continue">
+        <div>
+          <h2 class="text-lg font-bold text-stone-900">{{ service_workflow.label }} requirements</h2>
+          <p class="mt-1 text-sm text-stone-600">{% if service_type == 'cleaning' %}Share any specialist cleaning needs or access instructions.{% elif service_type == 'support' %}Add a booking reference or contact preference if applicable.{% else %}Add any additional details needed to plan this service.{% endif %}</p>
+        </div>
+        {% if inventory_questions %}{{ question_fields(inventory_questions, 'inventory_', inventory_answers) }}{% endif %}
+        <button type="submit" class="w-full rounded-xl bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800 sm:w-auto">Save requirements and continue</button>
+      </form>
+    {% elif stage == 'services' %}
+      <form method="post" class="space-y-6">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <h2 class="text-lg font-bold text-stone-900">Choose additional services</h2>
+        <p class="text-sm text-stone-600">Your primary service is {{ service_workflow.label }}. Select any additional support for this request.</p>
+        <div class="grid gap-4 sm:grid-cols-2">
+          {% for name, options in service_options.items() if name != service_type %}
+          {% set default_option = 'none' if name in ['packing', 'storage', 'cleaning', 'home_decor'] else 'no' %}
+          <label class="block text-xs font-semibold capitalize text-stone-800">{{ name|replace('_', ' ') }}
+            <select name="{{ name }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm">
+              {% for option in options %}<option value="{{ option }}" {% if (booking.workflow_data or {}).get('services', {}).get(name, default_option) == option %}selected{% endif %}>{{ option|replace('-', ' ')|title }}</option>{% endfor %}
+            </select>
+          </label>
+          {% endfor %}
+        </div>
+        <button type="submit" class="w-full rounded-xl bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800 sm:w-auto">Save services and continue</button>
+      </form>
+    {% elif stage == 'schedule' %}
+      {% set schedule_data = (booking.workflow_data or {}).get('schedule', {}) %}
+      <form method="post" class="space-y-6">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div>
+          <h2 class="text-lg font-bold text-stone-900">Request a service date</h2>
+          <p class="mt-1 text-sm text-stone-600">Your preferred date and time are a request. Operations will confirm availability; this does not reserve a slot.</p>
+        </div>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <label class="block text-xs font-semibold text-stone-800">Preferred date<input type="date" name="move_date" min="{{ now_date }}" value="{{ schedule_data.get('date', '') }}" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm"></label>
+          <label class="block text-xs font-semibold text-stone-800">Preferred time
+            <select name="preferred_time" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm"><option value="">Choose an option</option>{% for option in ['Morning', 'Afternoon', 'Evening'] %}<option value="{{ option }}" {% if schedule_data.get('time') == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select>
+          </label>
+        </div>
+        <label class="block text-xs font-semibold text-stone-800">Timing notes<textarea name="access_hours" maxlength="250" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm">{{ schedule_data.get('access_hours', '') }}</textarea></label>
+        <button type="submit" class="w-full rounded-xl bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800 sm:w-auto">Request this date</button>
+      </form>
+    {% elif stage == 'quote' %}
+      <section class="space-y-5" aria-labelledby="quote-title">
+        <div>
+          <h2 id="quote-title" class="text-lg font-bold text-stone-900">{{ 'Quote Required: review pending' if booking.quote_status == 'Quote Required' else 'Review your quote' }}</h2>
+          {% if booking.quote_status == 'Quote Required' %}
+          <p class="mt-2 text-sm leading-6 text-stone-600">We need to review your service scope and confirm availability before providing an approved quote. Any estimate is indicative only; no price or booking slot is confirmed yet.</p>
+          {% else %}
+          <p class="mt-2 text-sm leading-6 text-stone-600">Your current estimate is {{ '{:,.0f}'.format(booking.estimated_total or 0) }}. It is subject to the service and availability checks shown below.</p>
+          {% endif %}
+        </div>
+        {% set calculation = booking.calculation_data or {} %}
+        {% if calculation.get('manual_review_flags') %}<ul class="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{% for flag in calculation.get('manual_review_flags') %}<li>{{ flag }}</li>{% endfor %}</ul>{% endif %}
+        {% set cleaning_answers = ((booking.workflow_data or {}).get('property') or {}).get('service_answers', {}) %}
+        {% if booking.primary_service == 'cleaning' and cleaning_answers.get('cleaning_bedrooms') is not none %}<p class="text-sm text-stone-600">Cleaning Bedrooms: {{ cleaning_answers.get('cleaning_bedrooms') }}</p>{% endif %}
+        {% set estimate_lines = calculation.get('estimate_details', {}).get('lines', []) %}
+        {% if estimate_lines %}<section class="rounded-lg border border-stone-200 p-4"><h3 class="text-sm font-bold text-stone-800">Indicative only: quote breakdown</h3><ul class="mt-3 space-y-2 text-sm text-stone-600">{% for line in estimate_lines %}<li>{{ 'Cleaning ' if booking.primary_service == 'cleaning' and line.label in ['Bedrooms', 'Bathrooms / toilets'] else '' }}{{ line.label }}</li>{% endfor %}</ul></section>{% endif %}
+        {% if booking.quote_status == 'Ready' %}
+        <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="accept_quote"><button type="submit" class="w-full rounded-xl bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800 sm:w-auto">Accept confirmed quote</button></form>
+        {% endif %}
+      </section>
+    {% elif stage == 'payment' %}
+      <section class="space-y-5">
+        <div><h2 class="text-lg font-bold text-stone-900">Secure your service request</h2><p class="mt-2 text-sm leading-6 text-stone-600">Payment is available after operations confirms your quote and availability.</p></div>
+        {% if booking.quote_status == 'Ready' and booking.deposit_amount %}<p class="text-sm font-semibold text-stone-800">Deposit due now: {{ '{:,.0f}'.format(booking.deposit_amount) }}</p>{% endif %}
+        <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="rounded-xl bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800">Continue to secure payment</button></form>
+      </section>
+    {% else %}
+      <section class="space-y-4">
+        <h2 class="text-lg font-bold text-stone-900">{{ service_workflow.label }} booking</h2>
+        <p class="text-sm text-stone-600">This step is not available for this request yet.</p>
+      </section>
     {% endif %}
   </div>
 </div>

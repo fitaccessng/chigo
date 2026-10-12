@@ -297,8 +297,44 @@
       </footer>
     {% endblock %}
 
+    <dialog id="coming-soon-modal" aria-labelledby="coming-soon-title" class="w-[calc(100%-2rem)] max-w-md rounded-xl border border-stone-200 bg-white p-0 text-stone-900 shadow-2xl backdrop:bg-stone-950/50">
+      <div class="p-6 sm:p-7">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <p class="text-xs font-bold uppercase text-brand-700">Chigo service</p>
+            <h2 id="coming-soon-title" class="mt-2 text-xl font-bold">Home Décor is coming soon</h2>
+          </div>
+          <button type="button" data-close-coming-soon class="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-stone-500 hover:bg-stone-100 hover:text-stone-900" aria-label="Close dialog">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+        <p class="mt-3 text-sm leading-6 text-stone-600">We’re preparing this service and will make it available soon.</p>
+        <div class="mt-6 flex justify-end">
+          <button type="button" data-close-coming-soon class="rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-800">Got it</button>
+        </div>
+      </div>
+    </dialog>
+
     <!-- JS Logic -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+      (() => {
+        const modal = document.getElementById('coming-soon-modal');
+        if (!modal) return;
+        document.addEventListener('click', (event) => {
+          const trigger = event.target.closest('[data-coming-soon="home-decor"]');
+          if (trigger) {
+            event.preventDefault();
+            modal.showModal();
+            return;
+          }
+          if (event.target.closest('[data-close-coming-soon]')) modal.close();
+        });
+        modal.addEventListener('click', (event) => {
+          if (event.target === modal) modal.close();
+        });
+      })();
+    </script>
     {% if current_user.is_authenticated and current_user.role|lower == 'customer' %}
       {% include 'components/support_chat.html' %}
       <script src="{{ url_for('static', filename='js/support-chat.js') }}"></script>
