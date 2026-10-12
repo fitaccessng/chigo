@@ -9,7 +9,7 @@ from flask import abort, current_app
 from ..extensions import db
 from ..models import (
     Booking, BookingAssignment, BookingEvent, BookingInventory, BookingItem, BookingPhoto,
-    BookingQuoteLine, InventoryItem, Mover, ServicePricing, Truck, VehicleType,
+    BookingQuoteLine, Cleaner, InventoryItem, Mover, ServicePricing, Truck, VehicleType,
 )
 from .image_upload_service import delete_image, save_image
 from .inventory_catalogue import (
@@ -18,7 +18,7 @@ from .inventory_catalogue import (
 )
 from .location_service import route_distance, validate_coordinates
 from .service_workflow import (
-    get_service_workflow, normalize_service_type, recommendations_for_booking,
+    QUESTION_SCHEMA_VERSION, get_service_workflow, normalize_service_type, recommendations_for_booking,
     service_questions_for, validate_booking_question_data, validate_question_answers,
     validate_service_bundle,
 )
@@ -63,13 +63,19 @@ def record_event(booking: Booking, action: str, previous=None, new=None, user_id
     ))
 
 
-def create_booking_request(customer_id=None, location=None, user_id=None, service_type='residential', initial_services=None, location_access=None):
+def create_booking_request(customer_id=None, location=None, user_id=None, service_type='residential', initial_services=None, location_access=None, initial_service_answers=None):
     location = dict(location or {})
-    required = ('pickup_address', 'pickup_city', 'pickup_state', 'destination_address', 'destination_city', 'destination_state')
+    service_type = normalize_service_type(service_type)
+    required = (
+        ('pickup_address', 'pickup_city', 'pickup_state', 'destination_address', 'destination_city', 'destination_state')
+        if service_type in {'residential', 'commercial', 'logistics'}
+        else ('pickup_address',) if service_type in {'cleaning', 'packing'} else ()
+    )
     missing = [field for field in required if not str(location.get(field) or '').strip()]
     if missing:
-        raise ValueError(f'Complete both addresses and their city and state before continuing: {", ".join(missing)}.')
-    service_type = normalize_service_type(service_type)
+        if service_type in {'residential', 'commercial', 'logistics'}:
+            raise ValueError(f'Complete both addresses and their city and state before continuing: {", ".join(missing)}.')
+        raise ValueError('Enter the service location before continuing.')
 
     request_id = f"BR-{datetime.utcnow():%Y}-{token_hex(4).upper()}"
     location_fields = (
@@ -95,8 +101,9 @@ def create_booking_request(customer_id=None, location=None, user_id=None, servic
         status='Draft', primary_service=service_type, workflow_state='LOCATION_COMPLETED', quote_status='Draft',
         workflow_data={
             'service_intent': service_type,
-            'question_schema_version': 2,
-            'property': {}, 'services': dict(initial_services or {}), 'schedule': {},
+            'question_schema_version': QUESTION_SCHEMA_VERSION,
+            'property': {'service_answers': dict(initial_service_answers or {})},
+            'services': dict(initial_services or {}), 'schedule': {},
             'location_access': dict(location_access or {}),
         }, calculation_data={},
         **{field: location[field] for field in location_fields if field in location},
@@ -588,7 +595,9 @@ def inventory_requirements(booking: Booking):
 def vehicle_options(booking: Booking):
     ensure_active_vehicle_catalogue()
     vehicles = VehicleType.query.filter_by(is_active=True).order_by(VehicleType.capacity_m3, VehicleType.sort_order).all()
-    requirements = inventory_requirements(booking) if booking.inventory or booking.items else {'volume_m3': 0, 'weight_kg': 0}
+    shipment_answers = (booking.workflow_data or {}).get('inventory_answers') or {}
+    has_requirements = bool(booking.inventory or booking.items) or (booking.primary_service == 'logistics' and bool(shipment_answers))
+    requirements = inventory_requirements(booking) if has_requirements else {'volume_m3': 0, 'weight_kg': 0}
     def count_for(candidate):
         return max(1, ceil(requirements['volume_m3'] / candidate.capacity_m3),
                    ceil(requirements['weight_kg'] / candidate.max_payload_kg))
@@ -598,7 +607,7 @@ def vehicle_options(booking: Booking):
     recommendation = min(safe_vehicles or vehicles, key=lambda candidate: (
         count_for(candidate), count_for(candidate) * max(float(candidate.minimum_price or 0), float(candidate.base_price or 0)),
         candidate.sort_order or 0,
-    )) if vehicles and (booking.inventory or booking.items) else None
+    )) if vehicles and has_requirements else None
     selected_id = ((booking.workflow_data or {}).get('vehicle') or {}).get('selected_type_id')
     return [{
         'id': vehicle.id, 'name': vehicle.name, 'description': vehicle.description,
@@ -679,6 +688,14 @@ def _service_manual_review_flags(booking: Booking) -> list[str]:
     services = workflow_data.get('services') or {}
     active_addons = workflow_data.get('addon_answers') or {}
     flags = []
+    pricing = {row.key: row for row in ServicePricing.query.all()}
+    selected_rate = {
+        'storage': 'storage_week' if services.get('storage') not in {None, '', 'none', 'no'} else None,
+        'cleaning': {'move-out': 'cleaning_move_out', 'move-in': 'cleaning_move_in', 'both': 'cleaning_both'}.get(services.get('cleaning')),
+    }
+    for service_name, rate_key in selected_rate.items():
+        if rate_key and (rate_key not in pricing or not pricing[rate_key].is_configured):
+            flags.append(f'{service_name.title()} add-on pricing is not explicitly approved in operations settings.')
     if booking.primary_service == 'storage' or services.get('storage') not in {None, '', 'none', 'no'}:
         flags.append('Storage facility capacity, availability, and billing need operations confirmation.')
     if inventory_answers.get('specialist_equipment') == 'yes' or inventory_answers.get('shipment_special_equipment') == 'yes':
@@ -702,7 +719,9 @@ def save_vehicle_selection(booking: Booking, vehicle_type_id, user_id=None):
     vehicle = VehicleType.query.filter_by(id=vehicle_id, is_active=True).first()
     if vehicle is None:
         raise ValueError('That vehicle option is no longer available.')
-    requirements = inventory_requirements(booking) if booking.inventory or booking.items else {'volume_m3': 0, 'weight_kg': 0}
+    shipment_answers = (booking.workflow_data or {}).get('inventory_answers') or {}
+    has_requirements = bool(booking.inventory or booking.items) or (booking.primary_service == 'logistics' and bool(shipment_answers))
+    requirements = inventory_requirements(booking) if has_requirements else {'volume_m3': 0, 'weight_kg': 0}
     vehicle_count = max(
         1,
         ceil(requirements['volume_m3'] / vehicle.capacity_m3),
@@ -777,23 +796,287 @@ def check_availability(booking: Booking, mover_count: int, vehicle_type: Vehicle
         for name in (assignment.mover_1, assignment.mover_2, assignment.mover_3, assignment.mover_4)
         if name
     }
-    available_trucks = [truck for truck in Truck.query.filter_by(status='Available').all()
-                        if truck.id not in busy_truck_ids and truck.vehicle_type.casefold() == vehicle_type.name.casefold()]
-    available_movers = [mover for mover in Mover.query.filter_by(status='Available').all()
-                        if mover.name not in busy_mover_names]
+    available_trucks = [
+        truck for truck in Truck.query.filter_by(status='Available').all()
+        if truck.id not in busy_truck_ids
+        and (truck.vehicle_type or '').casefold() == vehicle_type.name.casefold()
+    ]
+    available_movers = [
+        mover for mover in Mover.query.filter_by(status='Available').all()
+        if mover.name not in busy_mover_names
+    ]
+    available = len(available_trucks) >= vehicle_count and len(available_movers) >= mover_count
     return {
-        'available': len(available_trucks) >= vehicle_count and len(available_movers) >= mover_count,
+        'available': available,
         'required': {'vehicles': vehicle_count, 'movers': mover_count},
         'available_resources': {'vehicles': len(available_trucks), 'movers': len(available_movers)},
         'date': booking.move_date.isoformat(),
-        'reason': None if len(available_trucks) >= vehicle_count and len(available_movers) >= mover_count else 'Available operations resources do not meet this move requirement.',
+        'reason': None if available else 'Available operations resources do not meet this move requirement.',
     }
+
+
+def _approved_service_rates(keys):
+    rows = {row.key: row for row in ServicePricing.query.filter(ServicePricing.key.in_(keys)).all()}
+    if any(key not in rows or not rows[key].is_configured for key in keys):
+        return None
+    return {key: float(rows[key].value) for key in keys}
+
+
+def _save_quote_required(booking: Booking, reason: str | list[str], *, indicative_total=None, estimate_details=None, user_id=None):
+    review_flags = [reason] if isinstance(reason, str) else [item for item in reason if item]
+    calculation = {
+        'estimate_type': 'indicative' if indicative_total is not None else 'quote_required',
+        'service_type': booking.primary_service,
+        'manual_review_flags': review_flags,
+        'manual_review_resolved': False,
+        'availability_confirmation_required': True,
+        'availability_confirmed': False,
+        'pricing_rule_version': 'admin-configured-v1' if indicative_total is not None else None,
+        'indicative_total': round(float(indicative_total), 2) if indicative_total is not None else None,
+        'estimate_details': estimate_details or {},
+        'service_inputs': {
+            'property': ((booking.workflow_data or {}).get('property') or {}).get('service_answers', {}),
+            'inventory': (booking.workflow_data or {}).get('inventory_answers', {}),
+            'schedule': (booking.workflow_data or {}).get('schedule', {}),
+        },
+    }
+    booking.quote_status = 'Quote Required'
+    booking.workflow_state = 'QUOTE_READY'
+    booking.estimated_total = booking.deposit_amount = booking.balance_amount = 0
+    booking.schedule_feasible = None
+    booking.calculation_data = calculation
+    BookingQuoteLine.query.filter_by(booking_id=booking.id).delete()
+    record_event(booking, 'quote.review_required', previous=None, new={
+        'service_type': booking.primary_service, 'reason': review_flags,
+        'indicative_total': calculation['indicative_total'],
+    }, user_id=user_id)
+    db.session.commit()
+    return calculation
+
+
+def _cleaning_indicative_total(booking: Booking):
+    answers = ((booking.workflow_data or {}).get('property') or {}).get('service_answers', {})
+    if answers.get('cleaning_frequency') != 'one-time':
+        return None, 'Recurring cleaning billing and scheduling are not configured; this request needs an operations quote.', []
+    keys = (
+        'cleaning_home_base', 'cleaning_home_per_bedroom', 'cleaning_home_per_bathroom',
+        'cleaning_office_base', 'cleaning_office_per_m2', 'cleaning_move_base',
+        'cleaning_move_per_room', 'cleaning_move_per_bathroom', 'cleaning_deep_surcharge',
+        'cleaning_post_renovation_surcharge',
+    )
+    rates = _approved_service_rates(keys)
+    if rates is None:
+        return None, 'Cleaning pricing has not been explicitly approved by an administrator.', []
+    subtype = answers.get('cleaning_subtype')
+    cleaning_type = answers.get('cleaning_type')
+    if answers.get('cleaning_items') or answers.get('cleaning_heavy_buildup') == 'yes':
+        return None, 'Specialist items, heavy buildup or post-construction scope needs an operations quote.', []
+    lines = []
+    def add_line(label, quantity, unit_rate):
+        if quantity and unit_rate:
+            lines.append({'label': label, 'quantity': float(quantity), 'unit_rate': float(unit_rate), 'amount': round(float(quantity) * float(unit_rate), 2)})
+    if subtype == 'home':
+        amount = rates['cleaning_home_base']
+        lines.append({'label': 'Home cleaning base', 'quantity': 1, 'unit_rate': rates['cleaning_home_base'], 'amount': rates['cleaning_home_base']})
+        bedrooms, bathrooms = int(answers.get('cleaning_bedrooms') or 0), int(answers.get('cleaning_bathrooms') or 0)
+        add_line('Bedrooms', bedrooms, rates['cleaning_home_per_bedroom'])
+        add_line('Bathrooms / toilets', bathrooms, rates['cleaning_home_per_bathroom'])
+        amount += bedrooms * rates['cleaning_home_per_bedroom'] + bathrooms * rates['cleaning_home_per_bathroom']
+    elif subtype == 'office':
+        size = answers.get('cleaning_size_m2')
+        if size is None:
+            return None, 'An office floor-area estimate is required before applying configured office rates.', []
+        amount = rates['cleaning_office_base'] + float(size) * rates['cleaning_office_per_m2']
+        lines.extend([
+            {'label': 'Office cleaning base', 'quantity': 1, 'unit_rate': rates['cleaning_office_base'], 'amount': rates['cleaning_office_base']},
+            {'label': 'Floor area (m²)', 'quantity': float(size), 'unit_rate': rates['cleaning_office_per_m2'], 'amount': round(float(size) * rates['cleaning_office_per_m2'], 2)},
+        ])
+    elif subtype == 'move-in-out':
+        amount = rates['cleaning_move_base']
+        rooms, bathrooms = int(answers.get('cleaning_move_rooms') or 0), int(answers.get('cleaning_move_bathrooms') or 0)
+        lines.append({'label': 'Move-in/out cleaning base', 'quantity': 1, 'unit_rate': rates['cleaning_move_base'], 'amount': rates['cleaning_move_base']})
+        add_line('Rooms', rooms, rates['cleaning_move_per_room'])
+        add_line('Bathrooms / toilets', bathrooms, rates['cleaning_move_per_bathroom'])
+        amount += rooms * rates['cleaning_move_per_room'] + bathrooms * rates['cleaning_move_per_bathroom']
+    else:
+        return None, 'Cleaning subtype is unavailable for pricing.', []
+    if cleaning_type == 'deep':
+        amount += rates['cleaning_deep_surcharge']
+        add_line('Deep-clean surcharge', 1, rates['cleaning_deep_surcharge'])
+    if cleaning_type == 'post-renovation' or answers.get('cleaning_stage') == 'post-renovation':
+        amount += rates['cleaning_post_renovation_surcharge']
+        add_line('Post-renovation surcharge', 1, rates['cleaning_post_renovation_surcharge'])
+    return round(amount, 2), None, lines
+
+
+def _storage_indicative_total(booking: Booking):
+    keys = ('storage_per_m3_week', 'storage_collection_fee', 'storage_redelivery_fee', 'storage_minimum_weeks', 'storage_week')
+    rates = _approved_service_rates(keys)
+    if rates is None:
+        return None, 'Storage pricing has not been explicitly approved by an administrator.', []
+    answers = ((booking.workflow_data or {}).get('property') or {}).get('service_answers', {})
+    inventory_answers = (booking.workflow_data or {}).get('inventory_answers', {})
+    volume = inventory_answers.get('estimated_storage_volume_m3')
+    duration_weeks = {'1 week': 1, '1 month': 4, '3 months': 12}.get(answers.get('storage_duration'))
+    if not volume or not duration_weeks or not booking.move_date:
+        return None, 'Storage duration, start date and approximate volume are required to calculate an indicative amount.', []
+    weeks = max(duration_weeks, int(rates['storage_minimum_weeks']))
+    amount = float(volume) * rates['storage_per_m3_week'] * weeks
+    lines = [{'label': 'Storage volume × billed weeks', 'quantity': round(float(volume) * weeks, 3),
+              'unit_rate': rates['storage_per_m3_week'], 'amount': round(amount, 2)}]
+    if answers.get('storage_collection') == 'yes':
+        amount += rates['storage_collection_fee']
+        lines.append({'label': 'Collection', 'quantity': 1, 'unit_rate': rates['storage_collection_fee'], 'amount': rates['storage_collection_fee']})
+    if answers.get('storage_retrieval') == 'yes':
+        amount += rates['storage_redelivery_fee']
+        lines.append({'label': 'Redelivery', 'quantity': 1, 'unit_rate': rates['storage_redelivery_fee'], 'amount': rates['storage_redelivery_fee']})
+    return round(amount, 2), None, lines
+
+
+def _logistics_indicative_total(booking: Booking):
+    keys = (
+        'logistics_base_fee', 'logistics_per_vehicle_trip', 'logistics_per_km', 'logistics_per_kg', 'logistics_per_m3',
+        'logistics_loading_fee', 'logistics_special_handling_fee', 'logistics_urgent_surcharge',
+    )
+    rates = _approved_service_rates(keys)
+    if rates is None:
+        return None, 'Logistics pricing has not been explicitly approved by an administrator.', []
+    answers = (booking.workflow_data or {}).get('inventory_answers', {})
+    route_distance_km = float(booking.distance_km or 0)
+    if route_distance_km <= 0:
+        return None, 'A resolved route distance is required before applying configured logistics rates.', []
+    quantity = int(answers['shipment_quantity'])
+    weight = float(answers['shipment_weight_kg'])
+    volume = (
+        float(answers['shipment_length_cm']) * float(answers['shipment_width_cm'])
+        * float(answers['shipment_height_cm']) / 1_000_000 * quantity
+    )
+    selected_id = ((booking.workflow_data or {}).get('vehicle') or {}).get('selected_type_id')
+    vehicle = VehicleType.query.filter_by(id=selected_id, is_active=True).first() if selected_id else None
+    if vehicle is None:
+        return None, 'A suitable vehicle must be selected before calculating logistics charges.', []
+    trips = max(1, ceil(volume / vehicle.capacity_m3), ceil(weight / vehicle.max_payload_kg))
+    line_inputs = [
+        ('Logistics base fee', 1, rates['logistics_base_fee']),
+        ('Route distance (km)', route_distance_km, rates['logistics_per_km']),
+        ('Shipment weight (kg)', weight, rates['logistics_per_kg']),
+        ('Shipment volume (m³)', volume, rates['logistics_per_m3']),
+        ('Vehicle trips', trips, rates['logistics_per_vehicle_trip']),
+    ]
+    if answers.get('loading_assistance') == 'yes':
+        line_inputs.append(('Loading assistance', 1, rates['logistics_loading_fee']))
+    if answers.get('shipment_special_equipment') == 'yes':
+        line_inputs.append(('Special handling', 1, rates['logistics_special_handling_fee']))
+    if answers.get('delivery_urgency') == 'urgent':
+        line_inputs.append(('Urgent request surcharge', 1, rates['logistics_urgent_surcharge']))
+    lines = [{'label': label, 'quantity': quantity, 'unit_rate': unit_rate,
+              'amount': round(float(quantity) * float(unit_rate), 2)} for label, quantity, unit_rate in line_inputs]
+    return round(sum(line['amount'] for line in lines), 2), None, lines
 
 
 def calculate_quote(booking: Booking, user_id=None):
     if booking.workflow_state not in {'SCHEDULE_COMPLETED', 'QUOTE_READY'}:
         raise ValueError('Complete location, property, inventory, services, and schedule before requesting a quote.')
     booking.workflow_data = validate_booking_question_data(booking)
+    if booking.primary_service == 'cleaning':
+        estimate, pricing_reason, rate_lines = _cleaning_indicative_total(booking)
+        assigned_cleaners = {
+            (assignment.cleaner or '').casefold()
+            for assignment in BookingAssignment.query.join(Booking).filter(
+                Booking.move_date == booking.move_date, Booking.id != booking.id,
+            ).all()
+        } if booking.move_date else set()
+        available_cleaners = [
+            cleaner for cleaner in Cleaner.query.filter_by(status='Available').all()
+            if cleaner.name.casefold() not in assigned_cleaners
+        ]
+        reasons = []
+        if pricing_reason:
+            reasons.append(pricing_reason)
+        if booking.move_date and not available_cleaners:
+            reasons.append('No cleaner currently appears available for the requested date; operations must confirm another slot.')
+        else:
+            reasons.append('Cleaner availability is not reserved until operations assigns a cleaner.')
+        if booking.move_date is None:
+            reasons.append('The requested cleaning date must be confirmed by operations.')
+        return _save_quote_required(
+            booking, reasons, indicative_total=estimate,
+            estimate_details={'basis': 'admin-configured cleaning unit rates', 'tax_included': False, 'lines': rate_lines},
+            user_id=user_id,
+        )
+    if booking.primary_service == 'storage':
+        estimate, pricing_reason, rate_lines = _storage_indicative_total(booking)
+        reason = pricing_reason or 'Storage capacity and facility availability cannot be checked from the current application data; operations must confirm capacity.'
+        return _save_quote_required(
+            booking, reason, indicative_total=estimate,
+            estimate_details={'basis': 'admin-configured weekly volume rate', 'tax_included': False, 'lines': rate_lines},
+            user_id=user_id,
+        )
+    if booking.primary_service == 'logistics':
+        estimate, pricing_reason, rate_lines = _logistics_indicative_total(booking)
+        answers = (booking.workflow_data or {}).get('inventory_answers', {})
+        reasons = [pricing_reason] if pricing_reason else []
+        if answers.get('delivery_urgency') == 'urgent':
+            reasons.append('Urgent delivery is a request only; operations must confirm an available vehicle and service window.')
+        vehicle_id = ((booking.workflow_data or {}).get('vehicle') or {}).get('selected_type_id')
+        vehicle = db.session.get(VehicleType, vehicle_id) if vehicle_id else None
+        if vehicle and booking.move_date:
+            requirements = inventory_requirements(booking)
+            trip_count = max(1, ceil(requirements['volume_m3'] / vehicle.capacity_m3), ceil(requirements['weight_kg'] / vehicle.max_payload_kg))
+            day_assignments = BookingAssignment.query.join(Booking).filter(
+                Booking.move_date == booking.move_date, Booking.id != booking.id,
+            ).all()
+            busy_trucks = {assignment.truck_id for assignment in day_assignments if assignment.truck_id}
+            available_trucks = [truck for truck in Truck.query.filter_by(status='Available').all()
+                                if truck.id not in busy_trucks and truck.vehicle_type.casefold() == vehicle.name.casefold()]
+            if len(available_trucks) < trip_count:
+                reasons.append('The selected vehicle type does not have enough currently available fleet units for this shipment date.')
+            else:
+                reasons.append('The vehicle is not reserved until operations assigns fleet resources.')
+        else:
+            reasons.append('Shipment fleet availability must be confirmed by operations.')
+        return _save_quote_required(
+            booking, reasons, indicative_total=estimate,
+            estimate_details={'basis': 'admin-configured route, vehicle-trip, weight, volume and handling rates', 'tax_included': False, 'lines': rate_lines},
+            user_id=user_id,
+        )
+    if booking.primary_service == 'packing':
+        pricing = {row.key: float(row.value) for row in ServicePricing.query.all()}
+        property_answers = (booking.workflow_data.get('property') or {}).get('service_answers', {})
+        rate_key = 'packing_partial' if property_answers.get('packing_scope') == 'selected-rooms' else 'packing_full'
+        configured_rate = ServicePricing.query.filter_by(key=rate_key, is_configured=True).first()
+        if rate_key in pricing and configured_rate:
+            return _save_quote_required(
+                booking, 'No packing-team roster or availability reservation is configured; operations must confirm staffing.',
+                indicative_total=pricing[rate_key],
+                estimate_details={'basis': 'administrator-approved packing rate', 'tax_included': False},
+                user_id=user_id,
+            )
+    if booking.primary_service not in {'residential', 'commercial'}:
+        review_reasons = {
+            'cleaning': 'Cleaning scope and location-specific pricing require operations confirmation.',
+            'packing': 'Packing labour and material pricing require operations confirmation.',
+            'storage': 'Storage capacity, availability, duration and billing require operations confirmation.',
+            'logistics': 'Shipment routing, vehicle fit, urgency and service pricing require operations confirmation.',
+            'support': 'Support availability and callback timing must be confirmed by the operations team.',
+        }
+        booking.quote_status = 'Quote Required'
+        booking.workflow_state = 'QUOTE_READY'
+        booking.estimated_total = booking.deposit_amount = booking.balance_amount = 0
+        booking.calculation_data = {
+            'estimate_type': 'quote_required',
+            'manual_review_flags': [review_reasons[booking.primary_service]],
+            'service_type': booking.primary_service,
+            'service_answers': (booking.workflow_data.get('property') or {}).get('service_answers', {}),
+            'inventory_answers': booking.workflow_data.get('inventory_answers', {}),
+            'pricing_rule_version': None,
+        }
+        BookingQuoteLine.query.filter_by(booking_id=booking.id).delete()
+        record_event(booking, 'quote.review_required', previous=None,
+                     new={'service_type': booking.primary_service, 'reason': review_reasons[booking.primary_service]},
+                     user_id=user_id)
+        db.session.commit()
+        return booking.calculation_data
     if booking.distance_km is None or float(booking.distance_km) <= 0:
         pickup = validate_coordinates(booking.pickup_latitude, booking.pickup_longitude)
         destination = validate_coordinates(booking.destination_latitude, booking.destination_longitude)
@@ -973,6 +1256,8 @@ def accept_quote(booking: Booking, user_id):
     if float(booking.estimated_total or 0) <= 0 or not booking.quote_lines:
         raise ValueError('A confirmed quote with a positive total is required before acceptance.')
     calculation = booking.calculation_data or {}
+    if calculation.get('availability_confirmation_required') and not calculation.get('availability_confirmed'):
+        raise ValueError('Operations must confirm the service resources and requested slot before quote acceptance.')
     if calculation.get('manual_review_flags') and not calculation.get('manual_review_resolved'):
         raise ValueError('Operations must review this service scope and publish a confirmed quote before it can be accepted.')
     previous = booking.quote_status
@@ -1032,6 +1317,9 @@ def apply_price_override(booking: Booking, amount: float, reason: str, user_id):
         'balance': booking.balance_amount,
         'manual_review_resolved': True,
     })
+    if calculation.get('availability_confirmation_required') and calculation.get('availability_confirmed') and booking.estimated_total > 0:
+        booking.quote_status = 'Ready'
+        booking.workflow_state = 'QUOTE_READY'
     booking.calculation_data = calculation
     record_event(booking, 'quote.price_overridden', previous=previous,
                  new={

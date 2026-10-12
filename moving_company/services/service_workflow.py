@@ -3,16 +3,30 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-SERVICE_TYPES = frozenset({'residential', 'commercial', 'packing', 'storage', 'logistics'})
+SERVICE_TYPES = frozenset({'cleaning', 'residential', 'commercial', 'packing', 'storage', 'logistics', 'support'})
+QUESTION_SCHEMA_VERSION = 3
+LEGACY_PACKING_QUESTION_KEYS = {
+    'property': frozenset({'packing_for', 'packing_scope', 'packing_rooms', 'packing_materials_needed', 'packing_materials_available'}),
+    'inventory': frozenset({'packing_item_notes', 'packing_special_items'}),
+}
 PROPERTY_TYPES_BY_SERVICE = {
+    'cleaning': ('Self-contained / studio', 'Flat / apartment', 'Duplex', 'Detached house', 'Bungalow', 'Office', 'Shop', 'Other'),
     'residential': ('Apartment', 'House', 'Duplex'),
     'commercial': ('Office', 'Shop', 'Warehouse', 'Hotel', 'Estate', 'Construction Site'),
     'packing': ('Apartment', 'House', 'Duplex', 'Office', 'Shop', 'Warehouse', 'Hotel', 'Estate'),
     'storage': ('Apartment', 'House', 'Duplex', 'Office', 'Shop', 'Warehouse', 'Hotel', 'Estate'),
     'logistics': ('Office', 'Shop', 'Warehouse', 'Hotel', 'Estate', 'Construction Site'),
+    'support': (),
 }
 
 SERVICE_WORKFLOWS = {
+    'cleaning': {
+        'label': 'Cleaning',
+        'description': 'Choose the cleaning service and tell us about the property and areas to clean.',
+        'steps': ('location', 'property', 'inventory', 'services', 'schedule', 'quote', 'payment', 'review'),
+        'questions': {'property': ('cleaning_subtype', 'cleaning_type', 'cleaning_areas', 'cleaning_frequency'),
+                      'inventory': ('cleaning_items', 'cleaning_instructions')},
+    },
     'residential': {
         'label': 'Residential Moving',
         'description': 'Move your home with the right property, inventory, and handling details.',
@@ -52,15 +66,23 @@ SERVICE_WORKFLOWS = {
     'logistics': {
         'label': 'Logistics',
         'description': 'Tell us what needs to be transported, where it is going, and what vehicle or handling is required.',
-        'steps': ('location', 'property', 'inventory', 'services', 'schedule', 'quote', 'payment', 'review'),
+        'steps': ('location', 'inventory', 'services', 'schedule', 'quote'),
         'questions': {
             'property': ('item_type', 'quantity', 'weight_kg', 'dimensions', 'fragile', 'recipient_name'),
             'inventory': ('item_type', 'quantity', 'weight_kg', 'dimensions', 'fragile', 'recipient_name'),
         },
     },
+    'support': {
+        'label': '24/7 Support',
+        'description': 'Tell us what you need help with. An operations team member will confirm availability.',
+        'steps': ('location', 'property', 'inventory', 'services', 'schedule', 'quote', 'payment', 'review'),
+        'questions': {'property': ('support_category', 'support_urgency', 'support_description', 'onsite_required'),
+                      'inventory': ('booking_reference', 'support_contact_preference')},
+    },
 }
 
 SERVICE_RECOMMENDATIONS = {
+    'cleaning': (),
     'residential': (
         ('professional_packing', 'recommended', 'Professional Packing', 'Your inventory is large enough to benefit from trained packing.'),
         ('fragile_protection', 'recommended', 'Fragile Item Protection', 'Your inventory includes fragile items.'),
@@ -83,14 +105,17 @@ SERVICE_RECOMMENDATIONS = {
         ('vehicle_fit', 'required', 'Vehicle Recommendation', 'The item dimensions and weight determine the transport vehicle.'),
         ('special_handling', 'recommended', 'Special Handling', 'The item is fragile or requires specialist handling.'),
     ),
+    'support': (),
 }
 
 SERVICE_COMPATibilities = {
+    'cleaning': frozenset({'cleaning'}),
     'residential': frozenset({'residential', 'packing', 'storage', 'cleaning', 'home_decor'}),
     'commercial': frozenset({'commercial', 'packing', 'storage', 'cleaning', 'home_decor'}),
     'packing': frozenset({'packing', 'residential', 'commercial', 'transport'}),
     'storage': frozenset({'storage', 'residential', 'commercial', 'logistics'}),
     'logistics': frozenset({'logistics', 'packing', 'storage'}),
+    'support': frozenset({'support'}),
 }
 
 def _question(key, label, input_type, *, required=False, options=(), minimum=None, maximum=None, step=None, condition=None):
@@ -102,6 +127,58 @@ def _question(key, label, input_type, *, required=False, options=(), minimum=Non
 
 
 SERVICE_QUESTION_SCHEMAS = {
+    'cleaning': {
+        'property': (
+            _question('cleaning_subtype', 'Cleaning service', 'select', required=True,
+                      options=('home', 'office', 'move-in-out')),
+            _question('cleaning_stage', 'Cleaning is for', 'select', required=True,
+                      options=('move-in', 'move-out', 'handover', 'post-renovation'),
+                      condition=('cleaning_subtype', 'move-in-out')),
+            _question('cleaning_property_type', 'Property type', 'select', required=True,
+                      options=('studio', 'flat', 'duplex', 'detached-house', 'bungalow', 'office-premises', 'coworking-space', 'shop', 'other')),
+            _question('cleaning_property_other', 'Describe the property', 'text', required=True, maximum=120,
+                      condition=('cleaning_property_type', 'other')),
+            _question('cleaning_business_type', 'Commercial premises type', 'select', required=True,
+                      options=('office', 'coworking', 'shop', 'other'), condition=('cleaning_subtype', 'office')),
+            _question('cleaning_business_other', 'Describe the premises', 'text', required=True, maximum=120,
+                      condition=('cleaning_business_type', 'other')),
+            _question('cleaning_bedrooms', 'Bedrooms or rooms', 'number', required=True, minimum=0, maximum=100, step=1,
+                      condition=('cleaning_subtype', 'home')),
+            _question('cleaning_bathrooms', 'Bathrooms and toilets', 'number', required=True, minimum=0, maximum=100, step=1,
+                      condition=('cleaning_subtype', 'home')),
+            _question('cleaning_move_rooms', 'Bedrooms or rooms', 'number', required=True, minimum=0, maximum=100, step=1,
+                      condition=('cleaning_subtype', 'move-in-out')),
+            _question('cleaning_move_bathrooms', 'Bathrooms and toilets', 'number', required=True, minimum=0, maximum=100, step=1,
+                      condition=('cleaning_subtype', 'move-in-out')),
+            _question('cleaning_floors', 'Number of floors', 'number', required=True, minimum=1, maximum=100, step=1),
+            _question('cleaning_size_m2', 'Approximate floor area (m²)', 'number', minimum=1, maximum=100000, step=0.1),
+            _question('cleaning_workstations', 'Approximate workstations', 'number', minimum=0, maximum=10000, step=1,
+                      condition=('cleaning_subtype', 'office')),
+            _question('cleaning_meeting_rooms', 'Meeting rooms', 'number', minimum=0, maximum=1000, step=1,
+                      condition=('cleaning_subtype', 'office')),
+            _question('cleaning_restrooms', 'Restrooms', 'number', required=True, minimum=0, maximum=1000, step=1,
+                      condition=('cleaning_subtype', 'office')),
+            _question('cleaning_occupied', 'Will the property be occupied during cleaning?', 'select', required=True,
+                      options=('yes', 'no')),
+            _question('cleaning_type', 'Cleaning type', 'select', required=True,
+                      options=('regular', 'deep', 'post-renovation')),
+            _question('cleaning_areas', 'Areas to be cleaned', 'multiselect', required=True,
+                      options=('entire-property', 'living-room', 'bedrooms', 'kitchen', 'bathrooms', 'balcony',
+                               'windows', 'cupboards', 'hallways', 'outdoor-areas', 'workstations', 'meeting-rooms',
+                               'restrooms', 'interior-glass', 'floor-care')),
+            _question('cleaning_frequency', 'Cleaning frequency', 'select', required=True,
+                      options=('one-time', 'weekly', 'twice-weekly', 'monthly', 'other')),
+            _question('cleaning_frequency_other', 'Describe the requested arrangement', 'text', required=True, maximum=200,
+                      condition=('cleaning_frequency', 'other')),
+            _question('cleaning_access_hours', 'Access hours or restrictions', 'text', maximum=250),
+        ),
+        'inventory': (
+            _question('cleaning_items', 'Large items or specialist tasks (include quantities)', 'textarea', maximum=1000),
+            _question('cleaning_heavy_buildup', 'Is there heavy buildup, construction dust or significant staining?', 'select', required=True,
+                      options=('no', 'yes')),
+            _question('cleaning_instructions', 'Special instructions, delicate surfaces, pets or access concerns', 'textarea', maximum=1200),
+        ),
+    },
     'residential': {
         'property': (
             _question('destination_property_type', 'Destination property type', 'select', required=True,
@@ -158,14 +235,29 @@ SERVICE_QUESTION_SCHEMAS = {
             _question('packing_rooms', 'Rooms or work areas to pack', 'number', required=True,
                       minimum=1, maximum=500, step=1, condition=('packing_scope', 'selected-rooms'),
             ),
+            _question('packing_room_list', 'Which rooms or work areas?', 'textarea', required=True, maximum=500,
+                      condition=('packing_scope', 'selected-rooms')),
+            _question('packing_box_estimate', 'Approximate number of boxes, if known', 'number', minimum=0, maximum=10000, step=1),
+            _question('packing_already_packed', 'Are any items already packed?', 'select', required=True,
+                      options=('no', 'some', 'most')),
             _question('packing_materials_needed', 'Should Chigo supply packing materials?', 'select', required=True,
                       options=('no', 'yes')),
             _question('packing_materials_available', 'Do you already have boxes or protective materials?', 'select', required=True,
                       options=('no', 'yes'), condition=('packing_materials_needed', 'no')),
+            _question('packing_service_level', 'Packing help required', 'select', required=True,
+                      options=('full-service', 'labour-only')),
+            _question('unpacking_required', 'Will unpacking be needed?', 'select', required=True,
+                      options=('no', 'yes')),
+            _question('packing_dismantling', 'Is furniture dismantling needed?', 'select', required=True,
+                      options=('no', 'yes')),
+            _question('packing_reassembly', 'Is furniture reassembly needed?', 'select', required=True,
+                      options=('no', 'yes')),
         ),
         'inventory': (
             _question('packing_item_notes', 'Which selected items need packing or unpacking?', 'textarea', maximum=1000),
             _question('packing_special_items', 'Fragile or awkward items needing special packing attention', 'textarea', maximum=1000),
+            _question('packing_fragile_items', 'Are fragile, oversized or high-value items included?', 'select', required=True,
+                      options=('no', 'yes')),
         ),
     },
     'storage': {
@@ -176,6 +268,8 @@ SERVICE_QUESTION_SCHEMAS = {
                       options=('yes', 'no')),
             _question('storage_retrieval', 'Will you need later delivery to an address?', 'select', required=True,
                       options=('yes', 'no')),
+            _question('storage_return_known', 'Do you know the return or delivery address?', 'select', required=True,
+                      options=('yes', 'no'), condition=('storage_retrieval', 'yes')),
             _question('storage_retrieval_notes', 'Expected retrieval timing or delivery details', 'textarea', required=True, maximum=500,
                       condition=('storage_retrieval', 'yes')),
         ),
@@ -187,6 +281,13 @@ SERVICE_QUESTION_SCHEMAS = {
     'logistics': {
         'property': (),
         'inventory': (
+            _question('delivery_urgency', 'Delivery timing', 'select', required=True,
+                      options=('scheduled', 'urgent')),
+            _question('sender_name', 'Sender name', 'text', required=True, maximum=120),
+            _question('sender_phone', 'Sender phone', 'text', required=True, maximum=30),
+            _question('recipient_name', 'Recipient name', 'text', required=True, maximum=120),
+            _question('recipient_phone', 'Recipient phone', 'text', required=True, maximum=30),
+            _question('delivery_instructions', 'Delivery instructions', 'textarea', maximum=1000),
             _question('shipment_type', 'What are you transporting?', 'select', required=True,
                       options=('Furniture', 'Appliances', 'Boxes or packages', 'Business goods', 'Equipment', 'Other')),
             _question('shipment_description', 'Describe the shipment', 'text', required=True, maximum=200,
@@ -206,6 +307,23 @@ SERVICE_QUESTION_SCHEMAS = {
                       options=('no', 'yes')),
             _question('shipment_special_equipment', 'Does it require special equipment or specialist handling?', 'select', required=True,
                       options=('no', 'yes')),
+        ),
+    },
+    'support': {
+        'property': (
+            _question('support_category', 'What do you need help with?', 'select', required=True,
+                      options=('urgent-moving', 'emergency-cleaning', 'urgent-delivery', 'storage-assistance',
+                               'existing-booking', 'other')),
+            _question('support_urgency', 'When do you need help?', 'select', required=True,
+                      options=('immediately', 'within-hours', 'today', 'tomorrow')),
+            _question('support_description', 'Briefly describe the issue', 'textarea', required=True, maximum=1200),
+            _question('onsite_required', 'Is an on-site response required?', 'select', required=True,
+                      options=('no', 'yes')),
+        ),
+        'inventory': (
+            _question('booking_reference', 'Existing booking reference, if applicable', 'text', maximum=32),
+            _question('support_contact_preference', 'Preferred contact method', 'select', required=True,
+                      options=('phone', 'email')),
         ),
     },
 }
@@ -319,6 +437,21 @@ def validate_question_answers(schema, answers: Mapping[str, Any]) -> dict[str, A
                 raise ValueError(f"{field['label']} is required.")
             if any(option not in field['options'] for option in value):
                 raise ValueError(f"Choose valid options for {field['label'].lower()}.")
+            if key == 'cleaning_areas' and 'entire-property' in value:
+                subtype = submitted.get('cleaning_subtype')
+                office_areas = {'workstations', 'meeting-rooms', 'restrooms', 'interior-glass', 'floor-care'}
+                home_areas = {'living-room', 'bedrooms', 'kitchen', 'bathrooms', 'balcony', 'cupboards', 'hallways', 'outdoor-areas'}
+                value = [
+                    option for option in field['options'] if option != 'entire-property'
+                    and not (subtype == 'office' and option in home_areas)
+                    and not (subtype != 'office' and option in office_areas)
+                ]
+            elif key == 'cleaning_areas':
+                subtype = submitted.get('cleaning_subtype')
+                office_areas = {'workstations', 'meeting-rooms', 'restrooms', 'interior-glass', 'floor-care'}
+                home_areas = {'living-room', 'bedrooms', 'kitchen', 'bathrooms', 'balcony', 'cupboards', 'hallways', 'outdoor-areas'}
+                if any((subtype == 'office' and option in home_areas) or (subtype != 'office' and option in office_areas) for option in value):
+                    raise ValueError('Choose cleaning areas that apply to the selected property type.')
             if value:
                 normalized[key] = value
             continue
@@ -345,6 +478,12 @@ def validate_question_answers(schema, answers: Mapping[str, Any]) -> dict[str, A
         if field['type'] in {'text', 'textarea'} and field['max'] and len(value) > field['max']:
             raise ValueError(f"{field['label']} must be no more than {field['max']} characters.")
         normalized[key] = value
+    if 'cleaning_subtype' in normalized:
+        home_property_types = {'studio', 'flat', 'duplex', 'detached-house', 'bungalow', 'other'}
+        office_property_types = {'office-premises', 'coworking-space', 'shop', 'other'}
+        valid_types = office_property_types if normalized['cleaning_subtype'] == 'office' else home_property_types
+        if normalized.get('cleaning_property_type') not in valid_types:
+            raise ValueError('Choose a property type that matches the selected cleaning service.')
     return normalized
 
 
@@ -356,6 +495,16 @@ def service_questions_for(service_type: str, section: str = 'property') -> tuple
     if section not in {'property', 'inventory'}:
         raise ValueError(f'Unknown service question section: {section}.')
     return service_question_schemas_for(service_type)[section]
+
+
+def booking_questions_for(booking: Mapping[str, Any] | Any, section: str) -> tuple[dict[str, Any], ...]:
+    service_type = normalize_service_type(_booking_value(booking, 'primary_service') or 'residential')
+    schema = service_questions_for(service_type, section)
+    workflow_data = _booking_value(booking, 'workflow_data', {}) or {}
+    if service_type == 'packing' and workflow_data.get('question_schema_version', 0) < QUESTION_SCHEMA_VERSION:
+        allowed = LEGACY_PACKING_QUESTION_KEYS[section]
+        return tuple(field for field in schema if field['key'] in allowed)
+    return schema
 
 
 def addon_questions_for(addons) -> dict[str, tuple[dict[str, Any], ...]]:
@@ -396,11 +545,11 @@ def validate_booking_question_data(booking: Mapping[str, Any] | Any) -> dict[str
     if not isinstance(property_answers, Mapping) or not isinstance(inventory_answers, Mapping):
         raise ValueError('Service property and inventory answers must be objects.')
     property_data['service_answers'] = validate_question_answers(
-        service_questions_for(service_type, 'property'), property_answers,
+        booking_questions_for(booking, 'property'), property_answers,
     )
     workflow_data['property'] = property_data
     workflow_data['inventory_answers'] = validate_question_answers(
-        service_questions_for(service_type, 'inventory'), inventory_answers,
+        booking_questions_for(booking, 'inventory'), inventory_answers,
     )
 
     service_selections = workflow_data.get('services') or {}
@@ -425,6 +574,20 @@ def validate_booking_question_data(booking: Mapping[str, Any] | Any) -> dict[str
                 raise ValueError(f"Answers for {addon.replace('_', ' ')} {section} must be an object.")
             normalized_addons[addon][section] = validate_question_answers(schema, answers)
     workflow_data['addon_answers'] = normalized_addons
+    if service_type in {'residential', 'commercial', 'logistics'}:
+        for place in ('pickup', 'destination'):
+            if not _booking_value(booking, f'{place}_address'):
+                raise ValueError(f'{place.title()} address is required for {service_type} bookings.')
+    elif service_type in {'cleaning', 'packing'} and not _booking_value(booking, 'pickup_address'):
+        raise ValueError('A service location is required for this booking.')
+    elif service_type == 'storage':
+        answers = property_data['service_answers']
+        if answers.get('storage_collection') == 'yes' and not _booking_value(booking, 'pickup_address'):
+            raise ValueError('A collection address is required when Chigo is arranging collection.')
+        if answers.get('storage_retrieval') == 'yes' and answers.get('storage_return_known') == 'yes' and not _booking_value(booking, 'destination_address'):
+            raise ValueError('A known return address is required for redelivery.')
+    elif service_type == 'support' and property_answers.get('onsite_required') == 'yes' and not _booking_value(booking, 'pickup_address'):
+        raise ValueError('An on-site support location is required for this request.')
     return workflow_data
 
 

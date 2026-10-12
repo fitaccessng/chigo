@@ -14,8 +14,8 @@ from ..services.booking_engine_service import (
     save_workflow_section, suggested_inventory, update_inventory_selections, vehicle_options,
 )
 from ..services.service_workflow import (
-    addon_questions_for, get_service_workflow, property_types_for_service,
-    service_questions_for, validate_property_type_for_service, validate_question_answers,
+    addon_questions_for, booking_questions_for, get_service_workflow, property_types_for_service,
+    validate_property_type_for_service, validate_question_answers,
 )
 from ..services.image_upload_service import save_image
 from ..services.location_service import (
@@ -46,6 +46,53 @@ SERVICE_OPTIONS = {
     'home_decor': ('none', 'yes'),
 }
 MOVE_PROPERTY_SERVICES = frozenset({'residential', 'commercial'})
+LOCATION_SERVICES = {
+    'residential': ('pickup', 'destination'),
+    'commercial': ('pickup', 'destination'),
+    'logistics': ('pickup', 'destination'),
+    'cleaning': ('pickup',),
+    'packing': ('pickup',),
+    'storage': (),
+    'support': (),
+}
+
+
+def service_stages(service_type, booking=None):
+    if service_type == 'cleaning':
+        stages = ('location', 'property', 'inventory', 'schedule', 'quote')
+        if booking and booking.workflow_state in {'QUOTE_ACCEPTED', 'PAYMENT_PENDING', 'CONFIRMED'}:
+            return (*stages, 'payment')
+        return stages
+    if service_type == 'support':
+        return ('location', 'property', 'inventory', 'quote')
+    if service_type == 'logistics':
+        stages = ('location', 'inventory', 'services', 'schedule', 'quote')
+        if booking and booking.workflow_state in {'QUOTE_ACCEPTED', 'PAYMENT_PENDING', 'CONFIRMED'}:
+            return (*stages, 'payment')
+        return stages
+    if service_type == 'packing':
+        stages = ('location', 'property', 'inventory', 'services', 'schedule', 'quote')
+        if booking and booking.workflow_state in {'QUOTE_ACCEPTED', 'PAYMENT_PENDING', 'CONFIRMED'}:
+            return (*stages, 'payment')
+        return stages
+    if service_type == 'storage':
+        stages = ('location', 'property', 'inventory', 'services', 'schedule', 'quote')
+        if booking and booking.workflow_state in {'QUOTE_ACCEPTED', 'PAYMENT_PENDING', 'CONFIRMED'}:
+            return (*stages, 'payment')
+        return stages
+    return STAGES
+
+
+def location_places_for(service_type, answers=None):
+    if service_type != 'storage':
+        return LOCATION_SERVICES[service_type]
+    answers = answers or {}
+    places = []
+    if answers.get('storage_collection') == 'yes':
+        places.append('pickup')
+    if answers.get('storage_retrieval') == 'yes' and answers.get('storage_return_known') == 'yes':
+        places.append('destination')
+    return tuple(places)
 SERVICE_CARD_CONFIG = (
     ('Packing & Protection', 'packing', 'partial', 'Partial packing', 'We safely pack selected rooms and items.', 'packing_partial', 30),
     ('Packing & Protection', 'packing', 'full', 'Full packing', 'Our team packs the complete move inventory.', 'packing_full', 0),
@@ -188,6 +235,12 @@ def _get_request(request_id):
 
 
 def _next_stage(booking):
+    if booking.primary_service == 'support' and booking.workflow_state in {'INVENTORY_COMPLETED', 'QUOTE_READY'}:
+        return 'quote'
+    if booking.primary_service == 'logistics' and booking.workflow_state == 'LOCATION_COMPLETED':
+        return 'inventory'
+    if booking.primary_service == 'cleaning' and booking.workflow_state == 'INVENTORY_COMPLETED':
+        return 'schedule'
     states = {
         'LOCATION_COMPLETED': 'property', 'PROPERTY_COMPLETED': 'inventory',
         'INVENTORY_COMPLETED': 'services', 'SERVICES_COMPLETED': 'schedule',
@@ -210,7 +263,13 @@ def _stage_is_unlocked(booking, stage):
     return progress.get(booking.workflow_state, -1) >= target - 1
 
 
-def _location_payload(form):
+def _location_payload(form, service_type, places=None):
+    places = tuple(places) if places is not None else LOCATION_SERVICES[service_type]
+    if not places:
+        return {
+            'route_status': 'NOT_REQUIRED', 'distance_precision': 'not_applicable',
+            'service_area_status': 'NOT_REQUIRED', 'distance_km': 0.0,
+        }
     fields = (
         'pickup_address', 'pickup_unit', 'pickup_area', 'pickup_area_council', 'pickup_district', 'pickup_neighborhood',
         'pickup_location_type', 'pickup_original_input', 'pickup_city', 'pickup_state', 'pickup_country', 'pickup_formatted_address',
@@ -223,8 +282,15 @@ def _location_payload(form):
         'destination_latitude', 'destination_longitude', 'destination_place_id', 'dropoff_location_id', 'destination_provider', 'destination_provider_raw_id',
         'destination_notes', 'destination_access', 'destination_inside_estate', 'destination_narrow_road', 'destination_parking_close', 'destination_floor', 'destination_stairs',
     )
-    data = {field: getattr(form, field).data for field in fields if hasattr(form, field)}
-    for place in ('pickup', 'destination'):
+    data = {
+        field: getattr(form, field).data for field in fields
+        if hasattr(form, field) and field.startswith(tuple(f'{place}_' for place in places))
+    }
+    required = tuple(f'{place}_address' for place in places)
+    missing = [field for field in required if not str(data.get(field) or '').strip()]
+    if missing:
+        raise ValueError('Enter both addresses, city and state to plan a move.' if len(places) == 2 else 'Enter the service location to continue.')
+    for place in places:
         data[f'{place}_local_place_id'] = None
         data[f'{place}_original_input'] = (data.get(f'{place}_original_input') or data.get(f'{place}_address') or '')[:500]
         data[f'{place}_normalized_location'] = data[f'{place}_original_input']
@@ -300,7 +366,8 @@ def _location_payload(form):
         data[f'{place}_normalized_location'] = ', '.join(str(value).strip() for value in hierarchy if value) or str(data.get(f'{place}_formatted_address') or data.get(f'{place}_address') or '').strip()
 
     route = None
-    if all(data.get(f'{place}_{axis}') is not None for place in ('pickup', 'destination') for axis in ('latitude', 'longitude')):
+    needs_route = service_type in {'residential', 'commercial', 'logistics'} and len(places) == 2
+    if needs_route and all(data.get(f'{place}_{axis}') is not None for place in places for axis in ('latitude', 'longitude')):
         route = route_distance(
             data['pickup_latitude'], data['pickup_longitude'],
             data['destination_latitude'], data['destination_longitude'],
@@ -313,18 +380,20 @@ def _location_payload(form):
     if route and route.get('distance_source') == 'approximate':
         data['distance_source'] = 'approximate-landmark-or-district'
     data['distance_precision'] = route.get('distance_precision') if route else 'unresolved'
-    data['route_status'] = 'CALCULATED' if route else 'PENDING'
+    data['route_status'] = 'CALCULATED' if route else 'NOT_REQUIRED' if service_type in {'support', 'storage'} else 'PENDING'
     data['route_calculated_at'] = datetime.utcnow() if route else None
-    data['service_area_status'] = 'SERVICEABLE' if all(
+    data['service_area_status'] = 'SERVICEABLE' if needs_route and all(
         validate_service_area(data[f'{place}_latitude'], data[f'{place}_longitude']) == 'SERVICEABLE'
-        for place in ('pickup', 'destination')
-    ) else 'OUTSIDE_SERVICE_AREA'
+        for place in places
+    ) else 'NOT_REQUIRED' if service_type in {'support', 'storage'} else 'PENDING_RESOLUTION' if len(places) == 1 else 'OUTSIDE_SERVICE_AREA'
     return data
 
 
 def _location_access_payload(form):
     answers = {}
     for place in ('pickup', 'destination'):
+        if not getattr(form, f'{place}_address').data:
+            continue
         floor = getattr(form, f'{place}_floor').data or 'Ground'
         value = getattr(form, f'{place}_lift_available').data
         if floor != 'Ground':
@@ -336,14 +405,39 @@ def _location_access_payload(form):
     return answers
 
 
-@booking_bp.route('/start')
-@booking_bp.route('/start/<service_type>')
+@booking_bp.route('/start', methods=['GET', 'POST'])
+@booking_bp.route('/start/<service_type>', methods=['GET', 'POST'])
 @login_required
 def start(service_type='residential'):
     try:
         service_type = get_service_workflow({'primary_service': service_type})['service_type']
     except ValueError:
         abort(404)
+    session.pop('active_booking_request_id', None)
+    if service_type == 'cleaning':
+        if request.method == 'POST':
+            subtype = request.form.get('cleaning_subtype', '')
+            if subtype not in {'home', 'office', 'move-in-out'}:
+                flash('Choose one of the available cleaning services.', 'error')
+                return render_template('move_request/cleaning_options.html', selected=subtype)
+            session['booking_cleaning_subtype'] = subtype
+            return redirect(url_for('booking.location', service_type=service_type))
+        return render_template('move_request/cleaning_options.html', selected='')
+    if service_type == 'storage':
+        if request.method == 'POST':
+            collection = request.form.get('storage_collection')
+            retrieval = request.form.get('storage_retrieval')
+            return_known = request.form.get('storage_return_known', 'no') if retrieval == 'yes' else 'no'
+            if collection not in {'yes', 'no'} or retrieval not in {'yes', 'no'} or return_known not in {'yes', 'no'}:
+                flash('Choose whether collection and return delivery are needed.', 'error')
+                return render_template('move_request/storage_setup.html', setup=request.form)
+            session['booking_storage_setup'] = {
+                'storage_collection': collection,
+                'storage_retrieval': retrieval,
+                'storage_return_known': return_known,
+            }
+            return redirect(url_for('booking.location', service_type='storage'))
+        return render_template('move_request/storage_setup.html', setup={})
     addon = request.args.get('addon')
     initial_services = {
         'cleaning': {'cleaning': 'move-out'},
@@ -357,7 +451,6 @@ def start(service_type='residential'):
     }
     booking_session_key = session.setdefault('_analytics_booking_session', secrets.token_urlsafe(12))
     queue_analytics_event('booking_started', dedupe_key=f'booking_started:{booking_session_key}', service_type=service_type)
-    session.pop('active_booking_request_id', None)
     return redirect(url_for('booking.location', service_type=service_type))
 
 
@@ -377,29 +470,52 @@ def index():
 def location(service_type='residential'):
     form = BookingLocationForm()
     workflow = get_service_workflow({'primary_service': service_type})
+    location_places = location_places_for(service_type, session.get('booking_storage_setup'))
     if request.method == 'POST':
         if not form.validate():
-            flash('Enter both complete addresses and confirm each city and state.', 'error')
+            flash('Check the location details and try again.', 'error')
         else:
             try:
+                location_data = _location_payload(form, service_type, location_places)
+                active_request_id = session.get('active_booking_request_id')
+                previous_booking = Booking.query.filter_by(
+                    booking_request_id=active_request_id, customer_id=current_user.id,
+                ).first() if active_request_id else None
+                if previous_booking and previous_booking.primary_service == service_type and all(
+                    getattr(previous_booking, field) == location_data.get(field)
+                    for field in ('pickup_address', 'pickup_city', 'pickup_state', 'destination_address', 'destination_city', 'destination_state')
+                ):
+                    return redirect(url_for(
+                        'booking.workflow', request_id=active_request_id,
+                        stage=_next_stage(previous_booking),
+                    ))
                 booking = create_booking_request(
                     customer_id=current_user.id if current_user.is_authenticated else None,
-                    location=_location_payload(form),
+                    location=location_data,
                     user_id=current_user.id if current_user.is_authenticated else None,
                     service_type=service_type,
                     location_access=_location_access_payload(form),
+                    initial_service_answers=(
+                        session.get('booking_storage_setup')
+                        if service_type == 'storage' else
+                        {'cleaning_subtype': session.get('booking_cleaning_subtype')}
+                        if service_type == 'cleaning' and session.get('booking_cleaning_subtype') else None
+                    ),
                     initial_services=(session.get('booking_initial_services') or {}).get('services', {})
                     if (session.get('booking_initial_services') or {}).get('service_type') == service_type else None,
                 )
                 session.pop('booking_initial_services', None)
+                session.pop('booking_cleaning_subtype', None)
+                session.pop('booking_storage_setup', None)
                 session['active_booking_request_id'] = booking.booking_request_id
                 queue_booking_conversion(booking, 'location_completed')
                 return redirect(url_for('booking.workflow', request_id=booking.booking_request_id, stage='property'))
             except ValueError as error:
                 flash(str(error), 'error')
     return render_template(
-        'move_request/engine.html', stage='location', stages=STAGES, form=form, booking=None,
+        'move_request/engine.html', stage='location', stages=service_stages(service_type), form=form, booking=None,
         service_workflow=workflow, service_type=workflow['service_type'],
+        location_places=location_places,
     )
 
 
@@ -407,6 +523,8 @@ def location(service_type='residential'):
 @login_required
 def edit_location(request_id):
     booking = _get_request(request_id)
+    stored_answers = ((booking.workflow_data or {}).get('property') or {}).get('service_answers', {})
+    location_places = location_places_for(booking.primary_service, stored_answers)
     had_calculation = bool(booking.calculation_data)
     form = BookingLocationForm()
     if request.method == 'GET':
@@ -418,7 +536,7 @@ def edit_location(request_id):
             flash('Enter both complete addresses and confirm each city and state.', 'error')
         else:
             try:
-                location_data = _location_payload(form)
+                location_data = _location_payload(form, booking.primary_service, location_places)
                 location_access = _location_access_payload(form)
                 previous = {'pickup': booking.pickup_formatted_address or booking.pickup_address,
                             'destination': booking.destination_formatted_address or booking.destination_address}
@@ -439,7 +557,9 @@ def edit_location(request_id):
             except ValueError as error:
                 db.session.rollback()
                 flash(str(error), 'error')
-    return render_template('move_request/engine.html', stage='location', stages=STAGES, form=form, booking=booking,
+    return render_template('move_request/engine.html', stage='location', stages=service_stages(booking.primary_service), form=form, booking=booking,
+                           service_workflow=get_service_workflow(booking), service_type=booking.primary_service,
+                           location_places=location_places,
                            unlocked_stages=['location'] + [item for item in STAGES[1:] if _stage_is_unlocked(booking, item)])
 
 
@@ -457,12 +577,17 @@ def workflow(request_id, stage):
     if stage not in STAGES[1:]:
         abort(404)
     booking = _get_request(request_id)
+    stages = service_stages(booking.primary_service, booking)
+    if stage not in stages and not (booking.primary_service == 'logistics' and stage == 'property'):
+        return redirect(url_for('booking.workflow', request_id=request_id, stage=_next_stage(booking)))
+    if booking.primary_service == 'logistics' and stage == 'inventory' and booking.workflow_state == 'LOCATION_COMPLETED':
+        save_workflow_section(booking, 'property', {}, current_user.id)
     if not _stage_is_unlocked(booking, stage):
         return redirect(url_for('booking.workflow', request_id=request_id, stage=_next_stage(booking)))
     if stage == 'services':
         try:
             validate_question_answers(
-                service_questions_for(booking.primary_service, 'inventory'),
+                booking_questions_for(booking, 'inventory'),
                 (booking.workflow_data or {}).get('inventory_answers') or {},
             )
         except ValueError:
@@ -491,7 +616,7 @@ def workflow(request_id, stage):
                     return redirect(url_for('booking.workflow', request_id=request_id, stage='property'))
                 if requires_property_type:
                     property_type = validate_property_type_for_service(booking.primary_service, property_type)
-                service_schema = service_questions_for(booking.primary_service, 'property')
+                service_schema = booking_questions_for(booking, 'property')
                 service_answers = validate_question_answers(
                     service_schema, _question_form_values(service_schema, request.form, 'service_'),
                 )
@@ -729,11 +854,68 @@ def workflow(request_id, stage):
                     return redirect(url_for('booking.workflow', request_id=request_id, stage='inventory'))
 
                 if request.form.get('action') == 'save_and_continue':
-                    inventory_schema = service_questions_for(booking.primary_service, 'inventory')
+                    inventory_schema = booking_questions_for(booking, 'inventory')
                     inventory_answers = validate_question_answers(
                         inventory_schema, _question_form_values(inventory_schema, request.form, 'inventory_'),
                     )
                     selection_ids = request.form.getlist('selection_id[]')
+                    if booking.primary_service in {'cleaning', 'support', 'logistics'} or (
+                        booking.primary_service == 'packing' and not selection_ids
+                    ):
+                        if booking.primary_service == 'support':
+                            from ..models import SupportRequest
+                            if SupportRequest.query.filter_by(booking_id=booking.id).first():
+                                return redirect(url_for('booking.workflow', request_id=request_id, stage='quote'))
+                        service_uploads = [upload for upload in request.files.getlist('service_photos') if upload and upload.filename]
+                        if len(booking.photos) + len(service_uploads) > current_app.config['MAX_BOOKING_ATTACHMENTS']:
+                            raise ValueError('This booking has reached its image limit.')
+                        saved_photos = []
+                        for upload in service_uploads:
+                            saved = save_image(upload, 'booking', current_app.config['MAX_IMAGE_SIZE'])
+                            saved_photos.append(BookingPhoto(
+                                booking_id=booking.id,
+                                uploaded_by_id=current_user.id,
+                                file_name=saved['file_url'], original_filename=saved['original_filename'],
+                                mime_type=saved['mime_type'], file_size=saved['file_size'],
+                                category=f'service_{booking.primary_service}',
+                                sort_order=len(booking.photos) + len(saved_photos),
+                            ))
+                        db.session.add_all(saved_photos)
+                        _store_inventory_answers(booking, inventory_answers, current_user.id)
+                        if booking.primary_service == 'cleaning':
+                            save_workflow_section(booking, 'services', {}, current_user.id)
+                            return redirect(url_for('booking.workflow', request_id=request_id, stage='schedule'))
+                        if booking.primary_service == 'packing':
+                            booking.workflow_state = 'INVENTORY_COMPLETED'
+                            db.session.commit()
+                            return redirect(url_for('booking.workflow', request_id=request_id, stage='services'))
+                        if booking.primary_service == 'logistics':
+                            booking.workflow_state = 'INVENTORY_COMPLETED'
+                            db.session.commit()
+                            return redirect(url_for('booking.workflow', request_id=request_id, stage='services'))
+
+                        from ..services.support_chat_service import create_conversation, request_human
+                        conversation = create_conversation(current_user.id, booking_id=booking.id)
+                        request_human(
+                            conversation.id, current_user.id,
+                            'Urgency: {urgency}. Category: {category}. {description} On-site: {onsite}. Location: {location}'.format(
+                                urgency=(booking.workflow_data.get('property') or {}).get('service_answers', {}).get('support_urgency', 'unspecified'),
+                                category=(booking.workflow_data.get('property') or {}).get('service_answers', {}).get('support_category', 'other'),
+                                description=(booking.workflow_data.get('property') or {}).get('service_answers', {}).get('support_description', ''),
+                                onsite=(booking.workflow_data.get('property') or {}).get('service_answers', {}).get('onsite_required', 'no'),
+                                location=(booking.workflow_data.get('property') or {}).get('service_answers', {}).get('support_location', 'not required'),
+                            ),
+                        )
+                        booking.status = 'Support Request Submitted'
+                        booking.quote_status = 'Quote Required'
+                        booking.workflow_state = 'QUOTE_READY'
+                        booking.calculation_data = {
+                            'manual_review_flags': ['Support availability and callback timing must be confirmed by the operations team.'],
+                            'estimate_type': 'quote_required',
+                        }
+                        db.session.commit()
+                        return redirect(url_for('booking.workflow', request_id=request_id, stage='quote'))
+
                     quantities = request.form.getlist('quantity[]')
                     if not selection_ids or len(selection_ids) != len(quantities):
                         raise ValueError('Keep at least one inventory item and provide a quantity for each.')
@@ -792,11 +974,11 @@ def workflow(request_id, stage):
                     } for index, name in enumerate(legacy_names) if name.strip()]
                 replace_inventory(booking, items, current_user.id if current_user.is_authenticated else None)
                 raw_inventory_answers = _question_form_values(
-                    service_questions_for(booking.primary_service, 'inventory'), request.form, 'inventory_',
+                    booking_questions_for(booking, 'inventory'), request.form, 'inventory_',
                 )
                 if raw_inventory_answers:
                     inventory_answers = validate_question_answers(
-                        service_questions_for(booking.primary_service, 'inventory'), raw_inventory_answers,
+                        booking_questions_for(booking, 'inventory'), raw_inventory_answers,
                     )
                     _store_inventory_answers(booking, inventory_answers, current_user.id if current_user.is_authenticated else None)
                     db.session.commit()
@@ -879,12 +1061,13 @@ def workflow(request_id, stage):
                 if selected_date < date.today() or selected_time not in {'Morning', 'Afternoon', 'Evening'}:
                     raise ValueError('Choose a future date and valid preferred time.')
                 selected_vehicle = request.form.get('vehicle_type_id')
-                if not selected_vehicle:
+                if not selected_vehicle and booking.primary_service in {'residential', 'commercial', 'logistics'}:
                     raise ValueError('Choose a vehicle type before continuing to your quote.')
-                save_vehicle_selection(
-                    booking, selected_vehicle,
-                    current_user.id if current_user.is_authenticated else None,
-                )
+                if selected_vehicle:
+                    save_vehicle_selection(
+                        booking, selected_vehicle,
+                        current_user.id if current_user.is_authenticated else None,
+                    )
                 save_workflow_section(booking, 'schedule', {
                     'date': selected_date.isoformat(), 'time': selected_time,
                     'flexible_date': request.form.get('flexible_date') == 'on',
@@ -920,15 +1103,18 @@ def workflow(request_id, stage):
     else:
         inventory_property_type = property_data.get('property_type') or booking.property_type
     estate_unit_type = request.args.get('unit_type', '')
+    render_stages = stages
+    if booking.primary_service == 'logistics' and stage == 'property':
+        render_stages = ('location', 'property', 'inventory', 'services', 'schedule', 'quote')
     return render_template(
-        'move_request/engine.html', stage=stage, stages=STAGES, booking=booking,
+        'move_request/engine.html', stage=stage, stages=render_stages, booking=booking,
         now_date=date.today().isoformat(),
         unlocked_stages=['location'] + [item for item in STAGES[1:] if _stage_is_unlocked(booking, item)],
         service_workflow=get_service_workflow(booking), service_type=booking.primary_service,
         property_types=property_types_for_service(booking.primary_service), service_options=SERVICE_OPTIONS,
         recommendations=recommended_services(booking),
-        service_questions=service_questions_for(booking.primary_service, 'property'),
-        inventory_questions=service_questions_for(booking.primary_service, 'inventory'),
+        service_questions=booking_questions_for(booking, 'property'),
+        inventory_questions=booking_questions_for(booking, 'inventory'),
         addon_questions=addon_questions_for(
             {'packing', 'storage', 'cleaning', 'home_decor'} - {booking.primary_service},
         ),
@@ -1054,7 +1240,7 @@ def api_update_property(request_id):
         if not isinstance(answers, dict):
             raise ValueError('service_answers must be an object.')
         service_answers = validate_question_answers(
-            service_questions_for(booking.primary_service, 'property'), answers,
+            booking_questions_for(booking, 'property'), answers,
         )
         values['service_answers'] = service_answers
         if booking.primary_service == 'commercial':
@@ -1089,7 +1275,7 @@ def api_update_inventory(request_id):
         if not isinstance(raw_answers, dict):
             raise ValueError('inventory_answers must be an object.')
         inventory_answers = validate_question_answers(
-            service_questions_for(booking.primary_service, 'inventory'), raw_answers,
+            booking_questions_for(booking, 'inventory'), raw_answers,
         )
         replace_inventory(booking, items, current_user.id if current_user.is_authenticated else None)
         _store_inventory_answers(booking, inventory_answers, current_user.id if current_user.is_authenticated else None)

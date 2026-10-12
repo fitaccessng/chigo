@@ -1,6 +1,7 @@
 from functools import wraps
 from datetime import date, datetime, time, timedelta
 import json
+from math import ceil
 
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
 from flask_login import current_user, login_required, login_user
@@ -28,7 +29,28 @@ PRICING_KEYS = (
     'storage_week', 'special_handling', 'weekend_surcharge', 'holiday_surcharge',
     'additional_mover_fee', 'base_mover_hourly_fee', 'access_difficulty_surcharge',
     'outside_service_area_surcharge', 'tax_rate', 'deposit_percentage', 'volume_safety_factor',
+    'cleaning_home_base', 'cleaning_home_per_bedroom', 'cleaning_home_per_bathroom',
+    'cleaning_office_base', 'cleaning_office_per_m2', 'cleaning_move_base',
+    'cleaning_move_per_room', 'cleaning_move_per_bathroom', 'cleaning_deep_surcharge',
+    'cleaning_post_renovation_surcharge', 'storage_per_m3_week', 'storage_collection_fee',
+    'storage_redelivery_fee', 'storage_minimum_weeks', 'logistics_base_fee', 'logistics_per_vehicle_trip',
+    'logistics_per_km', 'logistics_per_kg', 'logistics_per_m3', 'logistics_loading_fee',
+    'logistics_special_handling_fee', 'logistics_urgent_surcharge',
 )
+APPROVED_RATE_GROUPS = {
+    'cleaning': (
+        'cleaning_home_base', 'cleaning_home_per_bedroom', 'cleaning_home_per_bathroom',
+        'cleaning_office_base', 'cleaning_office_per_m2', 'cleaning_move_base',
+        'cleaning_move_per_room', 'cleaning_move_per_bathroom', 'cleaning_deep_surcharge',
+        'cleaning_post_renovation_surcharge', 'cleaning_move_out', 'cleaning_move_in', 'cleaning_both',
+    ),
+    'storage': ('storage_per_m3_week', 'storage_collection_fee', 'storage_redelivery_fee', 'storage_minimum_weeks', 'storage_week'),
+    'logistics': (
+        'logistics_base_fee', 'logistics_per_vehicle_trip', 'logistics_per_km', 'logistics_per_kg', 'logistics_per_m3',
+        'logistics_loading_fee', 'logistics_special_handling_fee', 'logistics_urgent_surcharge',
+    ),
+    'packing': ('packing_partial', 'packing_full'),
+}
 
 RIDE_STATUS_TRANSITIONS = {
     'Draft': {'Cancelled'},
@@ -599,6 +621,63 @@ def assign_booking(booking_id):
     return redirect(url_for('admin.booking_detail', booking_id=booking.id))
 
 
+@admin_bp.route('/bookings/<int:booking_id>/confirm-service-capacity', methods=['POST'])
+@login_required
+@admin_required('quotes')
+def confirm_service_capacity(booking_id):
+    booking = db.get_or_404(Booking, booking_id)
+    if booking.primary_service not in {'cleaning', 'packing', 'storage', 'logistics'}:
+        abort(404)
+    reason = request.form.get('confirmation_note', '').strip()[:1000]
+    if len(reason) < 12:
+        flash('Record the resource or facility confirmation details (at least 12 characters).', 'error')
+        return redirect(url_for('admin.booking_detail', booking_id=booking.id))
+    assignment = BookingAssignment.query.filter_by(booking_id=booking.id).first()
+    if booking.primary_service == 'cleaning':
+        cleaner = Cleaner.query.filter_by(name=assignment.cleaner if assignment else '', status='Available').first()
+        if cleaner is None:
+            flash('Assign an available cleaner before confirming the requested service slot.', 'error')
+            return redirect(url_for('admin.booking_detail', booking_id=booking.id))
+        coverage = (cleaner.service_areas or '').casefold()
+        location_tokens = [booking.pickup_area_council, booking.pickup_area, booking.pickup_city, booking.pickup_state]
+        if not coverage or not any(token and token.casefold() in coverage for token in location_tokens):
+            flash('Cleaner service-area coverage is not configured for this location; confirm it with operations data first.', 'error')
+            return redirect(url_for('admin.booking_detail', booking_id=booking.id))
+    elif booking.primary_service == 'logistics':
+        selected_id = ((booking.workflow_data or {}).get('vehicle') or {}).get('selected_type_id')
+        vehicle = db.session.get(VehicleType, selected_id) if selected_id else None
+        truck = db.session.get(Truck, assignment.truck_id) if assignment and assignment.truck_id else None
+        if vehicle is None or truck is None or truck.status != 'Available' or truck.vehicle_type.casefold() != vehicle.name.casefold():
+            flash('Assign an available truck matching the selected vehicle type before confirming logistics capacity.', 'error')
+            return redirect(url_for('admin.booking_detail', booking_id=booking.id))
+        requirements = booking.estimated_weight_kg or 0
+        trip_count = max(1, ceil(float(requirements) / vehicle.max_payload_kg))
+        if truck.payload_capacity_kg is None or truck.payload_capacity_kg < float(requirements) / trip_count:
+            flash('The assigned truck payload is unknown or insufficient. Verify its physical capacity before confirmation.', 'error')
+            return redirect(url_for('admin.booking_detail', booking_id=booking.id))
+    calculation = dict(booking.calculation_data or {})
+    calculation['availability_confirmation_required'] = True
+    calculation['availability_confirmed'] = True
+    calculation['availability_confirmation_note'] = reason
+    calculation['availability_confirmed_by'] = current_user.id
+    calculation['availability_confirmed_at'] = datetime.utcnow().isoformat()
+    booking.calculation_data = calculation
+    if booking.manually_overridden_total is not None and booking.manually_overridden_total > 0:
+        booking.quote_status = 'Ready'
+        booking.workflow_state = 'QUOTE_READY'
+    record_event(booking, 'service.capacity_confirmed', previous=False, new={
+        'service_type': booking.primary_service, 'note': reason,
+    }, user_id=current_user.id)
+    write_admin_audit('service.capacity_confirmed', 'booking', booking.id,
+                      before={'availability_confirmed': False}, after={
+                          'availability_confirmed': True, 'service_type': booking.primary_service,
+                          'note': reason,
+                      })
+    db.session.commit()
+    flash('Service capacity confirmation recorded. The customer may accept a published quote when one is available.', 'success')
+    return redirect(url_for('admin.booking_detail', booking_id=booking.id))
+
+
 @admin_bp.route('/incidents/<int:incident_id>', methods=['POST'])
 @login_required
 @admin_required('support')
@@ -835,20 +914,63 @@ def pricing():
     if request.method == 'GET':
         for key in PRICING_KEYS:
             row = rows.get(key)
-            getattr(form, key).data = float(row.value if row else 0) if key in {'volume_safety_factor', 'tax_rate', 'deposit_percentage'} else int(row.value if row else 0)
+            field = getattr(form, key)
+            if key in {item for group in APPROVED_RATE_GROUPS.values() for item in group}:
+                field.data = row.value if row else None
+            else:
+                field.data = float(row.value if row else 0) if key in {'volume_safety_factor', 'tax_rate', 'deposit_percentage'} else int(row.value if row else 0)
+        for group_name, keys in APPROVED_RATE_GROUPS.items():
+            getattr(form, f'{group_name}_pricing_approved').data = bool(keys) and all(
+                rows.get(key) is not None and rows[key].is_configured for key in keys
+            )
     elif form.validate_on_submit():
         values = {key: getattr(form, key).data for key in PRICING_KEYS}
-        if any(value is None or value < 0 for value in values.values()):
+        service_rate_keys = {key for keys in APPROVED_RATE_GROUPS.values() for key in keys}
+        ordinary_values = {key: value for key, value in values.items() if key not in service_rate_keys}
+        invalid_group = None
+        for group_name, keys in APPROVED_RATE_GROUPS.items():
+            if getattr(form, f'{group_name}_pricing_approved').data:
+                missing = [key for key in keys if values.get(key) is None]
+                positive_component = any(float(values.get(key) or 0) > 0 for key in keys if key != 'storage_minimum_weeks')
+                if missing or not positive_component:
+                    invalid_group = group_name
+                    break
+        if any(value is None or value < 0 for value in ordinary_values.values()):
             flash('Prices must be zero or greater.', 'error')
+        elif invalid_group:
+            flash(f'Enter every {invalid_group} rate and at least one positive charge before approving that pricing group.', 'error')
         else:
-            before = {key: rows[key].value if key in rows else None for key in PRICING_KEYS}
+            before = {
+                key: {'value': rows[key].value, 'is_configured': rows[key].is_configured} if key in rows else None
+                for key in PRICING_KEYS
+            }
             for key, value in values.items():
                 row = rows.get(key)
+                if value is None and row is None:
+                    continue
                 if row is None:
                     row = ServicePricing(key=key, label=key.replace('_', ' ').title())
                     db.session.add(row)
-                row.value = value
-            after = {key: value for key, value in values.items()}
+                    rows[key] = row
+                if value is not None:
+                    row.value = value
+            for group_name, keys in APPROVED_RATE_GROUPS.items():
+                approved = bool(getattr(form, f'{group_name}_pricing_approved').data)
+                for key in keys:
+                    row = rows.get(key)
+                    if row is None and values.get(key) is not None:
+                        row = ServicePricing(key=key, label=key.replace('_', ' ').title(), value=values[key])
+                        db.session.add(row)
+                        rows[key] = row
+                    if row is not None:
+                        row.is_configured = approved
+            after = {}
+            for key, value in values.items():
+                group = next((name for name, keys in APPROVED_RATE_GROUPS.items() if key in keys), None)
+                after[key] = (
+                    {'value': value, 'is_configured': bool(getattr(form, f'{group}_pricing_approved').data)}
+                    if group else value
+                )
             write_admin_audit('pricing.updated', 'service_pricing', None, before=before, after=after)
             db.session.commit()
             flash('Pricing saved.', 'success')

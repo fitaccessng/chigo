@@ -15,7 +15,7 @@
   <div class="mt-4 flex flex-wrap items-start justify-between gap-4 border-b border-stone-200 pb-6">
     <div>
       <p class="text-sm uppercase text-stone-500">{{ booking.booking_request_id or booking.booking_number }} · {{ booking.workflow_state }}</p>
-      <h1 class="mt-2 text-3xl font-black">{{ booking.pickup_city }} to {{ booking.destination_city }}</h1>
+      <h1 class="mt-2 text-3xl font-black">{% if booking.pickup_address and booking.destination_address %}{{ booking.pickup_city }} to {{ booking.destination_city }}{% else %}{{ booking.primary_service|replace('_', ' ')|title }} request{% endif %}</h1>
       <p class="mt-2 text-stone-600">{{ booking.move_date or 'Date not selected' }} · {{ booking.preferred_time }}</p>
     </div>
     <span class="rounded-full bg-stone-100 px-3 py-1 text-sm font-semibold">{{ booking.status }}</span>
@@ -34,28 +34,38 @@
   </section>
   {% if booking.booking_request_id %}
   <section class="mt-8 border-b border-stone-200 pb-7">
-    <h2 class="text-xl font-bold">Automated move requirements</h2>
+    <h2 class="text-xl font-bold">{{ 'Automated move requirements' if booking.primary_service in ['residential', 'commercial'] else 'Service request details' }}</h2>
     <dl class="mt-4 grid gap-4 text-sm sm:grid-cols-4">
       <div><dt class="text-stone-500">Inventory volume</dt><dd class="font-semibold">{{ booking.estimated_volume_m3 or 0 }} m³</dd></div>
       <div><dt class="text-stone-500">Estimated weight</dt><dd class="font-semibold">{{ booking.estimated_weight_kg or 0 }} kg</dd></div>
       <div><dt class="text-stone-500">Recommended vehicle</dt><dd class="font-semibold">{{ booking.recommended_vehicle_type.name if booking.recommended_vehicle_type else 'Not calculated' }}</dd></div>
       <div><dt class="text-stone-500">Duration</dt><dd class="font-semibold">{{ booking.estimated_duration_minutes or 'Not calculated' }}{% if booking.estimated_duration_minutes %} min{% endif %}</dd></div>
-      <div><dt class="text-stone-500">Quote</dt><dd class="font-semibold">{{ booking.quote_status }} · ₦{{ '{:,.2f}'.format(booking.manually_overridden_total if booking.manually_overridden_total is not none else booking.estimated_total or 0) }}</dd></div>
+      <div><dt class="text-stone-500">Quote</dt><dd class="font-semibold">{{ booking.quote_status }}{% if booking.quote_status != 'Quote Required' %} · ₦{{ '{:,.2f}'.format(booking.manually_overridden_total if booking.manually_overridden_total is not none else booking.estimated_total or 0) }}{% endif %}</dd></div>
       <div><dt class="text-stone-500">Schedule feasibility</dt><dd class="font-semibold">{{ 'Available' if booking.schedule_feasible else 'Needs confirmation' }}</dd></div>
       <div><dt class="text-stone-500">Payment</dt><dd class="font-semibold">{{ booking.payment_status }}</dd></div>
       <div><dt class="text-stone-500">Request ID</dt><dd class="font-mono font-semibold">{{ booking.booking_request_id }}</dd></div>
     </dl>
     {% for review_flag in (booking.calculation_data or {}).get('manual_review_flags', []) %}<p class="mt-3 border-l-2 border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-900">{% if (booking.calculation_data or {}).get('manual_review_resolved') %}Reviewed quote: {% else %}Manual review required: {% endif %}{{ review_flag }}</p>{% endfor %}
+    {% if (booking.calculation_data or {}).get('indicative_total') is not none %}<section class="mt-5 border-l-4 border-amber-500 bg-amber-50 p-4"><h3 class="font-bold">Indicative estimate only · not an accepted quote</h3><p class="mt-1 text-lg font-extrabold">₦{{ '{:,.2f}'.format((booking.calculation_data or {}).get('indicative_total')) }}</p><dl class="mt-3 divide-y divide-amber-200 text-sm">{% for line in ((booking.calculation_data or {}).get('estimate_details') or {}).get('lines', []) %}<div class="flex justify-between gap-4 py-2"><dt>{{ line.label }} ({{ line.quantity }} × ₦{{ '{:,.2f}'.format(line.unit_rate) }})</dt><dd class="font-semibold">₦{{ '{:,.2f}'.format(line.amount) }}</dd></div>{% endfor %}</dl></section>{% endif %}
+    {% if booking.quote_status == 'Quote Required' and booking.primary_service in ['cleaning', 'packing', 'storage', 'logistics'] %}
+    <form method="post" action="{{ url_for('admin.confirm_service_capacity', booking_id=booking.id) }}" class="mt-5 border border-amber-300 bg-amber-50 p-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <h3 class="font-bold text-amber-950">Operations capacity confirmation</h3>
+      <p class="mt-1 text-sm text-amber-900">{% if booking.primary_service == 'cleaning' %}Requires an assigned available cleaner with matching configured service-area coverage.{% elif booking.primary_service == 'logistics' %}Requires an assigned available truck matching the selected vehicle and sufficient recorded payload.{% elif booking.primary_service == 'storage' %}Record the facility and capacity check; no storage-capacity model is currently connected.{% else %}Record the packing team/provider availability check; no packing-team roster is currently connected.{% endif %}</p>
+      <label class="mt-3 block text-sm font-semibold text-stone-800">Resource, facility or verification details<textarea name="confirmation_note" required minlength="12" maxlength="1000" rows="2" class="mt-1 block w-full border border-stone-300 bg-white px-3 py-2"></textarea></label>
+      <button type="submit" class="mt-3 bg-emerald-800 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-900">Record capacity confirmation</button>
+    </form>
+    {% endif %}
     {% if booking.items %}<div class="mt-5 overflow-x-auto"><table class="min-w-full text-left text-sm"><thead><tr class="border-b text-stone-500"><th class="py-2">Inventory</th><th>Qty</th><th>Size</th><th>Handling</th></tr></thead><tbody>{% for item in booking.items %}<tr class="border-b"><td class="py-2">{{ item.name }}</td><td>{{ item.quantity }}</td><td>{{ item.size }}</td><td>{% if item.fragile %}Fragile {% endif %}{% if item.large %}Oversized {% endif %}{% if item.special_handling %}Special{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
     {% set request_data = booking.workflow_data or {} %}
     {% if request_data %}<div class="mt-6 grid gap-6 border-t border-stone-200 pt-5 md:grid-cols-3">
       <div><h3 class="font-bold">Primary service</h3><p class="mt-2 text-sm font-medium">{{ request_data.get('service_intent') or booking.primary_service|replace('_', ' ')|title }}</p></div>
       {% for section, values in request_data.items() if values is mapping %}<div><h3 class="font-bold">{{ section|replace('_', ' ')|title }}</h3><dl class="mt-2 space-y-1 text-sm">{% for key, value in values.items() %}<div><dt class="text-stone-500">{{ key|replace('_',' ')|title }}</dt><dd class="text-right font-medium">{{ render_workflow_value(value) }}</dd></div>{% endfor %}</dl></div>{% endfor %}
-      <div><h3 class="font-bold">Route</h3><dl class="mt-2 space-y-1 text-sm"><div class="flex justify-between"><dt class="text-stone-500">Distance</dt><dd>{{ booking.distance_km or 0 }} km</dd></div><div class="flex justify-between"><dt class="text-stone-500">Travel estimate</dt><dd>{{ booking.route_duration_minutes or 'Not available' }}{% if booking.route_duration_minutes %} min{% endif %}</dd></div><div class="flex justify-between"><dt class="text-stone-500">Service area</dt><dd>{{ booking.service_area_status or 'Not checked' }}</dd></div></dl></div>
+      <div><h3 class="font-bold">{{ 'Route' if booking.destination_address else 'Service location' }}</h3><dl class="mt-2 space-y-1 text-sm">{% if booking.pickup_address %}<div><dt class="text-stone-500">{{ 'Pickup' if booking.destination_address else 'Location' }}</dt><dd>{{ booking.pickup_formatted_address or booking.pickup_address }}</dd></div>{% endif %}{% if booking.destination_address %}<div><dt class="text-stone-500">Destination</dt><dd>{{ booking.destination_formatted_address or booking.destination_address }}</dd></div><div class="flex justify-between"><dt class="text-stone-500">Distance</dt><dd>{{ booking.distance_km or 0 }} km</dd></div>{% endif %}<div class="flex justify-between"><dt class="text-stone-500">Service area</dt><dd>{{ booking.service_area_status or 'Not checked' }}</dd></div></dl></div>
     </div>{% endif %}
     {% if booking.quote_lines %}<h3 class="mt-6 font-bold">Quote breakdown</h3><dl class="mt-2 divide-y divide-stone-200">{% for line in booking.quote_lines %}<div class="flex justify-between gap-4 py-2 text-sm"><dt>{{ line.label }} <span class="text-stone-500">({{ line.source }})</span></dt><dd class="font-semibold">₦{{ '{:,.2f}'.format(line.amount) }}</dd></div>{% endfor %}</dl>{% endif %}
     <section class="mt-7 border-t border-stone-200 pt-6">
-      <h3 class="font-bold">Customer move photos</h3>
+      <h3 class="font-bold">Customer attachments</h3>
       {% if booking.photos %}<div class="mt-4 grid gap-3 sm:grid-cols-2">{% for photo in booking.photos|sort(attribute='created_at', reverse=true) %}<figure class="overflow-hidden rounded-xl border border-stone-200"><img src="{{ url_for('admin.serve_booking_attachment', booking_id=booking.id, filename=photo.file_name|replace('booking/', '')) }}" alt="{{ photo.category }} image" class="h-44 w-full object-cover"><figcaption class="flex items-center justify-between gap-3 p-3 text-xs"><span class="capitalize">{{ photo.category|replace('_', ' ') }} · {{ photo.original_filename }}</span>{% if photo.uploaded_by_id %}<span class="text-stone-500">{{ photo.uploaded_by.full_name if photo.uploaded_by else 'Customer' }}</span>{% endif %}</figcaption></figure>{% endfor %}</div>{% else %}<p class="mt-4 text-sm text-stone-500">No customer move photos have been uploaded.</p>{% endif %}
     </section>
     <form method="post" action="{{ url_for('admin.override_booking', booking_id=booking.id) }}" class="mt-6 grid gap-3 border-t border-stone-200 pt-5 sm:grid-cols-2">
@@ -68,7 +78,8 @@
     {% if booking.events %}<h3 class="mt-7 font-bold">Request timeline</h3><ol class="mt-3 border-l border-stone-300 pl-4">{% for event in booking.events|sort(attribute='created_at', reverse=true) %}<li class="mb-3 text-sm"><strong>{{ event.action|replace('.',' ')|title }}</strong><span class="block text-xs text-stone-500">{{ event.created_at.strftime('%Y-%m-%d %H:%M') }}{% if event.user %} · {{ event.user.full_name }}{% endif %}</span></li>{% endfor %}</ol>{% endif %}
   </section>
   {% endif %}
-  <div class="mt-8 grid gap-10 md:grid-cols-2">
+  <div class="mt-8 grid gap-10 {% if booking.primary_service not in ['residential', 'commercial', 'logistics'] %}md:grid-cols-1{% else %}md:grid-cols-2{% endif %}">
+    {% if booking.primary_service in ['residential', 'commercial', 'logistics'] %}
     <section>
       <h2 class="text-xl font-bold">Assign move team</h2>
       <p class="mt-1 text-sm text-stone-600">A truck, driver, or mover already booked for this date cannot be assigned again.</p>
@@ -93,13 +104,14 @@
       </form>
       {% if booking.assignments and booking.assignments[0].conflict_message %}<p class="mt-4 text-sm text-red-700">{{ booking.assignments[0].conflict_message }}</p>{% endif %}
     </section>
+    {% endif %}
     <section>
-      <h2 class="text-xl font-bold">Move summary</h2>
+      <h2 class="text-xl font-bold">{{ 'Move summary' if booking.primary_service in ['residential', 'commercial', 'logistics'] else 'Service summary' }}</h2>
       <dl class="mt-4 space-y-3 text-sm">
         <div><dt class="text-stone-500">Customer</dt><dd class="font-semibold">{{ booking.customer.full_name if booking.customer else 'Guest' }}</dd></div>
-        <div><dt class="text-stone-500">Pickup</dt><dd>{{ booking.pickup_address }}, {{ booking.pickup_city }}</dd></div>
-        <div><dt class="text-stone-500">Destination</dt><dd>{{ booking.destination_address }}, {{ booking.destination_city }}</dd></div>
-        <div><dt class="text-stone-500">Estimate</dt><dd class="font-semibold">₦{{ '{:,.0f}'.format(booking.estimated_total or 0) }}</dd></div>
+        {% if booking.pickup_address %}<div><dt class="text-stone-500">{{ 'Pickup' if booking.destination_address else 'Service location' }}</dt><dd>{{ booking.pickup_formatted_address or booking.pickup_address }}{% if booking.pickup_city %}, {{ booking.pickup_city }}{% endif %}</dd></div>{% endif %}
+        {% if booking.destination_address %}<div><dt class="text-stone-500">Destination</dt><dd>{{ booking.destination_formatted_address or booking.destination_address }}, {{ booking.destination_city }}</dd></div>{% endif %}
+        {% if booking.quote_status != 'Quote Required' %}<div><dt class="text-stone-500">Estimate</dt><dd class="font-semibold">₦{{ '{:,.0f}'.format(booking.estimated_total or 0) }}</dd></div>{% else %}<div><dt class="text-stone-500">Pricing</dt><dd class="font-semibold">Quote required; no amount confirmed</dd></div>{% endif %}
         <div><dt class="text-stone-500">Payment</dt><dd>{{ booking.payment_status }}</dd></div>
       </dl>
     </section>

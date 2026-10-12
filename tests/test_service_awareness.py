@@ -4,13 +4,16 @@ import pytest
 
 from moving_company import create_app
 from moving_company.extensions import db
-from moving_company.models import Booking, User
+from moving_company.models import Booking, ServicePricing, SupportConversation, SupportRequest, User
+from moving_company.routes.booking_engine import service_stages
 from moving_company.services.booking_engine_service import (
+    calculate_quote,
     create_booking_request,
     get_service_workflow,
     inventory_requirements,
     recommendations_for_booking,
     validate_service_bundle,
+    vehicle_options,
 )
 from moving_company.services.service_workflow import (
     ADDON_QUESTION_SCHEMAS,
@@ -19,6 +22,7 @@ from moving_company.services.service_workflow import (
     service_question_schemas_for,
     service_questions_for,
     validate_property_type_for_service,
+    validate_booking_question_data,
     validate_question_answers,
 )
 
@@ -96,6 +100,11 @@ def test_each_service_type_enters_unified_booking_engine_with_service_context(ap
     login_customer(app, client)
 
     start = client.get(f'/booking/start/{service_type}')
+    if service_type == 'storage':
+        assert start.status_code == 200
+        start = client.post('/booking/start/storage', data={
+            'storage_collection': 'yes', 'storage_retrieval': 'yes', 'storage_return_known': 'no',
+        })
     assert start.status_code == 302
     assert start.headers['Location'].endswith(f'/booking/location/{service_type}')
 
@@ -118,6 +127,432 @@ def test_each_service_type_enters_unified_booking_engine_with_service_context(ap
         assert booking.primary_service == service_type
         assert booking.workflow_data['service_intent'] == service_type
         assert booking.workflow_state == 'LOCATION_COMPLETED'
+
+
+def test_cleaning_starts_with_three_options_and_saves_one_service_location(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    login_customer(app, client)
+
+    chooser = client.get('/booking/start/cleaning')
+    html = chooser.get_data(as_text=True)
+    assert chooser.status_code == 200
+    assert html.count('name="cleaning_subtype"') == 3
+    assert 'Cleaning at home' in html
+    assert 'Office cleaning' in html
+    assert 'Move-in / move-out' in html
+
+    chosen = client.post('/booking/start/cleaning', data={'cleaning_subtype': 'home'})
+    assert chosen.status_code == 302
+    assert chosen.headers['Location'].endswith('/booking/location/cleaning')
+    location_page = client.get(chosen.headers['Location']).get_data(as_text=True)
+    assert 'Service Location' in location_page
+    assert 'Destination Location' not in location_page
+
+    response = client.post('/booking/location/cleaning', data={
+        'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT',
+    })
+    assert response.status_code == 302
+    request_id = response.headers['Location'].split('/')[2]
+    repeated = client.post('/booking/location/cleaning', data={
+        'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT',
+    })
+    assert repeated.status_code == 302
+    assert repeated.headers['Location'].split('/')[2] == request_id
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        assert booking.primary_service == 'cleaning'
+        assert booking.pickup_address == '12 Yakubu Gowon Way'
+        assert booking.destination_address is None
+        assert booking.workflow_data['property']['service_answers'] == {'cleaning_subtype': 'home'}
+
+
+def test_support_starts_without_collecting_an_address(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    login_customer(app, client)
+
+    page = client.get('/booking/location/support')
+    assert page.status_code == 200
+    assert b'No address needed to start' in page.data
+    assert b'pickup_search' not in page.data
+    response = client.post('/booking/location/support', data={})
+    assert response.status_code == 302
+    request_id = response.headers['Location'].split('/')[2]
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        assert booking.primary_service == 'support'
+        assert booking.pickup_address is None
+        assert booking.destination_address is None
+
+
+def test_storage_can_start_without_collection_when_customer_delivers_items(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    login_customer(app, client)
+    page = client.get('/booking/start/storage')
+    assert page.status_code == 200
+    setup = client.post('/booking/start/storage', data={
+        'storage_collection': 'no', 'storage_retrieval': 'no',
+    })
+    assert setup.status_code == 302
+    page = client.get(setup.headers['Location']).get_data(as_text=True)
+    assert 'Tell us what needs storage' in page
+    assert 'Service Location' not in page
+    response = client.post(setup.headers['Location'], data={})
+    assert response.status_code == 302
+    request_id = response.headers['Location'].split('/')[2]
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        assert booking.primary_service == 'storage'
+        assert booking.pickup_address is None
+        answers = validate_question_answers(service_questions_for('storage', 'property'), {
+            'storage_duration': '1 month', 'storage_collection': 'no',
+            'storage_retrieval': 'no',
+        })
+        assert 'storage_collection_location' not in answers
+
+
+def test_storage_collection_and_known_return_use_standard_location_records(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    login_customer(app, client)
+    setup = client.post('/booking/start/storage', data={
+        'storage_collection': 'yes', 'storage_retrieval': 'yes', 'storage_return_known': 'yes',
+    })
+    location_url = setup.headers['Location']
+    page = client.get(location_url).get_data(as_text=True)
+    assert 'Collection Location' in page
+    assert 'Return / Delivery Location' in page
+    created = client.post(location_url, data={
+        'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT',
+        'destination_address': 'Plot 405 Constitution Avenue', 'destination_city': 'Abuja', 'destination_state': 'FCT',
+    })
+    assert created.status_code == 302
+    request_id = created.headers['Location'].split('/')[2]
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        answers = booking.workflow_data['property']['service_answers']
+        assert answers['storage_collection'] == 'yes'
+        assert answers['storage_retrieval'] == 'yes'
+        assert booking.pickup_address == '12 Yakubu Gowon Way'
+        assert booking.destination_address == 'Plot 405 Constitution Avenue'
+        assert booking.distance_km == 0
+        assert booking.route_status == 'NOT_REQUIRED'
+
+
+def test_legacy_packing_answers_remain_valid_under_schema_v2(app):
+    with app.app_context():
+        booking = create_booking_request(
+            location={'pickup_address': 'Packing address'}, service_type='packing',
+        )
+        booking.workflow_data = {
+            'service_intent': 'packing', 'question_schema_version': 2,
+            'property': {'service_answers': {
+                'packing_for': 'home', 'packing_scope': 'selected-rooms', 'packing_rooms': 2,
+                'packing_materials_needed': 'no', 'packing_materials_available': 'yes',
+            }},
+            'inventory_answers': {}, 'services': {}, 'addon_answers': {},
+        }
+        normalized = validate_booking_question_data(booking)
+        assert normalized['property']['service_answers']['packing_scope'] == 'selected-rooms'
+        assert 'packing_room_list' not in normalized['property']['service_answers']
+
+
+def test_packing_payment_step_unlocks_only_after_quote_acceptance(app):
+    with app.app_context():
+        booking = create_booking_request(
+            location={'pickup_address': 'Packing address'}, service_type='packing',
+        )
+        assert 'payment' not in service_stages('packing', booking)
+        booking.workflow_state = 'QUOTE_ACCEPTED'
+        assert service_stages('packing', booking)[-1] == 'payment'
+
+
+@pytest.mark.parametrize('service_type', ['cleaning', 'storage', 'logistics'])
+def test_quote_required_services_unlock_payment_only_after_quote_acceptance(app, service_type):
+    with app.app_context():
+        booking = create_booking_request(
+            location={
+                'pickup_address': 'A', 'pickup_city': 'Abuja', 'pickup_state': 'FCT',
+                'destination_address': 'B', 'destination_city': 'Abuja', 'destination_state': 'FCT',
+            }, service_type=service_type,
+        )
+        assert 'payment' not in service_stages(service_type, booking)
+        booking.workflow_state = 'QUOTE_ACCEPTED'
+        assert service_stages(service_type, booking)[-1] == 'payment'
+
+
+def _configure_rates(keys, values):
+    for key in keys:
+        row = ServicePricing.query.filter_by(key=key).first()
+        if row is None:
+            row = ServicePricing(key=key, label=key.replace('_', ' ').title(), value=values[key])
+            db.session.add(row)
+        row.value = values[key]
+        row.is_configured = True
+
+
+def test_cleaning_price_needs_approval_and_is_only_indicative_when_configured(app):
+    with app.app_context():
+        booking = create_booking_request(
+            location={'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT'},
+            service_type='cleaning', initial_service_answers={'cleaning_subtype': 'home'},
+        )
+        answers = {
+            'cleaning_subtype': 'home', 'cleaning_property_type': 'flat',
+            'cleaning_bedrooms': 2, 'cleaning_bathrooms': 1, 'cleaning_floors': 1,
+            'cleaning_occupied': 'no', 'cleaning_type': 'deep',
+            'cleaning_areas': ['kitchen', 'bathrooms'], 'cleaning_frequency': 'one-time',
+        }
+        booking.workflow_data = {
+            **booking.workflow_data,
+            'property': {'service_answers': answers},
+            'inventory_answers': {'cleaning_heavy_buildup': 'no'},
+            'schedule': {'date': (date.today() + timedelta(days=3)).isoformat(), 'time': 'Morning'},
+        }
+        booking.move_date = date.today() + timedelta(days=3)
+        booking.workflow_state = 'SCHEDULE_COMPLETED'
+        db.session.commit()
+
+        unapproved = calculate_quote(booking)
+        assert booking.quote_status == 'Quote Required'
+        assert booking.estimated_total == 0
+        assert unapproved['indicative_total'] is None
+
+        cleaning_keys = (
+            'cleaning_home_base', 'cleaning_home_per_bedroom', 'cleaning_home_per_bathroom',
+            'cleaning_office_base', 'cleaning_office_per_m2', 'cleaning_move_base',
+            'cleaning_move_per_room', 'cleaning_move_per_bathroom', 'cleaning_deep_surcharge',
+            'cleaning_post_renovation_surcharge',
+        )
+        _configure_rates(cleaning_keys, {
+            'cleaning_home_base': 200, 'cleaning_home_per_bedroom': 10,
+            'cleaning_home_per_bathroom': 5, 'cleaning_office_base': 100,
+            'cleaning_office_per_m2': 1, 'cleaning_move_base': 150,
+            'cleaning_move_per_room': 20, 'cleaning_move_per_bathroom': 10,
+            'cleaning_deep_surcharge': 40, 'cleaning_post_renovation_surcharge': 100,
+        })
+        booking.workflow_state = 'SCHEDULE_COMPLETED'
+        indicative = calculate_quote(booking)
+        assert booking.quote_status == 'Quote Required'
+        assert booking.estimated_total == 0
+        assert indicative['indicative_total'] == 265
+        assert sum(line['amount'] for line in indicative['estimate_details']['lines']) == 265
+        with pytest.raises(ValueError, match='Only a ready quote'):
+            from moving_company.services.booking_engine_service import accept_quote
+            accept_quote(booking, None)
+
+
+def test_recurring_cleaning_stays_quote_required_without_subscription_billing(app):
+    with app.app_context():
+        booking = create_booking_request(
+            location={'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT'},
+            service_type='cleaning', initial_service_answers={'cleaning_subtype': 'home'},
+        )
+        answers = {
+            'cleaning_subtype': 'home', 'cleaning_property_type': 'flat',
+            'cleaning_bedrooms': 1, 'cleaning_bathrooms': 1, 'cleaning_floors': 1,
+            'cleaning_occupied': 'no', 'cleaning_type': 'regular',
+            'cleaning_areas': ['kitchen'], 'cleaning_frequency': 'weekly',
+        }
+        booking.workflow_data = {
+            **booking.workflow_data,
+            'property': {'service_answers': answers},
+            'inventory_answers': {'cleaning_heavy_buildup': 'no'},
+            'schedule': {'date': (date.today() + timedelta(days=3)).isoformat(), 'time': 'Morning'},
+        }
+        booking.move_date = date.today() + timedelta(days=3)
+        booking.workflow_state = 'SCHEDULE_COMPLETED'
+        db.session.commit()
+        quote = calculate_quote(booking)
+        assert booking.quote_status == 'Quote Required'
+        assert any('Recurring cleaning billing' in item for item in quote['manual_review_flags'])
+
+
+def test_storage_approved_rates_remain_capacity_unconfirmed_and_indicative(app):
+    with app.app_context():
+        booking = create_booking_request(
+            location={'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT'},
+            service_type='storage', initial_service_answers={
+                'storage_collection': 'yes', 'storage_retrieval': 'no', 'storage_return_known': 'no',
+            },
+        )
+        booking.workflow_data = {
+            **booking.workflow_data,
+            'property': {'service_answers': {
+                'storage_duration': '1 month', 'storage_collection': 'yes',
+                'storage_retrieval': 'no', 'storage_return_known': 'no',
+            }},
+            'inventory_answers': {'stored_item_summary': 'Household boxes', 'estimated_storage_volume_m3': 10},
+            'schedule': {'date': (date.today() + timedelta(days=3)).isoformat(), 'time': 'Morning'},
+        }
+        booking.move_date = date.today() + timedelta(days=3)
+        booking.workflow_state = 'SCHEDULE_COMPLETED'
+        db.session.commit()
+        _configure_rates(
+            ('storage_per_m3_week', 'storage_collection_fee', 'storage_redelivery_fee', 'storage_minimum_weeks', 'storage_week'),
+            {'storage_per_m3_week': 5, 'storage_collection_fee': 100, 'storage_redelivery_fee': 80,
+             'storage_minimum_weeks': 1, 'storage_week': 1},
+        )
+        quote = calculate_quote(booking)
+        assert booking.quote_status == 'Quote Required'
+        assert booking.estimated_total == 0
+        assert quote['indicative_total'] == 300
+        assert any('capacity' in item.lower() for item in quote['manual_review_flags'])
+
+
+def test_logistics_rates_can_be_configured_but_fleet_availability_stays_pending(app):
+    with app.app_context():
+        booking = create_booking_request(
+            location={
+                'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT',
+                'destination_address': 'Plot 405 Constitution Avenue', 'destination_city': 'Abuja', 'destination_state': 'FCT',
+                'distance_km': 20,
+            }, service_type='logistics',
+        )
+        answers = {
+            'delivery_urgency': 'scheduled', 'sender_name': 'Sender', 'sender_phone': '08000000001',
+            'recipient_name': 'Recipient', 'recipient_phone': '08000000002',
+            'shipment_type': 'Equipment', 'shipment_quantity': 2, 'shipment_weight_kg': 400,
+            'shipment_length_cm': 100, 'shipment_width_cm': 50, 'shipment_height_cm': 50,
+            'shipment_ready': 'yes', 'shipment_fragile': 'no', 'loading_assistance': 'yes',
+            'shipment_special_equipment': 'no', 'delivery_instructions': 'Call on arrival',
+        }
+        booking.workflow_data = {
+            **booking.workflow_data, 'inventory_answers': answers,
+            'schedule': {'date': (date.today() + timedelta(days=3)).isoformat(), 'time': 'Morning'},
+        }
+        booking.move_date = date.today() + timedelta(days=3)
+        booking.workflow_state = 'SCHEDULE_COMPLETED'
+        options = vehicle_options(booking)
+        selected = next(option for option in options if option['recommended'])
+        booking.workflow_data = {**booking.workflow_data, 'vehicle': {'selected_type_id': selected['id']}}
+        db.session.commit()
+        keys = (
+            'logistics_base_fee', 'logistics_per_vehicle_trip', 'logistics_per_km', 'logistics_per_kg',
+            'logistics_per_m3', 'logistics_loading_fee', 'logistics_special_handling_fee', 'logistics_urgent_surcharge',
+        )
+        _configure_rates(keys, {key: 1 for key in keys})
+        quote = calculate_quote(booking)
+        assert booking.quote_status == 'Quote Required'
+        assert booking.estimated_total == 0
+        assert quote['indicative_total'] > 0
+        assert any('vehicle' in item.lower() or 'fleet' in item.lower() for item in quote['manual_review_flags'])
+
+
+def test_logistics_vehicle_recommendation_uses_shipment_measurements(app):
+    with app.app_context():
+        booking = create_booking_request(
+            location={
+                'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT',
+                'destination_address': 'Plot 405 Constitution Avenue', 'destination_city': 'Abuja', 'destination_state': 'FCT',
+            }, service_type='logistics',
+        )
+        booking.workflow_data = {
+            **booking.workflow_data,
+            'inventory_answers': {
+                    'delivery_urgency': 'scheduled', 'sender_name': 'Sender', 'sender_phone': '08000000001',
+                    'recipient_name': 'Recipient', 'recipient_phone': '08000000002',
+                'shipment_type': 'Equipment', 'shipment_quantity': 3,
+                'shipment_weight_kg': 900, 'shipment_length_cm': 250,
+                'shipment_width_cm': 120, 'shipment_height_cm': 100,
+                'shipment_ready': 'yes', 'shipment_fragile': 'yes',
+                'loading_assistance': 'yes', 'shipment_special_equipment': 'no',
+            },
+        }
+        options = vehicle_options(booking)
+        recommended = next(option for option in options if option['recommended'])
+        assert recommended['fits'] is True
+        assert recommended['capacity_m3'] >= booking.estimated_volume_m3
+        assert booking.estimated_weight_kg == 900
+
+
+def test_home_cleaning_details_survive_to_quote_required_review(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    login_customer(app, client)
+    client.post('/booking/start/cleaning', data={'cleaning_subtype': 'home'})
+    location = client.post('/booking/location/cleaning', data={
+        'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT',
+    })
+    request_id = location.headers['Location'].split('/')[2]
+    with client.session_transaction() as session:
+        session['active_booking_request_id'] = request_id
+
+    details = client.post(f'/booking/{request_id}/property', data={
+        'service_cleaning_subtype': 'home', 'service_cleaning_property_type': 'flat',
+        'service_cleaning_bedrooms': '2', 'service_cleaning_bathrooms': '1',
+        'service_cleaning_floors': '1', 'service_cleaning_occupied': 'no',
+        'service_cleaning_type': 'deep', 'service_cleaning_areas': ['kitchen', 'bathrooms'],
+        'service_cleaning_frequency': 'one-time',
+    })
+    assert details.status_code == 302
+
+    inventory = client.post(f'/booking/{request_id}/inventory', data={
+        'action': 'save_and_continue', 'inventory_cleaning_heavy_buildup': 'no',
+    })
+    assert inventory.status_code == 302
+    assert inventory.headers['Location'].endswith('/schedule')
+
+    scheduled = client.post(f'/booking/{request_id}/schedule', data={
+        'move_date': (date.today() + timedelta(days=3)).isoformat(),
+        'preferred_time': 'Morning',
+    })
+    assert scheduled.status_code == 302
+    quote_url = scheduled.headers['Location']
+    quote = client.get(quote_url)
+    assert quote.status_code == 200
+    assert b'Quote Required' in quote.data
+    assert b'indicative only' in quote.data
+    assert b'Cleaning Bedrooms' in quote.data
+
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        assert booking.quote_status == 'Quote Required'
+        assert booking.estimated_total == 0
+        assert booking.workflow_data['property']['service_answers']['cleaning_type'] == 'deep'
+        assert booking.workflow_data['property']['service_answers']['cleaning_areas'] == ['kitchen', 'bathrooms']
+
+
+def test_support_triage_creates_linked_human_request_without_location(app, monkeypatch):
+    from moving_company.services import support_chat_service
+
+    app.config['WTF_CSRF_ENABLED'] = False
+    monkeypatch.setattr(support_chat_service, 'send_human_escalation_email', lambda *args, **kwargs: None)
+    client = app.test_client()
+    login_customer(app, client)
+    start = client.post('/booking/location/support', data={})
+    request_id = start.headers['Location'].split('/')[2]
+    with client.session_transaction() as session:
+        session['active_booking_request_id'] = request_id
+
+    details = client.post(f'/booking/{request_id}/property', data={
+        'service_support_category': 'urgent-delivery', 'service_support_urgency': 'today',
+        'service_support_description': 'A delivery has been delayed.', 'service_onsite_required': 'no',
+    })
+    assert details.status_code == 302
+    inventory = client.post(f'/booking/{request_id}/inventory', data={
+        'action': 'save_and_continue', 'inventory_support_contact_preference': 'phone',
+    })
+    assert inventory.status_code == 302
+    assert inventory.headers['Location'].endswith('/quote')
+    retry = client.post(f'/booking/{request_id}/inventory', data={
+        'action': 'save_and_continue', 'inventory_support_contact_preference': 'phone',
+    })
+    assert retry.status_code == 302
+    assert retry.headers['Location'].endswith('/quote')
+
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        conversation = SupportConversation.query.filter_by(booking_id=booking.id).one()
+        support_requests = SupportRequest.query.filter_by(booking_id=booking.id).all()
+        support_request = support_requests[0]
+        assert len(support_requests) == 1
+        assert booking.quote_status == 'Quote Required'
+        assert booking.pickup_address is None and booking.destination_address is None
+        assert support_request.status == 'WAITING_FOR_AGENT'
+        assert 'Urgency: today' in support_request.reason
 
 
 @pytest.mark.parametrize(
@@ -247,6 +682,8 @@ def test_logistics_dimensions_and_weight_drive_existing_vehicle_requirements(app
     response = client.post(f'/api/bookings/{request_id}/inventory', json={
         'items': [{'name': 'Shipment', 'quantity': 2, 'category': 'Shipment'}],
         'inventory_answers': {
+            'delivery_urgency': 'scheduled', 'sender_name': 'Sender', 'sender_phone': '08000000001',
+            'recipient_name': 'Recipient', 'recipient_phone': '08000000002',
             'shipment_type': 'Equipment', 'shipment_quantity': 2,
             'shipment_weight_kg': 400, 'shipment_length_cm': 100,
             'shipment_width_cm': 50, 'shipment_height_cm': 50,
@@ -551,11 +988,16 @@ def test_property_types_are_service_specific_and_validated():
 
 
 def test_question_schemas_are_service_specific_and_validate_conditionals():
-    assert set(SERVICE_QUESTION_SCHEMAS) == {'residential', 'commercial', 'packing', 'storage', 'logistics'}
+    assert set(SERVICE_QUESTION_SCHEMAS) == {'cleaning', 'residential', 'commercial', 'packing', 'storage', 'logistics', 'support'}
     assert 'shipment_weight_kg' in {field['key'] for field in service_questions_for('logistics', 'inventory')}
     assert 'business_operating_during_move' in {field['key'] for field in service_questions_for('commercial', 'property')}
     assert 'packing_scope' in {field['key'] for field in service_questions_for('packing', 'property')}
     assert 'storage_duration' in {field['key'] for field in service_questions_for('storage', 'property')}
+    assert {'home', 'office', 'move-in-out'} == set(next(
+        field for field in service_questions_for('cleaning', 'property')
+        if field['key'] == 'cleaning_subtype'
+    )['options'])
+    assert 'onsite_required' in {field['key'] for field in service_questions_for('support', 'property')}
     assert next(field for field in ADDON_QUESTION_SCHEMAS['home_decor']['property'] if field['key'] == 'decor_rooms')['type'] == 'multiselect'
     assert {'property', 'inventory'} == set(service_question_schemas_for('residential'))
     assert {'property', 'inventory'} == set(ADDON_QUESTION_SCHEMAS['cleaning'])
@@ -563,6 +1005,8 @@ def test_question_schemas_are_service_specific_and_validate_conditionals():
 
     with pytest.raises(ValueError, match='Approximate total weight'):
         validate_question_answers(service_questions_for('logistics', 'inventory'), {
+            'delivery_urgency': 'scheduled', 'sender_name': 'Sender', 'sender_phone': '08000000001',
+            'recipient_name': 'Recipient', 'recipient_phone': '08000000002',
             'shipment_type': 'Furniture', 'shipment_quantity': 1,
         })
 
@@ -588,3 +1032,19 @@ def test_question_schemas_are_service_specific_and_validate_conditionals():
 
     with pytest.raises(ValueError, match='Unknown service answer'):
         validate_question_answers(service_questions_for('commercial', 'property'), {'packing_full_price': 1})
+
+    with pytest.raises(ValueError, match='Bedrooms or rooms is required'):
+        validate_question_answers(service_questions_for('cleaning', 'property'), {
+            'cleaning_subtype': 'home', 'cleaning_property_type': 'flat',
+            'cleaning_floors': 1, 'cleaning_occupied': 'no', 'cleaning_type': 'deep',
+            'cleaning_areas': ['kitchen'], 'cleaning_frequency': 'one-time',
+        })
+
+    all_cleaning_areas = validate_question_answers(service_questions_for('cleaning', 'property'), {
+        'cleaning_subtype': 'home', 'cleaning_property_type': 'flat',
+        'cleaning_bedrooms': 2, 'cleaning_bathrooms': 1, 'cleaning_floors': 1,
+        'cleaning_occupied': 'no', 'cleaning_type': 'deep',
+        'cleaning_areas': ['entire-property'], 'cleaning_frequency': 'one-time',
+    })
+    assert 'entire-property' not in all_cleaning_areas['cleaning_areas']
+    assert {'living-room', 'kitchen', 'bathrooms'}.issubset(all_cleaning_areas['cleaning_areas'])

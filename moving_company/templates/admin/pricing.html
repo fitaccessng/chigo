@@ -4,13 +4,16 @@
 <header class="mb-7 border-b border-stone-300 pb-5">
   <p class="text-xs font-bold uppercase tracking-[0.16em] text-emerald-800">Commercial</p>
   <h1 class="mt-2 text-3xl font-black">Service prices &amp; quote rules</h1>
-  <p class="mt-2 max-w-3xl text-sm leading-6 text-stone-600">These saved rates feed the existing booking quote calculator. Changes apply to future quote calculations; existing quotes retain their recorded line items.</p>
+  <p class="mt-2 max-w-3xl text-sm leading-6 text-stone-600">Existing moving rates feed the current quote calculator. New cleaning, storage, logistics and packing rates remain inactive until their group is explicitly approved. Changes affect future calculations; saved quote lines are retained.</p>
 </header>
 <form method="post" class="max-w-5xl">
     {{ form.hidden_tag() }}
     {% set pricing_groups = [
       ('Moving', ['base_moving_fee', 'price_per_km', 'property_surcharge', 'floor_surcharge', 'access_difficulty_surcharge', 'outside_service_area_surcharge']),
       ('Services', ['packing_partial', 'packing_full', 'cleaning_move_out', 'cleaning_move_in', 'cleaning_both', 'home_decor', 'unpacking', 'service_assembly_yes', 'service_disassembly_yes', 'storage_week', 'special_handling']),
+      ('Cleaning pricing rules', ['cleaning_home_base', 'cleaning_home_per_bedroom', 'cleaning_home_per_bathroom', 'cleaning_office_base', 'cleaning_office_per_m2', 'cleaning_move_base', 'cleaning_move_per_room', 'cleaning_move_per_bathroom', 'cleaning_deep_surcharge', 'cleaning_post_renovation_surcharge']),
+      ('Storage pricing rules', ['storage_per_m3_week', 'storage_collection_fee', 'storage_redelivery_fee', 'storage_minimum_weeks']),
+      ('Logistics pricing rules', ['logistics_base_fee', 'logistics_per_vehicle_trip', 'logistics_per_km', 'logistics_per_kg', 'logistics_per_m3', 'logistics_loading_fee', 'logistics_special_handling_fee', 'logistics_urgent_surcharge']),
       ('Crew & timing', ['base_mover_hourly_fee', 'additional_mover_fee', 'weekend_surcharge', 'holiday_surcharge']),
       ('Quote rules', ['tax_rate', 'deposit_percentage', 'volume_safety_factor']),
     ] %}
@@ -28,6 +31,23 @@
         </label>
         {% endfor %}
       </div>
+      {% if group_title == 'Cleaning pricing rules' %}
+      <label class="mt-3 flex items-start gap-3 border-l-4 border-amber-500 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        {{ form.cleaning_pricing_approved(class_='mt-1') }}<span><strong>Approve cleaning prices</strong><span class="mt-1 block text-xs">Approves the displayed unit-rate formula. Deep-clean and post-renovation surcharges are separate configured charges.</span></span>
+      </label>
+      {% elif group_title == 'Storage pricing rules' %}
+      <label class="mt-3 flex items-start gap-3 border-l-4 border-amber-500 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        {{ form.storage_pricing_approved(class_='mt-1') }}<span><strong>Approve storage prices</strong><span class="mt-1 block text-xs">Approval does not confirm facility capacity or availability. Storage remains unconfirmed until operations verifies it.</span></span>
+      </label>
+      {% elif group_title == 'Logistics pricing rules' %}
+      <label class="mt-3 flex items-start gap-3 border-l-4 border-amber-500 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        {{ form.logistics_pricing_approved(class_='mt-1') }}<span><strong>Approve logistics prices</strong><span class="mt-1 block text-xs">Uses route, weight, volume and selected handling inputs. Vehicle availability is checked separately.</span></span>
+      </label>
+      {% elif group_title == 'Services' %}
+      <label class="mt-3 flex items-start gap-3 border-l-4 border-amber-500 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        {{ form.packing_pricing_approved(class_='mt-1') }}<span><strong>Approve packing rates</strong><span class="mt-1 block text-xs">Activates the partial and full packing rates for standalone packing requests.</span></span>
+      </label>
+      {% endif %}
     </section>
     {% endfor %}
     <div class="sticky bottom-3 flex justify-end border border-stone-200 bg-white/95 p-3 shadow-lg backdrop-blur-sm">

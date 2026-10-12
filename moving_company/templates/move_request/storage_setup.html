@@ -1,0 +1,74 @@
+{% extends 'dashboard_base.html' %}
+{% block title %}Storage requirements | Chigo Relocations{% endblock %}
+{% block content %}
+<main class="mx-auto max-w-4xl px-4 py-8 sm:px-8 sm:py-12">
+  <nav aria-label="Booking progress" class="mb-8">
+    <ol class="flex items-center gap-3 text-xs font-semibold text-stone-500">
+      <li aria-current="step" class="flex items-center gap-2 text-brand-800"><span class="grid h-7 w-7 place-items-center rounded-full bg-brand-700 text-white">1</span>Storage needs</li>
+      <li aria-hidden="true" class="h-px w-8 bg-stone-300"></li><li>Locations, if needed</li>
+      <li aria-hidden="true" class="h-px w-8 bg-stone-300"></li><li>Contents and review</li>
+    </ol>
+  </nav>
+  <header class="max-w-2xl">
+    <p class="text-xs font-bold uppercase tracking-widest text-brand-700">Chigo storage</p>
+    <h1 class="mt-2 text-3xl font-extrabold text-stone-900">How will your items reach storage?</h1>
+    <p class="mt-2 text-sm leading-6 text-stone-600">We’ll ask for collection and return locations only where you need them. Storage capacity and charges are confirmed by operations.</p>
+  </header>
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+  <p role="alert" class="mt-5 border-l-4 border-red-600 bg-red-50 px-4 py-3 text-sm text-red-900">{{ message }}</p>
+  {% endfor %}
+  <form method="post" class="mt-7 max-w-2xl space-y-6">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <fieldset>
+      <legend class="text-sm font-bold text-stone-900">Do you need Chigo to collect the items?</legend>
+      <div class="mt-3 grid gap-3 sm:grid-cols-2">
+        {% for value, label in [('yes', 'Yes, arrange collection'), ('no', 'No, I will deliver them')] %}
+        <label class="flex min-h-14 items-center gap-3 border border-stone-300 bg-white px-4 py-3 text-sm has-[:checked]:border-brand-700 has-[:checked]:ring-2 has-[:checked]:ring-brand-700">
+          <input type="radio" name="storage_collection" value="{{ value }}" required {% if setup.get('storage_collection') == value %}checked{% endif %}>
+          <span>{{ label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend class="text-sm font-bold text-stone-900">Will you need delivery to an address later?</legend>
+      <div class="mt-3 grid gap-3 sm:grid-cols-2">
+        {% for value, label in [('yes', 'Yes, delivery will be needed'), ('no', 'No delivery planned yet')] %}
+        <label class="flex min-h-14 items-center gap-3 border border-stone-300 bg-white px-4 py-3 text-sm has-[:checked]:border-brand-700 has-[:checked]:ring-2 has-[:checked]:ring-brand-700">
+          <input type="radio" name="storage_retrieval" value="{{ value }}" required {% if setup.get('storage_retrieval') == value %}checked{% endif %}>
+          <span>{{ label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <fieldset data-return-known-field {% if setup.get('storage_retrieval') != 'yes' %}hidden{% endif %}>
+      <legend class="text-sm font-bold text-stone-900">Is the return or delivery address known?</legend>
+      <div class="mt-3 grid gap-3 sm:grid-cols-2">
+        {% for value, label in [('yes', 'Yes, I can provide it now'), ('no', 'Not yet')] %}
+        <label class="flex min-h-14 items-center gap-3 border border-stone-300 bg-white px-4 py-3 text-sm has-[:checked]:border-brand-700 has-[:checked]:ring-2 has-[:checked]:ring-brand-700">
+          <input type="radio" name="storage_return_known" value="{{ value }}" {% if setup.get('storage_return_known') == value %}checked{% endif %} {% if setup.get('storage_retrieval') == 'yes' %}required{% endif %}>
+          <span>{{ label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <div class="flex justify-end border-t border-stone-200 pt-5">
+      <button type="submit" class="min-h-12 w-full bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800 sm:w-auto">Continue</button>
+    </div>
+  </form>
+</main>
+<script>
+  (() => {
+    const retrieval = document.querySelectorAll('[name="storage_retrieval"]');
+    const group = document.querySelector('[data-return-known-field]');
+    const controls = group?.querySelectorAll('input') || [];
+    const sync = () => {
+      const active = [...retrieval].find((input) => input.checked)?.value === 'yes';
+      if (group) group.hidden = !active;
+      controls.forEach((input) => { input.disabled = !active; input.required = active; if (!active) input.checked = false; });
+    };
+    retrieval.forEach((input) => input.addEventListener('change', sync));
+    sync();
+  })();
+</script>
+{% endblock %}

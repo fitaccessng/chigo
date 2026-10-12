@@ -4,18 +4,26 @@
 {% block content %}
 {% macro question_fields(fields, prefix, answers) %}
   {% for field in fields %}
+  {% if prefix == 'service_' and field.key in ['storage_collection', 'storage_retrieval', 'storage_return_known'] %}
+  <input type="hidden" name="{{ prefix }}{{ field.key }}" value="{{ answers.get(field.key, 'no') }}">
+  {% else %}
   <label class="block text-xs font-semibold text-stone-700 {% if field.type == 'textarea' %}sm:col-span-2{% endif %}"
          data-question-field
          {% if field.condition %}data-condition-key="{{ prefix }}{{ field.condition[0] }}" data-condition-value="{{ field.condition[1] }}"{% endif %}>
     {{ field.label }}
     {% if field.type in ['select', 'multiselect'] %}
-    <select name="{{ prefix }}{{ field.key }}" {% if field.type == 'multiselect' %}multiple size="{{ [field.options|length, 5]|min }}"{% endif %} {% if field.required %}required{% endif %} class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm font-normal text-stone-900">
+    <select name="{{ prefix }}{{ field.key }}" {% if field.type == 'multiselect' %}multiple size="{{ [field.options|length, 5]|min }}"{% endif %} {% if field.key == 'cleaning_areas' %}data-cleaning-areas{% endif %} {% if field.key == 'cleaning_property_type' %}data-cleaning-property-type{% endif %} {% if field.required %}required{% endif %} class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm font-normal text-stone-900">
       {% if field.type == 'select' %}
       <option value="">Choose an option</option>
       {% endif %}
-      {% for option in field.options %}
+              {% for option in field.options %}
+              {% set office_only = option in ['workstations', 'meeting-rooms', 'restrooms', 'interior-glass', 'floor-care'] %}
+              {% set home_only = option in ['living-room', 'bedrooms', 'kitchen', 'bathrooms', 'balcony', 'cupboards', 'hallways', 'outdoor-areas'] %}
+              {% set home_property = option in ['studio', 'flat', 'duplex', 'detached-house', 'bungalow'] %}
+              {% set office_property = option in ['office-premises', 'coworking-space', 'shop'] %}
+              {% set option_applies = not ((field.key == 'cleaning_areas' and ((answers.get('cleaning_subtype') == 'office' and home_only) or (answers.get('cleaning_subtype') != 'office' and office_only))) or (field.key == 'cleaning_property_type' and ((answers.get('cleaning_subtype') == 'office' and home_property) or (answers.get('cleaning_subtype') != 'office' and office_property)))) %}
       {% set option_selected = option in answers.get(field.key, []) if field.type == 'multiselect' else answers.get(field.key, '') == option %}
-      <option value="{{ option }}" {% if option_selected %}selected{% endif %}>{{ option|replace('-', ' ')|title }}</option>
+              <option value="{{ option }}" {% if option_selected and option_applies %}selected{% endif %} {% if not option_applies %}disabled hidden{% endif %}>{{ option|replace('-', ' ')|title }}</option>
       {% endfor %}
     </select>
     {% elif field.type == 'textarea' %}
@@ -24,6 +32,7 @@
     <input type="{{ field.type }}" name="{{ prefix }}{{ field.key }}" value="{{ answers.get(field.key, '') }}" {% if field.required %}required{% endif %}{% if field.min is not none %} min="{{ field.min }}"{% endif %}{% if field.max is not none and field.type == 'number' %} max="{{ field.max }}"{% endif %}{% if field.step is not none %} step="{{ field.step }}"{% endif %} class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-3 text-sm font-normal text-stone-900">
     {% endif %}
   </label>
+  {% endif %}
   {% endfor %}
 {% endmacro %}
 {% set labels = {
@@ -157,14 +166,14 @@
 
       <!-- LOCATION STAGE -->
       {% if stage == 'location' %}
-        <form method="post" class="space-y-12">
+        <form method="post" data-location-form data-location-places="{{ location_places|join(',') }}" class="space-y-12">
           {{ form.hidden_tag() }}
           
-          <div class="grid gap-12 xl:grid-cols-2">
-            {% for kind, title, desc, icon in [
-                 ('pickup','Pickup Location','Where are we collecting your items from?','M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z'),
-                 ('destination','Destination Location','Where should we deliver everything?','M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6')
-               ] %}
+          {% if location_places %}<div class="grid gap-12 {% if location_places|length == 2 %}xl:grid-cols-2{% endif %}">
+            {% for kind in location_places %}
+            {% set title = 'Collection Location' if service_type == 'storage' and kind == 'pickup' else 'Return / Delivery Location' if service_type == 'storage' and kind == 'destination' else 'Pickup Location' if kind == 'pickup' and location_places|length == 2 else 'Destination Location' if kind == 'destination' else 'Service Location' %}
+            {% set desc = 'Where should we collect the stored items?' if service_type == 'storage' and kind == 'pickup' else 'Where should the stored items be delivered later?' if service_type == 'storage' and kind == 'destination' else 'Where are we collecting your items from?' if kind == 'pickup' and location_places|length == 2 else 'Where should we deliver everything?' if kind == 'destination' else 'Where should our team provide this service?' %}
+            {% set icon = 'M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z' %}
             <fieldset class="space-y-6">
               <div class="flex items-center gap-3.5 border-b border-stone-200 pb-4">
                 <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700">
@@ -177,7 +186,7 @@
               </div>
               
               <div class="relative pt-1">
-                <label for="{{ kind }}_search" class="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-stone-700">
+                  <label for="{{ kind }}_search" class="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-stone-700">
                   <svg class="h-3.5 w-3.5 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                   Search for an address or landmark
                 </label>
@@ -218,7 +227,19 @@
             </fieldset>
             {% endfor %}
           </div>
+          {% else %}
+          <section class="max-w-2xl border-l-4 border-brand-600 bg-brand-50 px-5 py-4">
+            {% if service_type == 'support' %}
+            <h2 class="font-semibold text-stone-900">No address needed to start</h2>
+            <p class="mt-1 text-sm text-stone-600">Tell us what support you need first. We’ll ask for a location only if an on-site response is required.</p>
+            {% else %}
+            <h2 class="font-semibold text-stone-900">Tell us what needs storage</h2>
+            <p class="mt-1 text-sm text-stone-600">Choose whether you need collection first. We’ll ask for the collection address only when it is required.</p>
+            {% endif %}
+          </section>
+          {% endif %}
 
+          {% if location_places|length == 2 %}
           <div id="location_route_summary" class="hidden rounded-lg border border-brand-200 bg-brand-50/60 p-5" aria-live="polite"></div>
 
           <div class="border-t border-stone-200 pt-8 space-y-4">
@@ -237,6 +258,7 @@
               </label>
             </div>
           </div>
+          {% endif %}
 
           <div class="pt-6 border-t border-stone-200 flex justify-end">
             <button type="submit" class="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-700 px-8 py-3.5 text-sm font-bold text-white transition hover:bg-brand-800 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 w-full sm:w-auto">
@@ -248,9 +270,9 @@
 
         <script>
           (() => {
-            for (const place of ['pickup', 'destination']) {
+            for (const group of document.querySelectorAll('[data-lift-field]')) {
+              const place = group.dataset.place;
               const floor = document.getElementById(`${place}_floor`);
-              const group = document.getElementById(`${place}_lift_field`);
               const lift = document.getElementById(`${place}_lift_available`);
               if (!floor || !group || !lift) continue;
               const sync = () => {
@@ -267,10 +289,9 @@
         </script>
         <script>
           const locationSearchCache = new Map();
-          const locationSearchState = {
-            pickup: {timer: null, controller: null, selected: null},
-            destination: {timer: null, controller: null, selected: null}
-          };
+          const locationForm = document.querySelector('[data-location-form]');
+          const locationPlaces = (locationForm?.dataset.locationPlaces || '').split(',').filter(Boolean);
+          const locationSearchState = Object.fromEntries(locationPlaces.map(place => [place, {timer: null, controller: null, selected: null}]));
           const locationRouteSummary = document.getElementById('location_route_summary');
           let locationRouteController = null;
           let locationRouteSequence = 0;
@@ -329,6 +350,7 @@
             locationRouteSummary.append(grid);
           }
           async function calculateLocationRoute() {
+            if (locationPlaces.length !== 2) return;
             const sequence = ++locationRouteSequence;
             locationRouteController?.abort();
             const pickup = locationSearchState.pickup.selected;
@@ -355,8 +377,9 @@
               if (sequence === locationRouteSequence) showRouteState('failure');
             }
           }
-          for (const kind of ['pickup','destination']) {
+          for (const kind of locationPlaces) {
             const input = document.getElementById(`${kind}_search`), panel = document.getElementById(`${kind}_suggestions`);
+            if (!input || !panel) continue;
             input.addEventListener('input', () => {
               const q = input.value.trim();
               const state = locationSearchState[kind];
@@ -511,7 +534,7 @@
               {% endfor %}
             </div>
             {% endif %}
-            {% if service_type in ['commercial', 'residential'] and service_questions %}
+            {% if service_type in ['commercial', 'residential', 'cleaning', 'support'] and service_questions %}
             <fieldset class="mt-6 border-t border-stone-200 pt-5">
               <div class="mt-4 grid gap-4 sm:grid-cols-2">
                 {{ question_fields(service_questions, 'service_', property_answers) }}
@@ -524,7 +547,7 @@
               </div>
             </fieldset>
             {% elif service_type == 'logistics' %}
-            <p class="mt-5 border-t border-stone-200 pt-5 text-sm text-stone-600">Shipment type, quantity, size, weight and handling are collected with the shipment items on the next step.</p>
+            <p class="mt-5 border-t border-stone-200 pt-5 text-sm text-stone-600">No separate property questions are needed for logistics. Shipment type, quantity, size, weight and handling are collected with the shipment details.</p>
             {% endif %}
 
             <div class="mt-6 flex justify-end border-t border-stone-200 pt-5">
@@ -534,6 +557,33 @@
           <script>
             (() => {
               document.querySelectorAll('[data-question-form]').forEach((form) => {
+                const areaSelect = form.querySelector('[data-cleaning-areas]');
+                const propertyTypeSelect = form.querySelector('[data-cleaning-property-type]');
+                const subtypeSelect = form.elements.namedItem('service_cleaning_subtype');
+                let selectedAreaValues = new Set(areaSelect ? [...areaSelect.selectedOptions].map((option) => option.value) : []);
+                const syncCleaningAreas = () => {
+                  if (!areaSelect) return;
+                  const office = subtypeSelect?.value === 'office';
+                  for (const option of areaSelect.options) {
+                    const officeOnly = ['workstations', 'meeting-rooms', 'restrooms', 'interior-glass', 'floor-care'].includes(option.value);
+                    const homeOnly = ['living-room', 'bedrooms', 'kitchen', 'bathrooms', 'balcony', 'cupboards', 'hallways', 'outdoor-areas'].includes(option.value);
+                    option.hidden = (office && homeOnly) || (!office && officeOnly);
+                    option.disabled = option.hidden;
+                    if (option.disabled) option.selected = false;
+                  }
+                  selectedAreaValues = new Set([...areaSelect.selectedOptions].map((option) => option.value));
+                };
+                const syncCleaningPropertyTypes = () => {
+                  if (!propertyTypeSelect) return;
+                  const office = subtypeSelect?.value === 'office';
+                  for (const option of propertyTypeSelect.options) {
+                    const officeType = ['office-premises', 'coworking-space', 'shop'].includes(option.value);
+                    const homeType = ['studio', 'flat', 'duplex', 'detached-house', 'bungalow'].includes(option.value);
+                    option.hidden = (office && homeType) || (!office && officeType);
+                    option.disabled = option.hidden;
+                    if (option.disabled && option.selected) option.selected = false;
+                  }
+                };
                 const syncConditions = () => form.querySelectorAll('[data-question-field]').forEach((wrapper) => {
                   const dependency = wrapper.dataset.conditionKey;
                   const control = dependency ? form.elements.namedItem(dependency) : null;
@@ -547,6 +597,33 @@
                   });
                 });
                 form.addEventListener('change', syncConditions);
+                form.addEventListener('change', (event) => {
+                  if (event.target === subtypeSelect) {
+                    const hasAnswers = [...form.querySelectorAll('input, select, textarea')].some((control) => control.value && control.name !== subtypeSelect.name);
+                    if (hasAnswers && !window.confirm('Changing the cleaning service may clear answers that do not apply. Continue?')) {
+                      event.target.value = event.target.dataset.previousValue || '';
+                    } else {
+                      event.target.dataset.previousValue = event.target.value;
+                    }
+                    syncCleaningAreas();
+                    syncCleaningPropertyTypes();
+                    syncConditions();
+                  }
+                  if (event.target === areaSelect) {
+                    const entire = [...areaSelect.options].find((option) => option.value === 'entire-property');
+                    const specific = [...areaSelect.options].filter((option) => option.value !== 'entire-property' && !option.disabled);
+                    const changed = [...areaSelect.options].find((option) => option.selected !== selectedAreaValues.has(option.value));
+                    if (changed?.value === 'entire-property') {
+                      specific.forEach((option) => { option.selected = changed.selected; });
+                    } else if (entire) {
+                      entire.selected = specific.length > 0 && specific.every((option) => option.selected);
+                    }
+                    selectedAreaValues = new Set([...areaSelect.selectedOptions].map((option) => option.value));
+                  }
+                });
+                if (subtypeSelect) subtypeSelect.dataset.previousValue = subtypeSelect.value;
+                syncCleaningAreas();
+                syncCleaningPropertyTypes();
                 syncConditions();
               });
             })();
@@ -555,18 +632,22 @@
         </section>
       {% elif stage == 'inventory' %}
         {% set inventory_answers = (booking.workflow_data or {}).get('inventory_answers', {}) %}
+        {% set asks_inventory_items = service_type not in ['cleaning', 'support'] %}
         <section class="space-y-8">
           <div class="flex flex-col gap-3 border-b border-stone-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 class="text-2xl font-extrabold tracking-tight text-stone-900">{{ service_workflow.label }} inventory</h2>
-              <p class="mt-1 text-sm text-stone-500">{% if service_type == 'residential' %}Add household belongings that need moving.{% elif service_type == 'commercial' %}Add office furniture, equipment, stock and other business items.{% elif service_type == 'packing' %}Add only the items that require packing or unpacking.{% elif service_type == 'storage' %}Add the belongings intended for storage.{% else %}Add shipment items and provide their dimensions and handling requirements.{% endif %}</p>
+              <h2 class="text-2xl font-extrabold tracking-tight text-stone-900">{{ service_workflow.label }} {% if asks_inventory_items %}inventory{% else %}requirements{% endif %}</h2>
+              <p class="mt-1 text-sm text-stone-500">{% if service_type == 'residential' %}Add household belongings that need moving.{% elif service_type == 'commercial' %}Add office furniture, equipment, stock and other business items.{% elif service_type == 'packing' %}Add only the items that require packing or unpacking.{% elif service_type == 'storage' %}Add the belongings intended for storage.{% elif service_type == 'cleaning' %}List specialist tasks and any large items requiring attention.{% elif service_type == 'support' %}Add a booking reference or contact preference if applicable.{% else %}Add shipment items and provide their dimensions and handling requirements.{% endif %}</p>
             </div>
+            {% if asks_inventory_items %}
             <div class="flex gap-3 text-xs font-bold">
               <span class="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-brand-800">{{ inventory_summary.item_count|default(0) }} items</span>
               <span class="rounded-lg border border-stone-200 bg-white px-3 py-2 text-stone-700">{{ inventory_summary.volume_m3|default(0)|round(1) }} m³</span>
             </div>
+            {% endif %}
           </div>
 
+          {% if asks_inventory_items %}
           {% for option in vehicle_options if option.recommended %}
           <section class="flex flex-col gap-1 rounded-xl border border-brand-200 bg-brand-50/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div><h3 class="text-sm font-bold text-stone-900">Vehicle recommendation</h3><p class="mt-0.5 text-xs text-stone-600">{{ option.name }} · {{ option.quantity }} vehicle{% if option.quantity != 1 %}s{% endif %} for the current inventory.</p></div>
@@ -633,8 +714,9 @@
               {% endfor %}
             </div>
           </section>
+          {% endif %}
 
-          {% if bulk_item_options %}
+          {% if asks_inventory_items and bulk_item_options %}
           <form method="post" class="rounded-xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="add_bulk">
@@ -683,6 +765,7 @@
           </script>
           {% endif %}
 
+          {% if asks_inventory_items %}
           <form method="post" class="rounded-xl border border-brand-200 bg-brand-50/40 p-5 sm:p-6">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="add_custom">
@@ -697,6 +780,7 @@
               <button type="submit" class="rounded-lg bg-brand-700 px-5 py-3 text-sm font-bold text-white hover:bg-brand-800">Add item</button>
             </div>
           </form>
+          {% endif %}
 
           <section class="border-t border-stone-200 pt-7">
             <div class="flex flex-col gap-1 border-b border-stone-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
@@ -734,10 +818,15 @@
               </div>
             </form>
             {% else %}
-            <form id="inventory-empty-continue" method="post" data-question-form class="mt-4 space-y-4 rounded-xl border border-dashed border-stone-300 bg-stone-50/70 p-5">
+            <form id="inventory-empty-continue" method="post" enctype="multipart/form-data" data-question-form class="mt-4 space-y-4 rounded-xl border border-dashed border-stone-300 bg-stone-50/70 p-5">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="action" value="save_and_continue">
-              <p class="text-center text-sm text-stone-500">Add at least one item from the catalogue or create a custom item to continue.</p>
+              <p class="text-center text-sm text-stone-500">{% if service_type == 'packing' %}An item list is optional when you have described the packing scope.{% elif service_type == 'logistics' %}Shipment measurements and handling details are required; a catalogue item list is optional.{% elif asks_inventory_items %}Add at least one item from the catalogue or create a custom item to continue.{% else %}No item list is needed for this request. Complete any applicable details below.{% endif %}</p>
+              {% if service_type in ['cleaning', 'support'] %}
+              <label class="block text-sm font-semibold text-stone-700">Optional photos or supporting images
+                <input type="file" name="service_photos" accept="image/jpeg,image/png,image/webp" multiple class="mt-2 block w-full text-sm text-stone-700 file:mr-4 file:border-0 file:bg-brand-700 file:px-4 file:py-2 file:font-semibold file:text-white">
+              </label>
+              {% endif %}
               {% if inventory_questions %}
               <fieldset class="border-t border-stone-200 pt-5">
                 <legend class="text-sm font-bold text-stone-900">{{ service_workflow.label }} inventory details</legend>
@@ -926,6 +1015,37 @@
       {% elif stage == 'schedule' %}
         {% set schedule_data = booking.workflow_data.get('schedule', {}) if booking.workflow_data else {} %}
         <section class="mx-auto max-w-4xl space-y-6">
+          <section class="border-y border-stone-200 py-5" aria-labelledby="request-review-title">
+            <div class="flex items-center justify-between gap-4">
+              <div><p class="text-xs font-bold uppercase tracking-wider text-brand-700">Review before scheduling</p><h2 id="request-review-title" class="mt-1 text-lg font-bold text-stone-900">{{ service_workflow.label }} requirements</h2></div>
+              <a class="text-sm font-semibold text-brand-800 underline" href="{{ url_for('booking.workflow', request_id=booking.booking_request_id, stage='property') }}">Edit details</a>
+            </div>
+            {% if booking.primary_service in ['residential', 'commercial', 'logistics'] %}
+            <dl class="mt-4 grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+              <div><dt class="text-xs font-semibold text-stone-500">Pickup</dt><dd class="mt-1 text-stone-900">{{ booking.pickup_formatted_address or booking.pickup_address }}</dd></div>
+              <div><dt class="text-xs font-semibold text-stone-500">Destination</dt><dd class="mt-1 text-stone-900">{{ booking.destination_formatted_address or booking.destination_address }}</dd></div>
+            </dl>
+            {% elif booking.pickup_address %}
+            <p class="mt-4 text-sm"><span class="font-semibold text-stone-600">Service location:</span> {{ booking.pickup_formatted_address or booking.pickup_address }}</p>
+            {% endif %}
+            {% set property_review = (booking.workflow_data or {}).get('property', {}).get('service_answers', {}) %}
+            {% set inventory_review = (booking.workflow_data or {}).get('inventory_answers', {}) %}
+            {% for title, answers in [('Service details', property_review), ('Handling details', inventory_review)] %}
+              {% if answers %}
+              <div class="mt-4">
+                <h3 class="text-xs font-bold uppercase tracking-wide text-stone-600">{{ title }}</h3>
+                <dl class="mt-2 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+                  {% for key, value in answers.items() if value not in (none, '', [], false) %}
+                  <div><dt class="text-xs text-stone-500">{{ key|replace('_', ' ')|title }}</dt><dd class="mt-0.5 break-words text-stone-900">{{ value|join(', ') if value is sequence and value is not string else value }}</dd></div>
+                  {% endfor %}
+                </dl>
+              </div>
+              {% endif %}
+            {% endfor %}
+            {% if booking.inventory %}
+            <div class="mt-4"><h3 class="text-xs font-bold uppercase tracking-wide text-stone-600">Items</h3><ul class="mt-2 grid gap-1 text-sm text-stone-800 sm:grid-cols-2">{% for item in booking.inventory %}<li>{{ item.quantity }} × {{ item.display_name }}</li>{% endfor %}</ul></div>
+            {% endif %}
+          </section>
           {% if schedule_estimate %}
           <section class="rounded-xl border border-brand-200 bg-brand-50/60 p-5 sm:p-6">
             <h2 class="text-xs font-bold uppercase tracking-wider text-brand-800">Current move-time estimate</h2>
@@ -936,8 +1056,8 @@
 
           <form method="post" class="rounded-xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <h2 class="text-xl font-extrabold text-stone-900">Choose your moving date and time</h2>
-            <p data-slot-warning class="mt-2 text-sm text-stone-500">Your requested slot is subject to availability. We will confirm it after reviewing the move details.</p>
+            <h2 class="text-xl font-extrabold text-stone-900">Choose a preferred date and time</h2>
+            <p data-slot-warning class="mt-2 text-sm text-stone-500">This is a preference, not a confirmed appointment. Operations will verify availability before confirming the service.</p>
 
             <div class="mt-6 grid gap-4 sm:grid-cols-2">
               <label class="block text-xs font-bold text-stone-700">Moving date
@@ -951,7 +1071,7 @@
               </label>
             </div>
 
-            {% if vehicle_options %}
+            {% if vehicle_options and service_type in ['residential', 'commercial', 'logistics'] %}
             <fieldset class="mt-6 border-t border-stone-200 pt-5">
               <legend class="text-sm font-bold text-stone-900">Choose a vehicle</legend>
               <p class="mt-1 text-xs text-stone-500">Select the vehicle type for your move. We calculate how many units are needed from your inventory.</p>
@@ -988,7 +1108,7 @@
       {% elif stage == 'quote' %}
         {% set quote_summary = booking.calculation_data or {} %}
         <section class="mx-auto max-w-5xl space-y-6">
-          {% if not booking.schedule_feasible %}
+          {% if booking.quote_status != 'Quote Required' and not booking.schedule_feasible %}
           <div role="status" class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             The selected time may need an operations review. You can review and accept the estimate while availability is confirmed.
           </div>
@@ -996,15 +1116,17 @@
           {% for review_flag in quote_summary.get('manual_review_flags', []) %}
           <div role="status" class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{{ review_flag }}</div>
           {% endfor %}
-          {% if quote_summary.get('manual_review_flags') and not quote_summary.get('manual_review_resolved') %}
+          {% if booking.quote_status == 'Quote Required' %}
+          <div role="status" class="border-l-4 border-amber-500 bg-amber-50 p-4 text-sm font-semibold text-amber-950">This request needs a confirmed price and availability check from Chigo operations. Any amount below is indicative only and cannot be accepted or paid.</div>
+          {% elif quote_summary.get('manual_review_flags') and not quote_summary.get('manual_review_resolved') %}
           <div role="status" class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">This estimate is awaiting an operations-confirmed quote. Quote acceptance and payment are unavailable until the review is complete.</div>
           {% endif %}
 
           <section class="rounded-xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7">
             <div class="flex flex-col gap-3 border-b border-stone-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h2 class="text-xl font-extrabold text-stone-900">Your move quote</h2>
-                <p class="mt-1 text-sm text-stone-500">A cost breakdown based on your route, inventory, services, and selected schedule.</p>
+                <h2 class="text-xl font-extrabold text-stone-900">{{ service_workflow.label }} {% if booking.quote_status == 'Quote Required' %}request{% else %}quote{% endif %}</h2>
+                <p class="mt-1 text-sm text-stone-500">{% if booking.quote_status == 'Quote Required' %}Your requirements are saved for operations review. Pricing and service availability are not yet confirmed.{% else %}A cost breakdown based on your route, inventory, services, and selected schedule.{% endif %}</p>
               </div>
               <span class="inline-flex w-fit rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-bold text-brand-800">{{ booking.quote_status }}</span>
             </div>
@@ -1022,10 +1144,38 @@
                 </tbody>
               </table>
             </div>
-            {% else %}
+            {% elif booking.quote_status != 'Quote Required' %}
             <p class="mt-5 rounded-lg border border-dashed border-stone-300 p-5 text-sm text-stone-500">A quote breakdown is not available yet. Review the move details or contact operations.</p>
             {% endif %}
 
+            {% if booking.quote_status == 'Quote Required' %}
+            {% if quote_summary.get('indicative_total') is not none %}
+            <div class="mt-5 border border-amber-300 bg-amber-50 p-4">
+              <p class="text-xs font-bold uppercase tracking-wide text-amber-900">Indicative estimate only · not a quote</p>
+              <p class="mt-1 text-xl font-extrabold text-stone-900">₦{{ '{:,.2f}'.format(quote_summary.get('indicative_total')) }}</p>
+              <p class="mt-1 text-xs text-stone-600">Based on administrator-approved rate inputs. Tax and final scope may change; availability is not confirmed.</p>
+              {% set estimate_details = quote_summary.get('estimate_details', {}) %}
+              {% if estimate_details.get('lines') %}
+              <dl class="mt-4 divide-y divide-amber-200 border-t border-amber-200 text-sm">
+                {% for line in estimate_details.get('lines', []) %}<div class="flex justify-between gap-4 py-2"><dt class="text-stone-700">{{ line.label }} <span class="text-xs text-stone-500">({{ line.quantity }} × ₦{{ '{:,.2f}'.format(line.unit_rate) }})</span></dt><dd class="font-semibold text-stone-900">₦{{ '{:,.2f}'.format(line.amount) }}</dd></div>{% endfor %}
+              </dl>
+              {% endif %}
+            </div>
+            {% endif %}
+            {% set review_property = (booking.workflow_data or {}).get('property', {}).get('service_answers', {}) %}
+            {% set review_inventory = (booking.workflow_data or {}).get('inventory_answers', {}) %}
+            <section class="mt-5 border-t border-stone-200 pt-5" aria-labelledby="quote-request-summary">
+              <h3 id="quote-request-summary" class="font-bold text-stone-900">Request summary</h3>
+              <dl class="mt-3 grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+                {% for key, value in review_property.items() %}<div><dt class="text-xs text-stone-500">{{ key|replace('_', ' ')|title }}</dt><dd class="mt-0.5 text-stone-900">{{ value|join(', ') if value is sequence and value is not string else value }}</dd></div>{% endfor %}
+                {% for key, value in review_inventory.items() %}<div><dt class="text-xs text-stone-500">{{ key|replace('_', ' ')|title }}</dt><dd class="mt-0.5 text-stone-900">{{ value|join(', ') if value is sequence and value is not string else value }}</dd></div>{% endfor %}
+              </dl>
+              {% if booking.primary_service == 'storage' %}
+                {% if booking.pickup_address %}<p class="mt-3 text-sm text-stone-700"><strong>Collection:</strong> {{ booking.pickup_formatted_address or booking.pickup_address }}</p>{% endif %}
+                {% if booking.destination_address %}<p class="mt-2 text-sm text-stone-700"><strong>Return / delivery:</strong> {{ booking.destination_formatted_address or booking.destination_address }}</p>{% endif %}
+              {% elif booking.pickup_address %}<p class="mt-3 text-sm text-stone-700"><strong>Location:</strong> {{ booking.pickup_formatted_address or booking.pickup_address }}</p>{% endif %}
+            </section>
+            {% else %}
             <dl class="mt-5 ml-auto max-w-sm space-y-3 border-t border-stone-200 pt-5 text-sm">
               <div class="flex items-center justify-between gap-4"><dt class="text-stone-600">Subtotal</dt><dd class="font-semibold text-stone-800">₦{{ '{:,.2f}'.format(quote_summary.get('subtotal', booking.estimated_total or 0)) }}</dd></div>
               <div class="flex items-center justify-between gap-4"><dt class="text-stone-600">Tax</dt><dd class="font-semibold text-stone-800">₦{{ '{:,.2f}'.format(quote_summary.get('tax', 0)) }}</dd></div>
@@ -1034,6 +1184,7 @@
               <div class="flex items-center justify-between gap-4"><dt class="text-stone-600">Deposit to secure booking</dt><dd class="font-bold text-brand-800">₦{{ '{:,.2f}'.format(booking.deposit_amount or 0) }}</dd></div>
               <div class="flex items-center justify-between gap-4"><dt class="text-stone-600">Remaining balance</dt><dd class="font-semibold text-stone-800">₦{{ '{:,.2f}'.format(booking.balance_amount or 0) }}</dd></div>
             </dl>
+            {% endif %}
 
             {% if booking.quote_status == 'Ready' and (not quote_summary.get('manual_review_flags') or quote_summary.get('manual_review_resolved')) %}
             <form method="post" class="mt-7 flex justify-end border-t border-stone-200 pt-5">

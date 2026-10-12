@@ -1,0 +1,47 @@
+{% extends 'dashboard_base.html' %}
+{% block title %}Choose a cleaning service | Chigo Relocations{% endblock %}
+{% block content %}
+<main class="mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-12">
+  <nav aria-label="Booking progress" class="mb-8">
+    <ol class="flex items-center gap-3 text-xs font-semibold text-stone-500">
+      <li aria-current="step" class="flex items-center gap-2 text-brand-800"><span class="grid h-7 w-7 place-items-center rounded-full bg-brand-700 text-white">1</span>Choose cleaning</li>
+      <li aria-hidden="true" class="h-px w-8 bg-stone-300"></li><li>Service details</li>
+      <li aria-hidden="true" class="h-px w-8 bg-stone-300"></li><li>Review</li>
+    </ol>
+  </nav>
+  <header class="max-w-2xl">
+    <p class="text-xs font-bold uppercase tracking-widest text-brand-700">Chigo cleaning</p>
+    <h1 class="mt-2 text-3xl font-extrabold text-stone-900">What would you like cleaned?</h1>
+    <p class="mt-2 text-sm leading-6 text-stone-600">Choose the service that best matches the property. We’ll only ask for its service location.</p>
+  </header>
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+  <p role="alert" class="mt-5 border-l-4 border-red-600 bg-red-50 px-4 py-3 text-sm text-red-900">{{ message }}</p>
+  {% endfor %}
+  <form method="post" class="mt-8">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <fieldset>
+      <legend class="sr-only">Cleaning service type</legend>
+      <div class="grid gap-4 md:grid-cols-3">
+        {% for value, title, description, icon in [
+          ('home', 'Cleaning at home', 'For houses, flats, apartments, duplexes, bungalows and studios.', 'M3 10.5 12 3l9 7.5M5 9v12h14V9M9 21v-7h6v7'),
+          ('office', 'Office cleaning', 'For offices, coworking spaces, shops and commercial premises.', 'M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M4 21h16M8 7h2m-2 4h2m-2 4h2m4-8h2m-2 4h2m-2 4h2'),
+          ('move-in-out', 'Move-in / move-out', 'Prepare a property for move-in, handover or post-renovation.', 'M3 10.5 12 3l9 7.5M5 9v12h14V9m-9 12v-6h4v6')
+        ] %}
+        <label class="group relative flex min-h-56 cursor-pointer flex-col border border-stone-300 bg-white p-5 transition hover:border-brand-600 has-[:checked]:border-brand-700 has-[:checked]:ring-2 has-[:checked]:ring-brand-700">
+          <input class="peer sr-only" type="radio" name="cleaning_subtype" value="{{ value }}" required {% if selected == value %}checked{% endif %}>
+          <span class="grid h-11 w-11 place-items-center rounded-lg bg-brand-50 text-brand-800" aria-hidden="true">
+            <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="{{ icon }}"/></svg>
+          </span>
+          <span class="mt-5 text-lg font-bold text-stone-900">{{ title }}</span>
+          <span class="mt-2 text-sm leading-6 text-stone-600">{{ description }}</span>
+          <span class="mt-auto flex items-center gap-2 pt-5 text-sm font-bold text-brand-800">Select service <span aria-hidden="true">→</span></span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <div class="mt-7 flex justify-end border-t border-stone-200 pt-5">
+      <button type="submit" class="min-h-12 w-full bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800 sm:w-auto">Continue</button>
+    </div>
+  </form>
+</main>
+{% endblock %}

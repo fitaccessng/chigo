@@ -7,7 +7,7 @@ import pytest
 
 from moving_company import create_app
 from moving_company.extensions import db
-from moving_company.models import Booking, BookingEvent, BookingQuoteLine, Payment, Referral, ReferralAttribution, ReferralCampaign, ReferralCode, ReferralReward, RewardTransaction, User, VehicleType
+from moving_company.models import Booking, BookingEvent, BookingQuoteLine, Payment, Referral, ReferralAttribution, ReferralCampaign, ReferralCode, ReferralReward, RewardTransaction, ServicePricing, User, VehicleType
 from moving_company.services.booking_engine_service import (
     BULK_ITEM_OPTIONS, INVENTORY_CATALOG, accept_quote, apply_price_override, calculate_quote, create_booking_request,
     catalogue_items_for_service, inventory_requirements, preview_move_duration,
@@ -170,18 +170,24 @@ def test_standalone_packing_scope_uses_existing_packing_rates(app):
             'property_type': 'Apartment', 'bedrooms': 1, 'bathrooms': 1, 'floors': 1,
             'service_answers': {
                 'packing_for': 'home', 'packing_scope': 'selected-rooms', 'packing_rooms': 2,
+                'packing_room_list': 'Kitchen and living room', 'packing_already_packed': 'some',
                 'packing_materials_needed': 'no', 'packing_materials_available': 'yes',
+                'packing_service_level': 'full-service', 'unpacking_required': 'yes',
+                'packing_dismantling': 'no', 'packing_reassembly': 'no',
             },
         })
         replace_inventory(booking, [{'name': 'Sofa', 'quantity': 1, 'category': 'Furniture'}])
+        booking.workflow_data = {**booking.workflow_data, 'inventory_answers': {'packing_fragile_items': 'no'}}
+        ServicePricing.query.filter_by(key='packing_partial').one().is_configured = True
         save_workflow_section(booking, 'services', {})
         save_workflow_section(booking, 'schedule', {
             'date': (date.today() + timedelta(days=7)).isoformat(), 'time': 'Morning',
         })
         calculation = calculate_quote(booking)
-        packing_line = BookingQuoteLine.query.filter_by(booking_id=booking.id, code='packing_partial').one()
-        assert packing_line.amount > 0
-        assert calculation['service_inputs']['property']['packing_scope'] == 'selected-rooms'
+        assert booking.quote_status == 'Quote Required'
+        assert booking.estimated_total == 0
+        assert calculation['indicative_total'] > 0
+        assert any('packing-team roster' in flag for flag in calculation['manual_review_flags'])
 
 
 def test_unpriced_addon_scope_is_flagged_for_operations_review(app):

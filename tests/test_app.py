@@ -962,7 +962,10 @@ def test_admin_can_view_and_edit_quote_engine_service_prices():
     page = client.get('/admin/pricing')
     assert page.status_code == 200
     assert b'Partial packing' in page.data
-    assert b'value="18000"' in page.data
+    assert b'Approve cleaning prices' in page.data
+    with app.app_context():
+        assert not ServicePricing.query.filter_by(key='cleaning_home_base').first()
+    assert b'name="packing_partial"' in page.data
     values = {key: '100' for key in (
         'base_moving_fee', 'price_per_km', 'property_surcharge', 'floor_surcharge',
         'packing_partial', 'packing_full', 'cleaning_move_out', 'cleaning_move_in',
@@ -978,9 +981,84 @@ def test_admin_can_view_and_edit_quote_engine_service_prices():
     assert response.status_code == 302
     with app.app_context():
         assert ServicePricing.query.filter_by(key='packing_partial').one().value == 22000
+        assert not ServicePricing.query.filter_by(key='packing_partial').one().is_configured
         audit = AuditLog.query.filter_by(action='pricing.updated').one()
         assert 'packing_partial' in audit.before_value
         assert '22000' in audit.after_value
+
+
+def test_admin_must_explicitly_approve_complete_service_pricing_groups():
+    app = create_app(testing=True)
+    app.config['WTF_CSRF_ENABLED'] = False
+    with app.app_context():
+        admin_id = User.query.filter_by(email='admin@chigo.com').one().id
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session['_user_id'] = str(admin_id)
+        session['_fresh'] = True
+
+    values = {key: '100' for key in (
+        'base_moving_fee', 'price_per_km', 'property_surcharge', 'floor_surcharge',
+        'packing_partial', 'packing_full', 'cleaning_move_out', 'cleaning_move_in', 'cleaning_both',
+        'home_decor', 'unpacking', 'service_assembly_yes', 'service_disassembly_yes', 'storage_week',
+        'special_handling', 'weekend_surcharge', 'holiday_surcharge', 'additional_mover_fee',
+        'base_mover_hourly_fee', 'access_difficulty_surcharge', 'outside_service_area_surcharge',
+        'tax_rate', 'deposit_percentage', 'cleaning_home_base', 'cleaning_home_per_bedroom',
+        'cleaning_home_per_bathroom', 'cleaning_office_base', 'cleaning_office_per_m2',
+        'cleaning_move_base', 'cleaning_move_per_room', 'cleaning_move_per_bathroom',
+        'cleaning_deep_surcharge', 'cleaning_post_renovation_surcharge', 'storage_per_m3_week',
+        'storage_collection_fee', 'storage_redelivery_fee', 'storage_minimum_weeks', 'logistics_base_fee',
+        'logistics_per_vehicle_trip', 'logistics_per_km', 'logistics_per_kg', 'logistics_per_m3',
+        'logistics_loading_fee', 'logistics_special_handling_fee', 'logistics_urgent_surcharge',
+    )}
+    values.update({
+        'volume_safety_factor': '1.15', 'storage_minimum_weeks': '1',
+        'cleaning_pricing_approved': 'y', 'storage_pricing_approved': 'y',
+        'logistics_pricing_approved': 'y', 'packing_pricing_approved': 'y',
+    })
+    response = client.post('/admin/pricing', data=values)
+    assert response.status_code == 302
+    with app.app_context():
+        for key in ('cleaning_home_base', 'storage_per_m3_week', 'logistics_per_vehicle_trip', 'packing_partial'):
+            assert ServicePricing.query.filter_by(key=key).one().is_configured
+
+
+def test_admin_capacity_confirmation_requires_assigned_covered_cleaner():
+    app = create_app(testing=True)
+    app.config['WTF_CSRF_ENABLED'] = False
+    with app.app_context():
+        admin_id = User.query.filter_by(email='admin@chigo.com').one().id
+        cleaner = Cleaner(name='Area Cleaner', status='Available', service_areas='Abuja, FCT')
+        booking = create_booking_request(
+            customer_id=None,
+            location={'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT'},
+            service_type='cleaning',
+        )
+        booking.move_date = date.today() + timedelta(days=3)
+        booking.quote_status = 'Quote Required'
+        booking.workflow_state = 'QUOTE_READY'
+        booking.calculation_data = {
+            'availability_confirmation_required': True, 'availability_confirmed': False,
+            'manual_review_flags': ['Cleaner availability must be confirmed.'],
+        }
+        db.session.add_all([cleaner, booking])
+        db.session.flush()
+        db.session.add(BookingAssignment(booking_id=booking.id, cleaner=cleaner.name))
+        db.session.commit()
+        booking_id = booking.id
+
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session['_user_id'] = str(admin_id)
+        session['_fresh'] = True
+    response = client.post(f'/admin/bookings/{booking_id}/confirm-service-capacity', data={
+        'confirmation_note': 'Cleaner assigned; service area coverage verified for Abuja.',
+    })
+    assert response.status_code == 302
+    with app.app_context():
+        booking = db.session.get(Booking, booking_id)
+        assert booking.calculation_data['availability_confirmed'] is True
+        assert AuditLog.query.filter_by(action='service.capacity_confirmed', entity_id=str(booking_id)).count() == 1
 
 
 def test_admin_ride_statuses_follow_sequence_and_record_history():
@@ -1532,8 +1610,9 @@ def test_dashboard_pages_have_role_specific_navigation():
     assert b'href="/booking/start/packing"' in dashboard.data
     assert b'href="/booking/start/storage"' in dashboard.data
     assert b'href="/booking/start/logistics"' in dashboard.data
+    assert b'href="/booking/start/cleaning"' in dashboard.data
+    assert b'href="/booking/start/support"' in dashboard.data
     assert b'href="/booking/start?addon=home_decor"' in dashboard.data
-    assert b'href="/booking/start?addon=cleaning"' in dashboard.data
     assert b'Home Decor' in dashboard.data
     assert b'Cleaning' in dashboard.data
     assert b'Operations' not in client.get('/customer/dashboard').data
@@ -1653,7 +1732,8 @@ def test_public_services_page_renders():
     assert b'Our Services' in response.data
     assert b'href="/booking/start/commercial"' in response.data
     assert b'href="/booking/start?addon=home_decor"' in response.data
-    assert b'href="/booking/start?addon=cleaning"' in response.data
+    assert b'href="/booking/start/cleaning"' in response.data
+    assert b'href="/booking/start/support"' in response.data
     assert b'Home Decor' in response.data
     assert b'Cleaning' in response.data
     for path, title in (
