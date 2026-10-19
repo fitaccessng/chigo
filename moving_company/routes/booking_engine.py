@@ -8,14 +8,18 @@ from ..extensions import csrf, db
 from ..forms import BookingLocationForm
 from ..models import Booking, BookingInventory, BookingItem, BookingPhoto, BookingQuoteLine, InventoryItem, ServicePricing
 from ..services.booking_engine_service import (
-    BULK_ITEM_OPTIONS, STAGES, accept_quote, calculate_quote, create_booking_request,
-    catalogue_items_for_service, inventory_requirements, invalidate_from, preview_move_duration, record_event,
-    recommended_services, replace_inventory, save_inventory_photo, save_vehicle_selection,
+    BULK_ITEM_OPTIONS, STAGES, accept_quote, calculate_quote, confirm_inventory, create_booking_request,
+    catalogue_items_for_service, inventory_fingerprint, inventory_requirements, invalidate_from, preview_move_duration, record_event,
+    inventory_is_confirmed, recommended_services, replace_inventory, save_inventory_photo, save_vehicle_selection,
     save_workflow_section, suggested_inventory, update_inventory_selections, vehicle_options,
 )
 from ..services.service_workflow import (
     addon_questions_for, booking_questions_for, get_service_workflow, property_types_for_service,
     validate_property_type_for_service, validate_question_answers,
+)
+from ..services.morph_cleaning_pricing import (
+    APPLIANCE_UNIT_PRICE, BEDFRAME_UNIT_PRICES, COMMERCIAL_MOVE_CLEAN,
+    COUCH_UNIT_PRICES, RESIDENTIAL_MOVE_CLEAN,
 )
 from ..services.image_upload_service import save_image
 from ..services.location_service import (
@@ -25,6 +29,7 @@ from ..services.location_service import (
 )
 from ..services.payment_provider_service import initialize_payment, process_stripe_webhook, verify_payment
 from ..services.seo_analytics import queue_analytics_event, queue_booking_conversion
+from ..services.ai_assistance_service import AIAssistanceUnavailable, suggest_booking_details
 
 
 booking_bp = Blueprint('booking', __name__)
@@ -234,6 +239,38 @@ def _get_request(request_id):
     return booking
 
 
+def _lock_customer_booking_for_edit(booking):
+    if current_user.role in {'admin', 'super_admin'}:
+        return booking
+    booking = db.session.query(Booking).filter_by(id=booking.id).with_for_update().populate_existing().one()
+    locked_statuses = {'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'REVIEW_PENDING', 'REVIEWED'}
+    if (
+        booking.payment_status in {'Paid', 'Deposit Paid'}
+        or booking.status in {'Confirmed', 'Assigned', 'In Progress', 'En Route', 'Arrived', 'Loading', 'In Transit', 'Unloading', 'Completed'}
+        or booking.workflow_state in locked_statuses
+        or booking.quote_status == 'Accepted'
+    ):
+        abort(409, description='This booking can no longer be edited online. Contact operations to request a reviewed change.')
+    return booking
+
+
+def _reject_locked_booking_api_edit(booking, *, allow_accepted_quote=False):
+    if current_user.role in {'admin', 'super_admin'}:
+        return None
+    db.session.refresh(booking, with_for_update=True)
+    if (
+        booking.payment_status in {'Paid', 'Deposit Paid'}
+        or booking.status in {'Confirmed', 'Assigned', 'In Progress', 'En Route', 'Arrived', 'Loading', 'In Transit', 'Unloading', 'Completed'}
+        or booking.workflow_state in {'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'REVIEW_PENDING', 'REVIEWED'}
+        or (booking.quote_status == 'Accepted' and not allow_accepted_quote)
+    ):
+        return jsonify({
+            'success': False,
+            'error': 'This booking can no longer be edited online. Contact operations to request a reviewed change.',
+        }), 409
+    return None
+
+
 def _next_stage(booking):
     if booking.primary_service == 'support' and booking.workflow_state in {'INVENTORY_COMPLETED', 'QUOTE_READY'}:
         return 'quote'
@@ -421,7 +458,7 @@ def start(service_type='residential'):
     if service_type == 'cleaning':
         if request.method == 'POST':
             subtype = request.form.get('cleaning_subtype', '')
-            if subtype not in {'home', 'office', 'move-in-out'}:
+            if subtype not in {'home', 'office', 'move-in-out', 'fumigation-pest-control'}:
                 flash('Choose one of the available cleaning services.', 'error')
                 return render_template('move_request/cleaning_options.html', selected=subtype)
             session['booking_cleaning_subtype'] = subtype
@@ -502,6 +539,8 @@ def location(service_type='residential'):
                     initial_service_answers=(
                         session.get('booking_storage_setup')
                         if service_type == 'storage' else
+                        {'morph_cleaning_category': 'fumigation-pest-control'}
+                        if service_type == 'cleaning' and session.get('booking_cleaning_subtype') == 'fumigation-pest-control' else
                         {'cleaning_subtype': session.get('booking_cleaning_subtype')}
                         if service_type == 'cleaning' and session.get('booking_cleaning_subtype') else None
                     ),
@@ -527,6 +566,8 @@ def location(service_type='residential'):
 @login_required
 def edit_location(request_id):
     booking = _get_request(request_id)
+    if request.method == 'POST':
+        booking = _lock_customer_booking_for_edit(booking)
     stored_answers = ((booking.workflow_data or {}).get('property') or {}).get('service_answers', {})
     location_places = location_places_for(booking.primary_service, stored_answers)
     had_calculation = bool(booking.calculation_data)
@@ -581,11 +622,18 @@ def workflow(request_id, stage):
     if stage not in STAGES[1:]:
         abort(404)
     booking = _get_request(request_id)
+    if request.method == 'POST':
+        booking = _lock_customer_booking_for_edit(booking)
     stages = service_stages(booking.primary_service, booking)
     if stage not in stages and not (booking.primary_service == 'logistics' and stage == 'property'):
         return redirect(url_for('booking.workflow', request_id=request_id, stage=_next_stage(booking)))
     if booking.primary_service == 'logistics' and stage == 'inventory' and booking.workflow_state == 'LOCATION_COMPLETED':
         save_workflow_section(booking, 'property', {}, current_user.id)
+    if (stage in {'services', 'schedule', 'quote'}
+            and booking.primary_service in {'residential', 'commercial'}
+            and not inventory_is_confirmed(booking)):
+        flash('Review and confirm your inventory before continuing to vehicle recommendations.', 'error')
+        return redirect(url_for('booking.workflow', request_id=request_id, stage='inventory'))
     if not _stage_is_unlocked(booking, stage):
         return redirect(url_for('booking.workflow', request_id=request_id, stage=_next_stage(booking)))
     if stage == 'services':
@@ -628,14 +676,21 @@ def workflow(request_id, stage):
                 if requires_property_type:
                     values['property_type'] = property_type
                     if booking.primary_service == 'residential':
-                        values['bedrooms'] = request.form.get('bedrooms', type=int, default=0)
-                        values['bathrooms'] = request.form.get('bathrooms', type=int, default=0)
+                        has_bedrooms = property_type in {
+                            'Apartment', 'Flat / Apartment', 'Self-contained', 'Duplex', 'House',
+                            'Detached House', 'Semi-detached House', 'Bungalow', 'Terrace House',
+                        }
+                        values['bedrooms'] = request.form.get('bedrooms', type=int, default=0) if has_bedrooms else 0
+                        values['bathrooms'] = request.form.get('bathrooms', type=int, default=0) if has_bedrooms else 0
+                        values['floors'] = request.form.get('floors', type=int, default=1)
                         values['approximate_size_m2'] = request.form.get('approximate_size_m2', type=float)
                     else:
                         values['business_work_areas'] = service_answers['business_work_areas']
                 values['service_answers'] = service_answers
                 if any(values.get(key, 0) < 0 for key in ('bedrooms', 'bathrooms', 'business_work_areas')):
                     raise ValueError('Property and business work-area counts must be non-negative.')
+                if booking.primary_service == 'residential' and values.get('floors', 1) < 1:
+                    raise ValueError('Pickup property floors or storeys must be at least 1.')
                 save_workflow_section(booking, 'property', values, current_user.id if current_user.is_authenticated else None)
                 if had_calculation:
                     flash('Property details changed. Downstream handling, duration, and quote estimates were invalidated.', 'success')
@@ -695,7 +750,7 @@ def workflow(request_id, stage):
                     for catalogue_id, quantity in additions:
                         matching = next((item for item in items if item['inventory_item_id'] == catalogue_id), None)
                         if matching:
-                            matching['quantity'] += quantity
+                            matching['quantity'] = quantity
                         else:
                             catalog_item = InventoryItem.query.filter_by(id=catalogue_id, active=True).first()
                             if not catalog_item:
@@ -857,15 +912,145 @@ def workflow(request_id, stage):
                         flash('Inventory changed. Downstream estimates were recalculated.', 'success')
                     return redirect(url_for('booking.workflow', request_id=request_id, stage='inventory'))
 
+                if request.form.get('action') == 'confirm_inventory':
+                    if inventory_is_confirmed(booking):
+                        return redirect(url_for('booking.workflow', request_id=request_id, stage='services'))
+                    if not booking.inventory:
+                        flash('Add at least one inventory item before confirming your inventory.', 'error')
+                        return redirect(url_for('booking.workflow', request_id=request_id, stage='inventory'))
+                    inventory_schema = booking_questions_for(booking, 'inventory')
+                    inventory_answers = validate_question_answers(
+                        inventory_schema, _question_form_values(inventory_schema, request.form, 'inventory_'),
+                    )
+                    selection_ids = request.form.getlist('selection_id[]') or request.form.getlist('selection_id')
+                    quantities = request.form.getlist('quantity[]')
+                    if not selection_ids or len(selection_ids) != len(quantities):
+                        raise ValueError('Review each selected item and enter a quantity from 1 to 500.')
+                    existing = {str(item.id): item for item in booking.inventory}
+                    changes = []
+                    for selection_id, raw_quantity in zip(selection_ids, quantities):
+                        item = existing.get(selection_id)
+                        if item is None:
+                            raise ValueError('One or more selected items no longer belong to this booking.')
+                        try:
+                            quantity = int(raw_quantity)
+                        except (TypeError, ValueError):
+                            raise ValueError(f'Enter a whole-number quantity for {item.display_name}.') from None
+                        if str(raw_quantity).strip() != str(quantity) or not 1 <= quantity <= 500:
+                            raise ValueError(f'Quantity for {item.display_name} must be between 1 and 500.')
+                        changes.append((item.id, quantity, item.size))
+                    heavy_items = []
+                    heavy_names = request.form.getlist('heavy_item_name[]')
+                    heavy_types = request.form.getlist('heavy_item_type[]')
+                    heavy_quantities = request.form.getlist('heavy_item_quantity[]')
+                    heavy_weights = request.form.getlist('heavy_item_weight_kg[]')
+                    heavy_lengths = request.form.getlist('heavy_item_length_cm[]')
+                    heavy_widths = request.form.getlist('heavy_item_width_cm[]')
+                    heavy_heights = request.form.getlist('heavy_item_height_cm[]')
+                    heavy_special = request.form.getlist('heavy_item_special_handling[]')
+                    if inventory_answers.get('heavy_or_oversized') != 'yes':
+                        heavy_names = []
+                        heavy_types = heavy_quantities = heavy_weights = []
+                        heavy_lengths = heavy_widths = heavy_heights = heavy_special = []
+                    row_values = [heavy_types, heavy_quantities, heavy_weights, heavy_lengths, heavy_widths, heavy_heights, heavy_special]
+                    if any(len(values) != len(heavy_names) for values in row_values):
+                        raise ValueError('Complete all fields for each heavy or oversized item.')
+                    if len(heavy_names) > 25:
+                        raise ValueError('Add no more than 25 heavy or oversized item rows.')
+                    for index, raw_name in enumerate(heavy_names):
+                        item_name = raw_name.strip()
+                        item_type = heavy_types[index]
+                        if item_type == 'other' and not item_name:
+                            raise ValueError('Enter a name for each item marked Other.')
+                        if item_type != 'other':
+                            item_name = item_type.replace('-', ' ').title()
+                        if not item_name:
+                            continue
+                        try:
+                            quantity = int(heavy_quantities[index])
+                        except (TypeError, ValueError):
+                            raise ValueError(f'Enter a whole-number quantity for {item_name}.') from None
+                        if not 1 <= quantity <= 500:
+                            raise ValueError(f'Quantity for {item_name} must be between 1 and 500.')
+                        row = {'name': item_name[:120], 'quantity': quantity,
+                               'special_handling': heavy_special[index] == 'yes'}
+                        weight_raw = heavy_weights[index].strip()
+                        if weight_raw:
+                            try:
+                                weight = float(weight_raw)
+                            except (TypeError, ValueError):
+                                raise ValueError(f'Enter a valid approximate weight for {item_name}.') from None
+                            if not 0 < weight <= 10000:
+                                raise ValueError(f'Approximate weight for {item_name} must be greater than 0 and no more than 10,000 kg.')
+                            row['weight_kg'] = weight
+                        dimension_values = [heavy_lengths[index].strip(), heavy_widths[index].strip(), heavy_heights[index].strip()]
+                        if any(dimension_values) and not all(dimension_values):
+                            raise ValueError(f'Enter all three dimensions for {item_name}, or leave them all blank.')
+                        if all(dimension_values):
+                            dimensions = []
+                            for raw_dimension in dimension_values:
+                                try:
+                                    dimension = float(raw_dimension)
+                                except (TypeError, ValueError):
+                                    raise ValueError(f'Enter valid dimensions for {item_name}.') from None
+                                if not 0 < dimension <= 100000:
+                                    raise ValueError(f'Dimensions for {item_name} must be greater than 0 and no more than 100,000 cm.')
+                                dimensions.append(dimension)
+                            row['dimensions_cm'] = dict(zip(('length', 'width', 'height'), dimensions))
+                        heavy_items.append(row)
+                    if inventory_answers.get('heavy_or_oversized') == 'yes' and not heavy_items:
+                        raise ValueError('Add at least one heavy or oversized item, or change the answer to No.')
+                    update_inventory_selections(
+                        booking, changes, current_user.id if current_user.is_authenticated else None,
+                    )
+                    _store_inventory_answers(
+                        booking, inventory_answers, current_user.id if current_user.is_authenticated else None,
+                    )
+                    workflow_data = dict(booking.workflow_data or {})
+                    previous_heavy_items = workflow_data.get('heavy_items', [])
+                    workflow_data['heavy_items'] = heavy_items
+                    booking.workflow_data = workflow_data
+                    record_event(booking, 'inventory.heavy_items_updated', previous=previous_heavy_items,
+                                 new=heavy_items, user_id=current_user.id if current_user.is_authenticated else None)
+                    newly_confirmed = confirm_inventory(
+                        booking, current_user.id if current_user.is_authenticated else None,
+                    )
+                    if newly_confirmed:
+                        queue_booking_conversion(booking, 'inventory_completed')
+                    return redirect(url_for('booking.workflow', request_id=request_id, stage='services'))
+
                 if request.form.get('action') == 'save_and_continue':
+                    if booking.primary_service in {'residential', 'commercial'}:
+                        raise ValueError('Review and confirm the inventory before continuing.')
+                    if inventory_is_confirmed(booking):
+                        target_stage = 'schedule' if booking.primary_service == 'cleaning' else 'quote' if booking.primary_service == 'support' else 'services'
+                        return redirect(url_for('booking.workflow', request_id=request_id, stage=target_stage))
                     inventory_schema = booking_questions_for(booking, 'inventory')
                     inventory_answers = validate_question_answers(
                         inventory_schema, _question_form_values(inventory_schema, request.form, 'inventory_'),
                     )
                     selection_ids = request.form.getlist('selection_id[]')
-                    if booking.primary_service in {'cleaning', 'support', 'logistics'} or (
-                        booking.primary_service == 'packing' and not selection_ids
-                    ):
+                    if booking.primary_service in {'cleaning', 'support', 'logistics', 'packing'}:
+                        if booking.primary_service == 'packing' and selection_ids:
+                            quantities = request.form.getlist('quantity[]')
+                            if len(selection_ids) != len(quantities):
+                                raise ValueError('Review each selected item and enter a quantity from 1 to 500.')
+                            existing = {str(item.id): item for item in booking.inventory}
+                            changes = []
+                            for selection_id, raw_quantity in zip(selection_ids, quantities):
+                                item = existing.get(selection_id)
+                                if item is None:
+                                    raise ValueError('One or more selected items no longer belong to this booking.')
+                                try:
+                                    quantity = int(raw_quantity)
+                                except (TypeError, ValueError):
+                                    raise ValueError('Inventory quantities must be whole numbers from 1 to 500.') from None
+                                if str(raw_quantity).strip() != str(quantity) or not 1 <= quantity <= 500:
+                                    raise ValueError(f'Quantity for {item.display_name} must be between 1 and 500.')
+                                changes.append((item.id, quantity, item.size))
+                            update_inventory_selections(
+                                booking, changes, current_user.id if current_user.is_authenticated else None,
+                            )
                         if booking.primary_service == 'support':
                             from ..models import SupportRequest
                             if SupportRequest.query.filter_by(booking_id=booking.id).first():
@@ -887,15 +1072,14 @@ def workflow(request_id, stage):
                         db.session.add_all(saved_photos)
                         _store_inventory_answers(booking, inventory_answers, current_user.id)
                         if booking.primary_service == 'cleaning':
+                            confirm_inventory(booking, current_user.id)
                             save_workflow_section(booking, 'services', {}, current_user.id)
                             return redirect(url_for('booking.workflow', request_id=request_id, stage='schedule'))
                         if booking.primary_service == 'packing':
-                            booking.workflow_state = 'INVENTORY_COMPLETED'
-                            db.session.commit()
+                            confirm_inventory(booking, current_user.id)
                             return redirect(url_for('booking.workflow', request_id=request_id, stage='services'))
                         if booking.primary_service == 'logistics':
-                            booking.workflow_state = 'INVENTORY_COMPLETED'
-                            db.session.commit()
+                            confirm_inventory(booking, current_user.id)
                             return redirect(url_for('booking.workflow', request_id=request_id, stage='services'))
 
                         from ..services.support_chat_service import create_conversation, request_human
@@ -913,6 +1097,7 @@ def workflow(request_id, stage):
                         booking.status = 'Support Request Submitted'
                         booking.quote_status = 'Quote Required'
                         booking.workflow_state = 'QUOTE_READY'
+                        confirm_inventory(booking, current_user.id)
                         booking.calculation_data = {
                             'manual_review_flags': ['Support availability and callback timing must be confirmed by the operations team.'],
                             'estimate_type': 'quote_required',
@@ -940,6 +1125,9 @@ def workflow(request_id, stage):
                         booking, changes, current_user.id if current_user.is_authenticated else None,
                     )
                     _store_inventory_answers(booking, inventory_answers, current_user.id if current_user.is_authenticated else None)
+                    if booking.primary_service == 'packing':
+                        confirm_inventory(booking, current_user.id)
+                        return redirect(url_for('booking.workflow', request_id=request_id, stage='services'))
                     selected_vehicle = request.form.get('vehicle_type_id')
                     if selected_vehicle:
                         save_vehicle_selection(booking, selected_vehicle, current_user.id if current_user.is_authenticated else None)
@@ -1000,6 +1188,9 @@ def workflow(request_id, stage):
                             sort_order=0, is_primary=True,
                         ))
                         db.session.commit()
+                if booking.primary_service in {'residential', 'commercial', 'packing'}:
+                    flash('Your inventory draft is saved. Review and confirm it before continuing.', 'success')
+                    return redirect(url_for('booking.workflow', request_id=request_id, stage='inventory'))
                 selected_vehicle = request.form.get('vehicle_type_id')
                 if selected_vehicle:
                     save_vehicle_selection(booking, selected_vehicle, current_user.id if current_user.is_authenticated else None)
@@ -1022,6 +1213,15 @@ def workflow(request_id, stage):
                 addon_answers = _validated_addon_answers(
                     services, request.form, primary_service=booking.primary_service, prefixed=True,
                 )
+                selected_vehicle = request.form.get('vehicle_type_id')
+                if booking.primary_service in {'residential', 'commercial'}:
+                    if not selected_vehicle:
+                        selected_vehicle = next(
+                            (str(option['id']) for option in vehicle_options(booking) if option['recommended']),
+                            None,
+                        )
+                    if not selected_vehicle:
+                        raise ValueError('No eligible vehicle recommendation is available. Contact operations to review your inventory.')
                 service_photo_files = []
                 for addon in addon_answers:
                     service_photo_files.extend((addon, upload) for upload in request.files.getlist(f'{addon}_photos') if upload and upload.filename)
@@ -1038,6 +1238,8 @@ def workflow(request_id, stage):
                         sort_order=BookingPhoto.query.filter_by(booking_id=booking.id, category=f'service_{addon}').count(),
                     ))
                 save_workflow_section(booking, 'services', services, current_user.id if current_user.is_authenticated else None)
+                if selected_vehicle:
+                    save_vehicle_selection(booking, selected_vehicle, current_user.id if current_user.is_authenticated else None)
                 workflow_data = dict(booking.workflow_data or {})
                 previous_addon_answers = workflow_data.get('addon_answers', {})
                 workflow_data['addon_answers'] = addon_answers
@@ -1066,8 +1268,11 @@ def workflow(request_id, stage):
                     raise ValueError('Choose a future date and valid preferred time.')
                 selected_vehicle = request.form.get('vehicle_type_id')
                 if not selected_vehicle and booking.primary_service in {'residential', 'commercial', 'logistics'}:
+                    selected_vehicle = str(((booking.workflow_data or {}).get('vehicle') or {}).get('selected_type_id') or '')
+                if not selected_vehicle and booking.primary_service in {'residential', 'commercial', 'logistics'}:
                     raise ValueError('Choose a vehicle type before continuing to your quote.')
-                if selected_vehicle:
+                saved_vehicle_id = ((booking.workflow_data or {}).get('vehicle') or {}).get('selected_type_id')
+                if selected_vehicle and str(saved_vehicle_id or '') != str(selected_vehicle):
                     save_vehicle_selection(
                         booking, selected_vehicle,
                         current_user.id if current_user.is_authenticated else None,
@@ -1084,7 +1289,10 @@ def workflow(request_id, stage):
                 return redirect(url_for('booking.workflow', request_id=request_id, stage='quote'))
 
             if stage == 'quote' and request.form.get('action') == 'accept_quote':
-                accept_quote(booking, current_user.id if current_user.is_authenticated else None)
+                accept_quote(
+                    booking, current_user.id if current_user.is_authenticated else None,
+                    policy_acknowledged=request.form.get('policy_acknowledged') == 'on',
+                )
                 if booking.primary_service == 'home_decor' and booking.home_decor_request:
                     decor_request = booking.home_decor_request
                     previous = decor_request.status
@@ -1165,6 +1373,11 @@ def workflow(request_id, stage):
         vehicle_options=vehicle_options(booking),
         schedule_estimate=preview_move_duration(booking) if stage == 'schedule' and booking.items else None,
         quote_lines=BookingQuoteLine.query.filter_by(booking_id=booking.id).order_by(BookingQuoteLine.id).all(),
+        cleaning_residential_rates=RESIDENTIAL_MOVE_CLEAN,
+        cleaning_commercial_rates=COMMERCIAL_MOVE_CLEAN,
+        cleaning_couch_rates=COUCH_UNIT_PRICES,
+        cleaning_bedframe_rates=BEDFRAME_UNIT_PRICES,
+        cleaning_appliance_rate=APPLIANCE_UNIT_PRICE,
     )
 
 
@@ -1244,10 +1457,34 @@ def get_booking_request(request_id):
     })
 
 
+@booking_api_bp.route('/api/bookings/<request_id>/ai/suggest', methods=['POST'])
+@login_required
+def api_suggest_booking_details(request_id):
+    booking = _get_request(request_id)
+    if booking.customer_id != current_user.id:
+        abort(404)
+    if booking.workflow_state not in {'LOCATION_COMPLETED', 'PROPERTY_COMPLETED'}:
+        return jsonify({'success': False, 'error': 'AI suggestions are only available before inventory confirmation.'}), 409
+    payload = request.get_json(silent=True) or {}
+    if payload.get('external_processing_acknowledged') is not True:
+        return jsonify({
+            'success': False,
+            'error': 'Acknowledge that the move description will be sent to Chigo’s configured AI provider before requesting suggestions.',
+        }), 422
+    try:
+        suggestions = suggest_booking_details(current_user.id, payload.get('description', ''))
+        return jsonify({'success': True, 'suggestions': suggestions})
+    except (AIAssistanceUnavailable, ValueError) as error:
+        return jsonify({'success': False, 'error': str(error)}), 503 if isinstance(error, AIAssistanceUnavailable) else 422
+
+
 @booking_api_bp.route('/api/bookings/<request_id>/property', methods=['PUT'])
 @login_required
 def api_update_property(request_id):
     booking = _get_request(request_id)
+    locked_response = _reject_locked_booking_api_edit(booking)
+    if locked_response:
+        return locked_response
     if booking.workflow_state not in {'LOCATION_COMPLETED', 'PROPERTY_COMPLETED'}:
         return jsonify({'success': False, 'error': 'Complete location before adding property details.'}), 409
     payload = request.get_json(silent=True) or {}
@@ -1287,10 +1524,13 @@ def api_update_property(request_id):
 @login_required
 def api_update_inventory(request_id):
     booking = _get_request(request_id)
+    locked_response = _reject_locked_booking_api_edit(booking)
+    if locked_response:
+        return locked_response
     if booking.workflow_state not in {'PROPERTY_COMPLETED', 'INVENTORY_COMPLETED'}:
         return jsonify({'success': False, 'error': 'Complete property details before adding inventory.'}), 409
     payload = request.get_json(silent=True) or {}
-    unsupported = set(payload) - {'items', 'inventory_answers'}
+    unsupported = set(payload) - {'items', 'inventory_answers', 'confirmed'}
     if unsupported:
         return jsonify({'success': False, 'error': f'Unknown inventory field: {", ".join(sorted(unsupported))}.'}), 422
     items = payload.get('items')
@@ -1303,8 +1543,24 @@ def api_update_inventory(request_id):
         inventory_answers = validate_question_answers(
             booking_questions_for(booking, 'inventory'), raw_answers,
         )
+        confirmed = payload.get('confirmed', False)
+        if not isinstance(confirmed, bool):
+            raise ValueError('confirmed must be a boolean.')
+        if confirmed and booking.primary_service in {'residential', 'commercial'}:
+            if inventory_answers.get('heavy_or_oversized') == 'yes' and not (booking.workflow_data or {}).get('heavy_items'):
+                raise ValueError('Heavy or oversized item details must be saved before confirming inventory.')
+        if confirmed and inventory_is_confirmed(booking):
+            workflow_data = booking.workflow_data or {}
+            previous_fingerprint = workflow_data.get('inventory_confirmation_fingerprint') or inventory_fingerprint(booking)
+            if inventory_fingerprint(booking, items=items, answers=inventory_answers) == previous_fingerprint:
+                return jsonify({
+                    'success': True, 'booking_request_id': request_id, 'state': booking.workflow_state,
+                    'item_count': sum(item.quantity for item in booking.inventory),
+                })
         replace_inventory(booking, items, current_user.id if current_user.is_authenticated else None)
         _store_inventory_answers(booking, inventory_answers, current_user.id if current_user.is_authenticated else None)
+        if confirmed:
+            confirm_inventory(booking, current_user.id)
         db.session.commit()
         return jsonify({'success': True, 'booking_request_id': request_id, 'state': booking.workflow_state,
                         'item_count': sum(item.quantity for item in booking.inventory)})
@@ -1317,7 +1573,12 @@ def api_update_inventory(request_id):
 @login_required
 def api_update_services(request_id):
     booking = _get_request(request_id)
-    if booking.workflow_state not in {'INVENTORY_COMPLETED', 'SERVICES_COMPLETED'}:
+    locked_response = _reject_locked_booking_api_edit(booking)
+    if locked_response:
+        return locked_response
+    if (booking.workflow_state not in {'INVENTORY_COMPLETED', 'SERVICES_COMPLETED'}
+            or (booking.primary_service in {'residential', 'commercial'}
+                and not inventory_is_confirmed(booking))):
         return jsonify({'success': False, 'error': 'Add inventory before selecting services.'}), 409
     payload = request.get_json(silent=True) or {}
     unsupported = set(payload) - set(SERVICE_OPTIONS) - {'addon_answers'}
@@ -1357,6 +1618,9 @@ def api_update_services(request_id):
 @login_required
 def api_update_schedule(request_id):
     booking = _get_request(request_id)
+    locked_response = _reject_locked_booking_api_edit(booking)
+    if locked_response:
+        return locked_response
     if booking.workflow_state not in {'SERVICES_COMPLETED', 'SCHEDULE_COMPLETED'}:
         return jsonify({'success': False, 'error': 'Select services before choosing a schedule.'}), 409
     payload = request.get_json(silent=True) or {}
@@ -1385,6 +1649,9 @@ def api_update_schedule(request_id):
 @login_required
 def api_calculate_quote(request_id):
     booking = _get_request(request_id)
+    locked_response = _reject_locked_booking_api_edit(booking)
+    if locked_response:
+        return locked_response
     try:
         calculation = calculate_quote(booking, current_user.id if current_user.is_authenticated else None)
         queue_booking_conversion(booking, 'quote_generated')
@@ -1400,8 +1667,15 @@ def api_calculate_quote(request_id):
 @login_required
 def api_accept_quote(request_id):
     booking = _get_request(request_id)
+    locked_response = _reject_locked_booking_api_edit(booking)
+    if locked_response:
+        return locked_response
+    payload = request.get_json(silent=True) or {}
     try:
-        accept_quote(booking, current_user.id if current_user.is_authenticated else None)
+        accept_quote(
+            booking, current_user.id if current_user.is_authenticated else None,
+            policy_acknowledged=payload.get('policy_acknowledged') is True,
+        )
         return jsonify({'success': True, 'booking_request_id': request_id, 'state': booking.workflow_state,
                         'quote_status': booking.quote_status})
     except ValueError as error:
@@ -1413,6 +1687,12 @@ def api_accept_quote(request_id):
 @login_required
 def api_initialize_payment(request_id):
     booking = _get_request(request_id)
+    # An accepted quote is intentionally immutable, but it must still be
+    # possible to collect its payment.  The other locked states remain
+    # blocked so this endpoint cannot reopen a paid/confirmed booking.
+    locked_response = _reject_locked_booking_api_edit(booking, allow_accepted_quote=True)
+    if locked_response:
+        return locked_response
     try:
         payment_record = initialize_payment(booking, current_user.email)
         return jsonify({'success': True, 'reference': payment_record.payment_reference,

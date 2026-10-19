@@ -4,7 +4,7 @@ import pytest
 
 from moving_company import create_app
 from moving_company.extensions import db
-from moving_company.models import Booking, ServicePricing, SupportConversation, SupportRequest, User
+from moving_company.models import Booking, BookingEvent, ServicePricing, SupportConversation, SupportRequest, User
 from moving_company.routes.booking_engine import service_stages
 from moving_company.services.booking_engine_service import (
     calculate_quote,
@@ -12,6 +12,8 @@ from moving_company.services.booking_engine_service import (
     get_service_workflow,
     inventory_requirements,
     recommendations_for_booking,
+    replace_inventory,
+    save_workflow_section,
     validate_service_bundle,
     vehicle_options,
 )
@@ -129,7 +131,7 @@ def test_each_service_type_enters_unified_booking_engine_with_service_context(ap
         assert booking.workflow_state == 'LOCATION_COMPLETED'
 
 
-def test_cleaning_starts_with_three_options_and_saves_one_service_location(app):
+def test_cleaning_starts_with_four_options_and_saves_one_service_location(app):
     app.config['WTF_CSRF_ENABLED'] = False
     client = app.test_client()
     login_customer(app, client)
@@ -137,10 +139,12 @@ def test_cleaning_starts_with_three_options_and_saves_one_service_location(app):
     chooser = client.get('/booking/start/cleaning')
     html = chooser.get_data(as_text=True)
     assert chooser.status_code == 200
-    assert html.count('name="cleaning_subtype"') == 3
+    assert html.count('name="cleaning_subtype"') == 4
     assert 'Cleaning at home' in html
     assert 'Office cleaning' in html
     assert 'Move-in / move-out' in html
+    assert 'Fumigation &amp; Pest Control' in html
+    assert 'confirm scope and pricing' in html
     assert 'aria-label="Back to services"' in html
 
     chosen = client.post('/booking/start/cleaning', data={'cleaning_subtype': 'home'})
@@ -347,6 +351,65 @@ def test_cleaning_price_needs_approval_and_is_only_indicative_when_configured(ap
             accept_quote(booking, None)
 
 
+def test_morph_move_clean_quote_is_server_calculated_and_snapshotted(app):
+    with app.app_context():
+        booking = create_booking_request(
+            customer_id=None,
+            location={'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT'},
+            service_type='cleaning',
+        )
+        booking.workflow_data = {
+            **booking.workflow_data,
+            'property': {'service_answers': {
+                'morph_cleaning_category': 'residential-move-clean',
+                'morph_residential_property_type': '2-bedroom',
+            }},
+            'inventory_answers': {'cleaning_heavy_buildup': 'no'},
+            'schedule': {'date': (date.today() + timedelta(days=3)).isoformat(), 'time': 'Morning'},
+        }
+        booking.move_date = date.today() + timedelta(days=3)
+        booking.workflow_state = 'SCHEDULE_COMPLETED'
+        db.session.commit()
+
+        calculation = calculate_quote(booking)
+
+        assert booking.quote_status == 'Quote Required'
+        assert booking.estimated_total == 0
+        assert calculation['indicative_total'] == 120_000
+        assert calculation['estimate_details']['rate_card_version'] == 'morph-cleaning-2026-10-v1'
+        assert calculation['pricing_rule_version'] == 'morph-cleaning-2026-10-v1'
+        assert sum(line['amount'] for line in calculation['estimate_details']['lines']) == 120_000
+
+
+def test_morph_cleaning_description_conflict_requires_manual_review(app):
+    with app.app_context():
+        booking = create_booking_request(
+            customer_id=None,
+            location={'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT'},
+            service_type='cleaning',
+        )
+        booking.workflow_data = {
+            **booking.workflow_data,
+            'property': {'service_answers': {
+                'morph_cleaning_category': 'residential-move-clean',
+                'morph_residential_property_type': '2-bedroom',
+            }},
+            'inventory_answers': {
+                'cleaning_heavy_buildup': 'no', 'cleaning_instructions': 'Please do a deep clean',
+            },
+            'schedule': {'date': (date.today() + timedelta(days=3)).isoformat(), 'time': 'Morning'},
+        }
+        booking.move_date = date.today() + timedelta(days=3)
+        booking.workflow_state = 'SCHEDULE_COMPLETED'
+        db.session.commit()
+
+        calculation = calculate_quote(booking)
+
+        assert calculation['indicative_total'] is None
+        assert any('description mentions deep clean' in flag for flag in calculation['manual_review_flags'])
+        assert booking.workflow_data['inventory_answers']['cleaning_instructions'] == 'Please do a deep clean'
+
+
 def test_recurring_cleaning_stays_quote_required_without_subscription_billing(app):
     with app.app_context():
         booking = create_booking_request(
@@ -501,6 +564,11 @@ def test_home_cleaning_details_survive_to_quote_required_review(app):
     })
     assert inventory.status_code == 302
     assert inventory.headers['Location'].endswith('/schedule')
+    retry = client.post(f'/booking/{request_id}/inventory', data={
+        'action': 'save_and_continue', 'inventory_cleaning_heavy_buildup': 'no',
+    })
+    assert retry.status_code == 302
+    assert retry.headers['Location'].endswith('/schedule')
     inventory_page = client.get(f'/booking/{request_id}/inventory')
     assert inventory_page.status_code == 200
 
@@ -522,8 +590,109 @@ def test_home_cleaning_details_survive_to_quote_required_review(app):
         booking = Booking.query.filter_by(booking_request_id=request_id).one()
         assert booking.quote_status == 'Quote Required'
         assert booking.estimated_total == 0
+        assert booking.workflow_data['inventory_confirmed'] is True
+        assert BookingEvent.query.filter_by(booking_id=booking.id, action='inventory.confirmed').count() == 1
         assert booking.workflow_data['property']['service_answers']['cleaning_type'] == 'deep'
         assert booking.workflow_data['property']['service_answers']['cleaning_areas'] == ['kitchen', 'bathrooms']
+
+
+def test_packing_inventory_save_and_continue_persists_confirmation_flag(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    login_customer(app, client)
+
+    with app.app_context():
+        booking = create_booking_request(
+            location={
+                'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT',
+                'destination_address': 'Plot 405 Constitution Avenue', 'destination_city': 'Abuja', 'destination_state': 'FCT',
+            },
+            service_type='packing',
+        )
+        save_workflow_section(booking, 'property', {
+            'property_type': 'Apartment',
+            'bedrooms': 1,
+            'bathrooms': 1,
+            'floors': 1,
+            'service_answers': {
+                'packing_for': 'home',
+                'packing_scope': 'selected-rooms',
+                'packing_rooms': 1,
+                'packing_room_list': 'Living room',
+                'packing_already_packed': 'no',
+                'packing_materials_needed': 'no',
+                'packing_materials_available': 'yes',
+                'packing_service_level': 'full-service',
+                'unpacking_required': 'no',
+                'packing_dismantling': 'no',
+                'packing_reassembly': 'no',
+            },
+        })
+        request_id = booking.booking_request_id
+
+    with client.session_transaction() as session:
+        session['active_booking_request_id'] = request_id
+
+    response = client.post(f'/booking/{request_id}/inventory', data={
+        'action': 'save_and_continue',
+        'inventory_packing_fragile_items': 'no',
+    })
+    assert response.status_code == 302
+
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        assert booking.workflow_state == 'INVENTORY_COMPLETED'
+        assert booking.workflow_data['inventory_confirmed'] is True
+
+
+def test_legacy_packing_selected_inventory_confirms_once_before_services(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    login_customer(app, client)
+
+    with app.app_context():
+        booking = create_booking_request(
+            location={'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT'},
+            service_type='packing',
+        )
+        save_workflow_section(booking, 'property', {
+            'property_type': 'Apartment',
+            'bedrooms': 1,
+            'bathrooms': 1,
+            'floors': 1,
+            'service_answers': {
+                'packing_for': 'home', 'packing_scope': 'selected-rooms', 'packing_rooms': 1,
+                'packing_room_list': 'Living room', 'packing_already_packed': 'no',
+                'packing_materials_needed': 'no', 'packing_materials_available': 'yes',
+                'packing_service_level': 'full-service', 'unpacking_required': 'no',
+                'packing_dismantling': 'no', 'packing_reassembly': 'no',
+            },
+        })
+        replace_inventory(booking, [{'name': 'Wardrobe', 'quantity': 1}])
+        request_id = booking.booking_request_id
+        selection_id = booking.inventory[0].id
+
+    with client.session_transaction() as session:
+        session['active_booking_request_id'] = request_id
+
+    payload = {
+        'action': 'save_and_continue',
+        'selection_id[]': str(selection_id),
+        'quantity[]': '1',
+        'inventory_packing_fragile_items': 'no',
+    }
+    response = client.post(f'/booking/{request_id}/inventory', data=payload)
+    assert response.status_code == 302
+    assert response.headers['Location'].endswith('/services')
+    retry = client.post(f'/booking/{request_id}/inventory', data=payload)
+    assert retry.status_code == 302
+    assert retry.headers['Location'].endswith('/services')
+
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        assert booking.workflow_state == 'INVENTORY_COMPLETED'
+        assert booking.workflow_data['inventory_confirmed'] is True
+        assert BookingEvent.query.filter_by(booking_id=booking.id, action='inventory.confirmed').count() == 1
 
 
 def test_support_triage_creates_linked_human_request_without_location(app, monkeypatch):
@@ -595,6 +764,7 @@ def test_property_stage_renders_only_selected_service_questions(app, service_typ
         with app.app_context():
             booking = Booking.query.filter_by(booking_request_id=request_id).one()
             booking.workflow_state = 'PROPERTY_COMPLETED'
+            replace_inventory(booking, [{'name': 'Shipment', 'quantity': 1, 'category': 'Shipment'}])
             db.session.commit()
         inventory_page = client.get(f'/booking/{request_id}/inventory').get_data(as_text=True)
         assert 'Approximate total weight (kg)' in inventory_page
@@ -630,12 +800,24 @@ def test_property_stage_requires_and_persists_service_answers(app):
     assert saved.status_code == 200
     with app.app_context():
         booking = Booking.query.filter_by(booking_request_id=request_id).one()
-        assert booking.workflow_data['property']['service_answers'] == answers
+        assert booking.workflow_data['property']['service_answers'] == {
+            **answers, 'destination_property_type': 'Flat / Apartment',
+        }
     item_response = client.post(f'/api/bookings/{request_id}/inventory', json={
         'items': [{'name': 'Sofa', 'quantity': 1, 'category': 'Living Room'}],
         'inventory_answers': {'heavy_or_oversized': 'no'},
     })
     assert item_response.status_code == 200
+    assert item_response.get_json()['state'] == 'PROPERTY_COMPLETED'
+    assert client.put(f'/api/bookings/{request_id}/services', json={}).status_code == 409
+    confirmed = client.put(f'/api/bookings/{request_id}/inventory', json={
+        'items': [{'name': 'Sofa', 'quantity': 1, 'category': 'Living Room'}],
+        'inventory_answers': {'heavy_or_oversized': 'no'},
+        'confirmed': True,
+    })
+    assert confirmed.status_code == 200
+    assert confirmed.get_json()['state'] == 'INVENTORY_COMPLETED'
+    assert client.put(f'/api/bookings/{request_id}/services', json={}).status_code == 200
     with app.app_context():
         booking = Booking.query.filter_by(booking_request_id=request_id).one()
         assert booking.workflow_data['inventory_answers'] == {'heavy_or_oversized': 'no'}
@@ -686,6 +868,7 @@ def test_logistics_dimensions_and_weight_drive_existing_vehicle_requirements(app
     with app.app_context():
         booking = Booking.query.filter_by(booking_request_id=request_id).one()
         booking.workflow_state = 'PROPERTY_COMPLETED'
+        replace_inventory(booking, [{'name': 'Test inventory item', 'quantity': 1, 'category': 'Other'}])
         db.session.commit()
     with client.session_transaction() as session:
         session['active_booking_request_id'] = request_id
@@ -727,7 +910,18 @@ def test_inventory_stage_renders_service_specific_questions(app, service_type, e
     request_id = make_booking(app, service_type)
     with app.app_context():
         booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        if service_type in {'residential', 'commercial', 'packing'}:
+            save_workflow_section(booking, 'property', {
+                'property_type': 'Apartment' if service_type != 'commercial' else 'Office',
+                'bedrooms': 1, 'bathrooms': 1, 'floors': 1,
+                'service_answers': _valid_schema_answers(service_questions_for(service_type, 'property')),
+            })
+        elif service_type == 'storage':
+            save_workflow_section(booking, 'property', {
+                'service_answers': _valid_schema_answers(service_questions_for(service_type, 'property')),
+            })
         booking.workflow_state = 'PROPERTY_COMPLETED'
+        replace_inventory(booking, [{'name': 'Test inventory item', 'quantity': 1, 'category': 'Other'}])
         db.session.commit()
     with client.session_transaction() as session:
         session['active_booking_request_id'] = request_id
@@ -778,6 +972,7 @@ def test_shared_move_reuses_location_and_accepts_distinct_addon_sections(app, se
     inventory_response = client.post(f'/api/bookings/{request_id}/inventory', json={
         'items': [{'name': 'Sofa', 'quantity': 1, 'category': 'Living Room'}],
         'inventory_answers': inventory_answers,
+        'confirmed': True,
     })
     assert inventory_response.status_code == 200
 
@@ -811,6 +1006,7 @@ def test_addon_question_answers_are_required_and_separate_from_quote_selections(
     with app.app_context():
         booking = Booking.query.filter_by(booking_request_id=request_id).one()
         booking.workflow_state = 'INVENTORY_COMPLETED'
+        booking.workflow_data = {**booking.workflow_data, 'inventory_confirmed': True}
         db.session.commit()
     with client.session_transaction() as session:
         session['active_booking_request_id'] = request_id
@@ -984,7 +1180,10 @@ def test_storage_and_logistics_requirements_are_service_specific(app):
 
 
 def test_property_types_are_service_specific_and_validated():
-    assert property_types_for_service('residential') == ('Apartment', 'House', 'Duplex')
+    assert property_types_for_service('residential') == (
+        'Apartment', 'House', 'Duplex', 'Flat / Apartment', 'Self-contained',
+        'Detached House', 'Semi-detached House', 'Bungalow', 'Terrace House', 'Other',
+    )
     assert property_types_for_service('commercial') == ('Office', 'Shop', 'Warehouse', 'Hotel', 'Estate', 'Construction Site')
     assert property_types_for_service('packing') == ()
 

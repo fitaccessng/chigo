@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from flask_login import UserMixin
 
@@ -124,6 +124,7 @@ class Booking(db.Model):
     quote_status = db.Column(db.String(30), nullable=False, default='Draft')
     workflow_data = db.Column(db.JSON, nullable=False, default=dict)
     calculation_data = db.Column(db.JSON, nullable=False, default=dict)
+    cancellation_data = db.Column(db.JSON, nullable=False, default=dict)
     estimated_duration_minutes = db.Column(db.Integer)
     flexible_date = db.Column(db.Boolean, nullable=False, default=False)
     flexible_time = db.Column(db.Boolean, nullable=False, default=False)
@@ -131,6 +132,8 @@ class Booking(db.Model):
     manually_overridden_total = db.Column(db.Float)
     price_override_reason = db.Column(db.Text)
     move_date = db.Column(db.Date, nullable=True)
+    service_completed_at = db.Column(db.DateTime(timezone=True))
+    cancelled_at = db.Column(db.DateTime(timezone=True))
     preferred_time = db.Column(db.String(20), default='Morning')
     property_type = db.Column(db.String(50), default='2 Bedroom')
     pickup_address = db.Column(db.String(255), nullable=True)
@@ -337,11 +340,15 @@ class BookingQuoteLine(db.Model):
 
 class BookingEvent(db.Model):
     __tablename__ = 'booking_events'
+    __table_args__ = (
+        db.UniqueConstraint('idempotency_key', name='uq_booking_events_idempotency_key'),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id'), nullable=False, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     action = db.Column(db.String(120), nullable=False)
+    idempotency_key = db.Column(db.String(160), nullable=True)
     previous_value = db.Column(db.JSON)
     new_value = db.Column(db.JSON)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -588,16 +595,22 @@ class IncidentReport(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id'), nullable=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     item = db.Column(db.String(120), nullable=True)
     incident_type = db.Column(db.String(80), nullable=False)
     description = db.Column(db.Text, nullable=False)
     photos = db.Column(db.Text)
+    evidence = db.Column(db.JSON, nullable=False, default=list)
+    contact_snapshot = db.Column(db.JSON, nullable=False, default=dict)
     reported_by = db.Column(db.String(120), nullable=False)
     date_time = db.Column(db.DateTime, default=datetime.utcnow)
+    noticed_at = db.Column(db.DateTime(timezone=True))
+    submitted_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     status = db.Column(db.String(30), default='Open')
     resolution = db.Column(db.Text)
 
     booking = db.relationship('Booking', back_populates='incidents')
+    customer = db.relationship('User', foreign_keys=[customer_id])
 
 
 class AuditLog(db.Model):
@@ -668,6 +681,7 @@ class TruckPartner(db.Model):
     status = db.Column(db.String(30), default='Available')
     rate = db.Column(db.Float, default=0.0)
     operating_areas = db.Column(db.String(255))
+    service_types = db.Column(db.JSON, nullable=False, default=list)
     notes = db.Column(db.Text)
     is_demo = db.Column(db.Boolean, nullable=False, default=False)
     seed_source = db.Column(db.String(40), nullable=False, default='production')
@@ -813,6 +827,8 @@ class BookingAssignment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id'), nullable=False)
     truck_id = db.Column(db.Integer, db.ForeignKey('trucks.id'), nullable=True)
+    partner_id = db.Column(db.Integer, db.ForeignKey('truck_partners.id'), nullable=True)
+    partner_vehicle_id = db.Column(db.Integer, db.ForeignKey('partner_vehicles.id'), nullable=True)
     driver_name = db.Column(db.String(120))
     mover_1 = db.Column(db.String(120))
     mover_2 = db.Column(db.String(120))
@@ -823,3 +839,128 @@ class BookingAssignment(db.Model):
 
     booking = db.relationship('Booking', back_populates='assignments')
     truck = db.relationship('Truck', back_populates='assignments')
+    partner = db.relationship('TruckPartner')
+    partner_vehicle = db.relationship('PartnerVehicle')
+
+
+class DispatchRequest(db.Model):
+    __tablename__ = 'dispatch_requests'
+
+    id = db.Column(db.Integer, primary_key=True)
+    booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id', ondelete='CASCADE'), nullable=False, unique=True)
+    status = db.Column(db.String(32), nullable=False, default='PENDING_DISPATCH', index=True)
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    last_error = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    booking = db.relationship('Booking')
+    offers = db.relationship('DispatchOffer', back_populates='dispatch_request', cascade='all, delete-orphan')
+    events = db.relationship('DispatchEvent', back_populates='dispatch_request', cascade='all, delete-orphan')
+    reservations = db.relationship('ResourceReservation', back_populates='dispatch_request', cascade='all, delete-orphan')
+
+
+class DispatchOffer(db.Model):
+    __tablename__ = 'dispatch_offers'
+    __table_args__ = (
+        db.Index('ix_dispatch_offers_status_expiry', 'status', 'expires_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    dispatch_request_id = db.Column(db.Integer, db.ForeignKey('dispatch_requests.id', ondelete='CASCADE'), nullable=False, index=True)
+    partner_id = db.Column(db.Integer, db.ForeignKey('truck_partners.id'), nullable=False, index=True)
+    partner_vehicle_id = db.Column(db.Integer, db.ForeignKey('partner_vehicles.id'), nullable=False, index=True)
+    token_hash = db.Column(db.String(64), nullable=False, unique=True)
+    status = db.Column(db.String(20), nullable=False, default='OFFERED', index=True)
+    candidate_snapshot = db.Column(db.JSON, nullable=False, default=dict)
+    rejection_reason = db.Column(db.String(500))
+    offered_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    responded_at = db.Column(db.DateTime)
+    email_status = db.Column(db.String(20), nullable=False, default='PENDING')
+    email_attempts = db.Column(db.Integer, nullable=False, default=0)
+    last_email_error = db.Column(db.String(300))
+
+    dispatch_request = db.relationship('DispatchRequest', back_populates='offers')
+    partner = db.relationship('TruckPartner')
+    partner_vehicle = db.relationship('PartnerVehicle')
+    reservations = db.relationship('ResourceReservation', back_populates='offer')
+
+
+class ResourceReservation(db.Model):
+    __tablename__ = 'resource_reservations'
+    __table_args__ = (
+        db.CheckConstraint(
+            "(truck_id IS NOT NULL AND partner_vehicle_id IS NULL AND mover_id IS NULL) OR "
+            "(truck_id IS NULL AND partner_vehicle_id IS NOT NULL AND mover_id IS NULL) OR "
+            "(truck_id IS NULL AND partner_vehicle_id IS NULL AND mover_id IS NOT NULL)",
+            name='ck_resource_reservation_one_resource',
+        ),
+        db.Index(
+            'uq_reserved_truck_day', 'truck_id', 'reservation_date', unique=True,
+            sqlite_where=db.text("status IN ('HELD', 'RESERVED')"),
+            postgresql_where=db.text("status IN ('HELD', 'RESERVED')"),
+        ),
+        db.Index(
+            'uq_reserved_partner_vehicle_day', 'partner_vehicle_id', 'reservation_date', unique=True,
+            sqlite_where=db.text("status IN ('HELD', 'RESERVED')"),
+            postgresql_where=db.text("status IN ('HELD', 'RESERVED')"),
+        ),
+        db.Index(
+            'uq_reserved_mover_day', 'mover_id', 'reservation_date', unique=True,
+            sqlite_where=db.text("status IN ('HELD', 'RESERVED')"),
+            postgresql_where=db.text("status IN ('HELD', 'RESERVED')"),
+        ),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    dispatch_request_id = db.Column(db.Integer, db.ForeignKey('dispatch_requests.id', ondelete='CASCADE'), nullable=False, index=True)
+    offer_id = db.Column(db.Integer, db.ForeignKey('dispatch_offers.id', ondelete='CASCADE'), nullable=False, index=True)
+    booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id', ondelete='CASCADE'), nullable=False, index=True)
+    truck_id = db.Column(db.Integer, db.ForeignKey('trucks.id'), nullable=True)
+    partner_vehicle_id = db.Column(db.Integer, db.ForeignKey('partner_vehicles.id'), nullable=True)
+    mover_id = db.Column(db.Integer, db.ForeignKey('movers.id'), nullable=True)
+    reservation_date = db.Column(db.Date, nullable=False, index=True)
+    status = db.Column(db.String(16), nullable=False, default='HELD', index=True)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    released_at = db.Column(db.DateTime)
+    release_reason = db.Column(db.String(250))
+
+    dispatch_request = db.relationship('DispatchRequest', back_populates='reservations')
+    offer = db.relationship('DispatchOffer', back_populates='reservations')
+    booking = db.relationship('Booking')
+    truck = db.relationship('Truck')
+    partner_vehicle = db.relationship('PartnerVehicle')
+    mover = db.relationship('Mover')
+
+
+class DispatchEvent(db.Model):
+    __tablename__ = 'dispatch_events'
+
+    id = db.Column(db.Integer, primary_key=True)
+    dispatch_request_id = db.Column(db.Integer, db.ForeignKey('dispatch_requests.id', ondelete='CASCADE'), nullable=False, index=True)
+    offer_id = db.Column(db.Integer, db.ForeignKey('dispatch_offers.id', ondelete='SET NULL'), nullable=True, index=True)
+    actor_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    event_type = db.Column(db.String(40), nullable=False, index=True)
+    details = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    dispatch_request = db.relationship('DispatchRequest', back_populates='events')
+    offer = db.relationship('DispatchOffer')
+    actor = db.relationship('User')
+
+
+class AIUsageCounter(db.Model):
+    __tablename__ = 'ai_usage_counters'
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'usage_date', name='uq_ai_usage_user_date'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    usage_date = db.Column(db.Date, nullable=False, index=True)
+    request_count = db.Column(db.Integer, nullable=False, default=0)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = db.relationship('User')

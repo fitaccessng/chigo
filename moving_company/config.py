@@ -15,7 +15,12 @@ def normalize_database_url(database_url):
 
 
 class Config:
+    APP_ENV = os.getenv('APP_ENV', 'development').strip().lower()
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key')
+    if APP_ENV == 'production' and (
+        len(SECRET_KEY) < 32 or SECRET_KEY in {'dev-secret-key', 'change-me'}
+    ):
+        raise RuntimeError('Production requires a SECRET_KEY with at least 32 characters.')
     DB_HOST = os.getenv('POSTGIS_HOST', 'localhost')
     DB_PORT = os.getenv('POSTGIS_PORT', '5432')
     DB_NAME = os.getenv('POSTGIS_DB', 'chigo')
@@ -76,7 +81,6 @@ class Config:
     OSRM_BASE_URL = os.getenv('OSRM_BASE_URL', 'https://router.project-osrm.org')
     OSM_TILE_URL = os.getenv('OSM_TILE_URL', 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png')
     OSM_USER_AGENT = os.getenv('OSM_USER_AGENT', 'ChigoRelocations/1.0')
-    APP_ENV = os.getenv('APP_ENV', 'development').strip().lower()
     CANONICAL_ORIGIN = os.getenv('CANONICAL_ORIGIN', '').strip().rstrip('/')
     GA4_MEASUREMENT_ID = os.getenv('GA4_MEASUREMENT_ID', '').strip()
     GTM_CONTAINER_ID = os.getenv('GTM_CONTAINER_ID', '').strip()
@@ -101,3 +105,10 @@ class Config:
     MAIL_DEFAULT_SENDER = os.getenv('MAIL_DEFAULT_SENDER', 'hello@chigomove.online')
     STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY')
     STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
+    DISPATCH_OFFER_TTL_MINUTES = max(5, int(os.getenv('DISPATCH_OFFER_TTL_MINUTES', '20')))
+    AI_PROVIDER = os.getenv('CHIGO_AI_PROVIDER', '').strip().lower()
+    AI_API_BASE_URL = os.getenv('CHIGO_AI_API_BASE_URL', '').strip().rstrip('/')
+    AI_API_KEY = os.getenv('CHIGO_AI_API_KEY')
+    AI_MODEL = os.getenv('CHIGO_AI_MODEL', '').strip()
+    AI_REQUEST_TIMEOUT_SECONDS = max(1, int(os.getenv('CHIGO_AI_REQUEST_TIMEOUT_SECONDS', '12')))
+    AI_DAILY_REQUEST_LIMIT = max(0, int(os.getenv('CHIGO_AI_DAILY_REQUEST_LIMIT', '0')))

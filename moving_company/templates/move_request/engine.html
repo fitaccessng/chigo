@@ -5,12 +5,13 @@
 {% macro question_fields(fields, prefix, answers) %}
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" data-inventory-grid>
     {% for field in fields %}
+    {% set condition_values = field.condition[1] if field.condition and field.condition[1] is not string else ([field.condition[1]] if field.condition else []) %}
     {% if prefix == 'service_' and field.key in ['storage_collection', 'storage_retrieval', 'storage_return_known'] %}
     <input type="hidden" name="{{ prefix }}{{ field.key }}" value="{{ answers.get(field.key, 'no') }}">
     {% else %}
     <div class="flex flex-col justify-between rounded-xl border border-stone-200 bg-white p-4 shadow-sm transition hover:border-brand-300 {% if field.type == 'textarea' %}sm:col-span-2 lg:col-span-3{% endif %}"
          data-question-field
-         {% if field.condition %}data-condition-key="{{ prefix }}{{ field.condition[0] }}" data-condition-value="{{ field.condition[1] }}"{% endif %}>
+          {% if field.condition %}data-condition-key="{{ prefix }}{{ field.condition[0] }}" data-condition-value="{{ condition_values|join('|') }}"{% if answers.get(field.condition[0], '')|string|lower not in condition_values|map('lower')|list %} hidden{% endif %}{% endif %}>
       
       <label class="text-xs font-semibold text-stone-800 mb-2 block">
         {{ field.label }}
@@ -40,7 +41,9 @@
           <select name="{{ prefix }}{{ field.key }}" {% if field.key == 'cleaning_areas' %}data-cleaning-areas{% endif %} {% if field.key == 'cleaning_property_type' %}data-cleaning-property-type{% endif %} {% if field.required %}required{% endif %} class="w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm font-normal text-stone-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
             <option value="">Choose an option</option>
             {% for option in field.options %}
-              {% set option_selected = answers.get(field.key, '') == option %}
+              {% set answer_value = answers.get(field.key, 'legacy' if field.key == 'morph_cleaning_category' and answers.get('cleaning_subtype') else '') %}
+              {% if field.key == 'destination_property_type' and answer_value == 'Apartment' %}{% set answer_value = 'Flat / Apartment' %}{% elif field.key == 'destination_property_type' and answer_value == 'House' %}{% set answer_value = 'Detached House' %}{% endif %}
+              {% set option_selected = answer_value == option %}
               <option value="{{ option }}" {% if option_selected %}selected{% endif %}>{{ option|replace('-', ' ')|title }}</option>
             {% endfor %}
           </select>
@@ -392,7 +395,7 @@
           <p class="mt-1 text-sm text-stone-600">{% if service_type == 'cleaning' %}Tell us about the property and cleaning scope.{% elif service_type == 'residential' %}Tell us about your home and destination property.{% elif service_type == 'commercial' %}Tell us about your premises and move requirements.{% elif service_type == 'packing' %}Tell us what needs packing and how much assistance you need.{% elif service_type == 'storage' %}Tell us about the storage duration and collection or delivery needs.{% elif service_type == 'support' %}Describe the support you need; operations will confirm availability.{% else %}Shipment details are collected in the next step.{% endif %}</p>
         </div>
         {% if service_type in ['residential', 'commercial'] %}
-        <label class="block text-xs font-semibold text-stone-800">{{ 'Business premises type' if service_type == 'commercial' else 'Property type' }}
+        <label class="block text-xs font-semibold text-stone-800">{{ 'Business premises type' if service_type == 'commercial' else 'Pickup property type' }}
           <select name="property_type" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm text-stone-900">
             <option value="">Choose an option</option>
             {% for option in property_types %}<option value="{{ option }}" {% if property_data.get('property_type', booking.property_type) == option %}selected{% endif %}>{{ option }}</option>{% endfor %}
@@ -401,11 +404,29 @@
         {% endif %}
         {% if service_type == 'residential' %}
         <div class="grid gap-4 sm:grid-cols-2">
-          <label class="block text-xs font-semibold text-stone-800">Bedrooms at pickup<input type="number" name="bedrooms" min="0" value="{{ property_data.get('bedrooms', booking.number_of_bedrooms or 0) }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm"></label>
-          <label class="block text-xs font-semibold text-stone-800">Bathrooms at pickup<input type="number" name="bathrooms" min="0" value="{{ property_data.get('bathrooms', booking.number_of_bathrooms or 0) }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm"></label>
+          {% set bedroom_property_types = ['Apartment', 'Flat / Apartment', 'Self-contained', 'Duplex', 'House', 'Detached House', 'Semi-detached House', 'Bungalow', 'Terrace House'] %}
+          {% set floor_property_types = bedroom_property_types + ['Office'] %}
+          <label class="block text-xs font-semibold text-stone-800" data-question-field data-condition-key="property_type" data-condition-value="{{ bedroom_property_types|join('|') }}" {% if property_data.get('property_type', booking.property_type) not in bedroom_property_types %}hidden{% endif %}>Bedrooms at pickup<input type="number" name="bedrooms" min="0" max="100" step="1" value="{{ property_data.get('bedrooms', booking.number_of_bedrooms or 0) }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm"></label>
+          <label class="block text-xs font-semibold text-stone-800" data-question-field data-condition-key="property_type" data-condition-value="{{ bedroom_property_types|join('|') }}" {% if property_data.get('property_type', booking.property_type) not in bedroom_property_types %}hidden{% endif %}>Bathrooms at pickup<input type="number" name="bathrooms" min="0" max="100" step="1" value="{{ property_data.get('bathrooms', booking.number_of_bathrooms or 0) }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm"></label>
+          <label class="block text-xs font-semibold text-stone-800" data-question-field data-condition-key="property_type" data-condition-value="{{ floor_property_types|join('|') }}" {% if property_data.get('property_type', booking.property_type) not in floor_property_types %}hidden{% endif %}>Property floors or storeys<input type="number" name="floors" min="1" max="100" step="1" value="{{ property_data.get('floors', booking.number_of_floors or 1) }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm"></label>
+          <label class="block text-xs font-semibold text-stone-800">Approximate pickup property size (m²), if known<input type="number" name="approximate_size_m2" min="1" max="100000" step="0.1" value="{{ property_data.get('approximate_size_m2', '') }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm"></label>
         </div>
         {% endif %}
         {% if service_questions %}{{ question_fields(service_questions, 'service_', property_answers) }}{% endif %}
+        {% if service_type == 'cleaning' and property_answers.get('morph_cleaning_category') == 'fumigation-pest-control' %}
+        <aside class="border-l-4 border-amber-500 bg-amber-50 p-4 text-sm leading-6 text-amber-950"><h3 class="font-bold">Fumigation &amp; Pest Control</h3><p class="mt-1">This is a separate service. No verified fumigation rate card is currently configured, so Chigo will review your assessment details and confirm a price before the booking is finalized.</p></aside>
+        {% elif service_type == 'cleaning' %}
+        <section class="border-t border-stone-200 pt-5" aria-labelledby="morph-rate-card">
+          <h3 id="morph-rate-card" class="text-sm font-bold text-stone-900">Morph Cleaning rates</h3>
+          <p class="mt-1 text-xs text-stone-600">Listed rates are in NGN. Unlisted property sizes require a custom quote. Fumigation pricing is not shown because its supplied residential schedule has not been verified for that service.</p>
+          <div class="mt-3 grid gap-5 sm:grid-cols-2">
+            <div><h4 class="text-xs font-bold text-stone-800">Residential Move-Clean</h4><dl class="mt-2 divide-y divide-stone-100 text-xs">{% for property, amount in cleaning_residential_rates.items() %}<div class="flex justify-between gap-3 py-1"><dt>{{ property|replace('-', ' ')|title }}</dt><dd class="font-semibold">₦{{ '{:,.0f}'.format(amount) }}</dd></div>{% endfor %}</dl></div>
+            <div><h4 class="text-xs font-bold text-stone-800">Commercial Move-Clean</h4><dl class="mt-2 divide-y divide-stone-100 text-xs">{% for limit, label, amount in cleaning_commercial_rates %}<div class="flex justify-between gap-3 py-1"><dt>{{ label }}</dt><dd class="shrink-0 font-semibold">₦{{ '{:,.0f}'.format(amount) }}</dd></div>{% endfor %}</dl></div>
+            <div><h4 class="text-xs font-bold text-stone-800">Upholstery couch care</h4><dl class="mt-2 divide-y divide-stone-100 text-xs">{% for item, amount in cleaning_couch_rates.items() %}<div class="flex justify-between gap-3 py-1"><dt>{{ item|replace('-', ' ')|title }}</dt><dd class="font-semibold">₦{{ '{:,.0f}'.format(amount) }}</dd></div>{% endfor %}</dl></div>
+            <div><h4 class="text-xs font-bold text-stone-800">Bedframes and kitchen appliances</h4><dl class="mt-2 divide-y divide-stone-100 text-xs">{% for item, amount in cleaning_bedframe_rates.items() %}<div class="flex justify-between gap-3 py-1"><dt>{{ item|replace('-', ' ')|title }} bedframe</dt><dd class="font-semibold">₦{{ '{:,.0f}'.format(amount) }}</dd></div>{% endfor %}<div class="flex justify-between gap-3 py-1"><dt>Approved kitchen appliance · each</dt><dd class="font-semibold">₦{{ '{:,.0f}'.format(cleaning_appliance_rate) }}</dd></div></dl></div>
+          </div>
+        </section>
+        {% endif %}
         {% if service_type == 'logistics' and not service_questions %}
         <p class="rounded-xl border border-stone-200 bg-stone-50 p-4 text-sm text-stone-700">No separate property questions are needed for this shipment. We’ll collect shipment details in the next step.</p>
         {% endif %}
@@ -417,7 +438,8 @@
             const sync = () => form.querySelectorAll('[data-question-field]').forEach((wrapper) => {
               const key = wrapper.dataset.conditionKey;
               const dependency = key ? form.elements.namedItem(key) : null;
-              const visible = !key || String(dependency?.value || '').toLowerCase() === String(wrapper.dataset.conditionValue || '').toLowerCase();
+              const allowed = String(wrapper.dataset.conditionValue || '').split('|').map((value) => value.toLowerCase());
+              const visible = !key || allowed.includes(String(dependency?.value || '').toLowerCase());
               wrapper.hidden = !visible;
               wrapper.querySelectorAll('input,select,textarea').forEach((input) => {
                 if (input.dataset.initialRequired === undefined) input.dataset.initialRequired = input.required ? 'true' : 'false';
@@ -433,63 +455,136 @@
       </script>
     {% elif stage == 'inventory' %}
       {% set inventory_answers = (booking.workflow_data or {}).get('inventory_answers', {}) %}
+      {% set saved_inventory = booking.inventory or [] %}
+      {% set saved_by_catalogue = {} %}{% for selection in saved_inventory if selection.inventory_item_id %}{% set _ = saved_by_catalogue.update({selection.inventory_item_id: selection}) %}{% endfor %}
+      {% if service_type in ['residential', 'commercial', 'packing', 'logistics'] %}<aside class="border-l-4 border-amber-500 bg-amber-50 p-4 text-sm leading-6 text-amber-950"><p>Please ensure your inventory is accurate and disclose fragile, valuable, unusually heavy or specialist items before confirming your booking. Report any damage or loss promptly through Chigo Support. Incidents are reviewed based on the available evidence and applicable terms.</p><a class="mt-2 inline-block font-semibold underline" href="{{ url_for('public.terms') }}#damage-loss-liability">Read the damage and liability policy</a></aside>{% endif %}
       {% if inventory_catalog %}
-      <div class="grid gap-6 xl:grid-cols-[minmax(0,2fr)_320px]">
-        <section class="space-y-6">
+      <div class="space-y-7">
+        <section class="space-y-5">
           <div>
             <h2 class="text-lg font-bold text-stone-900">{{ service_workflow.label }} inventory</h2>
-            <p class="mt-1 text-sm text-stone-600">Add the items you need moved and confirm any heavy or fragile requirements.</p>
+            <p class="mt-1 text-sm text-stone-600">Search or filter the catalogue, choose quantities, then save your selections. Your inventory is not final until you confirm it below.</p>
           </div>
           <div class="rounded-xl border border-stone-200 bg-stone-50 p-3">
-            <label for="inventory-search" class="mb-2 block text-xs font-semibold uppercase tracking-[0.08em] text-stone-600">Search inventory</label>
-            <input id="inventory-search" type="search" placeholder="Search items or categories" class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 placeholder:text-stone-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
-            <div id="inventory-category-filter" class="mt-3 flex flex-wrap gap-2">
+            <div class="flex gap-2">
+              <label for="inventory-search" class="sr-only">Search inventory</label>
+              <input id="inventory-search" type="search" placeholder="Search name or synonym, e.g. TV, fridge" class="min-w-0 flex-1 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 placeholder:text-stone-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600">
+              <button id="inventory-search-clear" type="button" class="shrink-0 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-semibold text-stone-700">Clear</button>
+            </div>
+            <div id="inventory-category-filter" class="mt-3 flex flex-wrap gap-2" role="group" aria-label="Filter inventory by category">
+              <button type="button" class="inventory-category-toggle rounded-full border border-brand-700 bg-brand-700 px-2.5 py-1.5 text-xs font-semibold text-white" data-category="all" aria-pressed="true">All</button>
               {% for group in inventory_catalog %}
-              <button type="button" class="inventory-category-toggle rounded-full border border-stone-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-brand-300 hover:text-brand-700" data-category="{{ group.category }}">{{ group.category }}</button>
+              <button type="button" class="inventory-category-toggle rounded-full border border-stone-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-stone-700 hover:border-brand-300 hover:text-brand-700" data-category="{{ group.category }}" aria-pressed="false">{{ group.category }}</button>
               {% endfor %}
             </div>
           </div>
-          <form method="post" class="space-y-6">
+          <form method="post" class="space-y-5" data-inventory-picker>
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="action" value="save_and_continue">
+            <input type="hidden" name="action" value="add_catalogue">
             {% for group in inventory_catalog %}
-            <div class="rounded-xl border border-stone-200 bg-stone-50/70 p-4">
+            <section class="inventory-category-group rounded-xl border border-stone-200 bg-stone-50/70 p-4" data-category-group="{{ group.category }}">
               <h3 class="mb-3 text-sm font-bold text-stone-900">{{ group.category }}</h3>
               <div class="grid gap-2 sm:grid-cols-2">
                 {% for item in group.catalog_items %}
-                <label class="flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-700">
-                  <input type="checkbox" name="inventory_item_id_{{ item.id }}" value="{{ item.id }}" class="h-4 w-4 rounded border-stone-300 text-brand-600 focus:ring-brand-500">
-                  <span>{{ item.name }}</span>
+                {% set saved = saved_by_catalogue.get(item.id) %}
+                <label class="inventory-item flex min-w-0 items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-700" data-category="{{ group.category }}" data-search="{{ (item.name ~ ' ' ~ (item.aliases or '') ~ ' ' ~ group.category)|lower }}">
+                  <input type="checkbox" name="inventory_item_id_{{ item.id }}" value="{{ item.id }}" {% if saved %}checked{% endif %} class="inventory-item-check h-4 w-4 shrink-0 rounded border-stone-300 text-brand-600 focus:ring-brand-500">
+                  <span class="min-w-0 flex-1">{{ item.name }}</span>
+                  <input type="number" name="inventory_item_quantity_{{ item.id }}" value="{{ saved.quantity if saved else 1 }}" min="1" max="500" step="1" aria-label="Quantity of {{ item.name }}" class="inventory-item-quantity w-20 rounded border border-stone-300 px-2 py-1 text-right text-sm tabular-nums" {% if not saved %}disabled{% endif %}>
                 </label>
                 {% endfor %}
               </div>
-            </div>
+            </section>
             {% endfor %}
-            {% if inventory_questions %}{{ question_fields(inventory_questions, 'inventory_', inventory_answers) }}{% endif %}
-            <button type="submit" class="w-full rounded-xl bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800 sm:w-auto">Save inventory and continue</button>
+            <p id="inventory-empty-state" class="hidden border border-stone-200 bg-white p-5 text-sm text-stone-600" role="status">No inventory items match this search and category. Try another term or clear the search.</p>
+            <button type="submit" class="w-full rounded-xl border border-brand-700 bg-white px-6 py-3 text-sm font-bold text-brand-800 hover:bg-brand-50 sm:w-auto">Save selected items</button>
+          </form>
+          <form method="post" class="flex flex-wrap items-end gap-3 border-b border-stone-200 pb-5">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="add_custom">
+            <label class="min-w-56 flex-1 text-sm font-semibold text-stone-800">Add a custom item<input name="custom_item_name[]" required maxlength="100" placeholder="Item name" class="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2"></label>
+            <label class="w-28 text-sm font-semibold text-stone-800">Quantity<input name="custom_item_quantity[]" type="number" min="1" max="500" step="1" value="1" required class="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-right tabular-nums"></label>
+            <button type="submit" class="border border-stone-300 px-4 py-2.5 text-sm font-semibold text-stone-800">Add item</button>
           </form>
         </section>
-        <aside class="space-y-4">
-          <div class="rounded-xl border border-stone-200 bg-stone-50 p-4">
-            <h3 class="text-sm font-bold text-stone-900">Your selections</h3>
-            <p class="mt-2 text-xs text-stone-600">Selected items are summarized here before you continue.</p>
-          </div>
-          <div class="rounded-xl border border-brand-200 bg-brand-50 p-4">
-            <h3 class="text-sm font-bold text-brand-900">Vehicle recommendation</h3>
-            {% for vehicle in vehicle_options[:3] %}
-            <div class="mt-3 flex items-center gap-3 rounded-lg border border-brand-100 bg-white p-2">
-              {% if vehicle.image %}
-              <img src="{{ url_for('static', filename=vehicle.image) }}" alt="{{ vehicle.name }}" class="h-12 w-12 rounded-md object-cover">
-              {% endif %}
-              <div>
-                <p class="text-sm font-semibold text-stone-900">{{ vehicle.name }}</p>
-                <p class="text-xs text-stone-600">{{ vehicle.best_for or 'Recommended for this move' }}</p>
+        <section class="border-t border-stone-200 pt-6" aria-labelledby="inventory-review-heading">
+          <div class="flex flex-wrap items-end justify-between gap-3"><div><h2 id="inventory-review-heading" class="text-lg font-bold text-stone-900">Review selected inventory</h2><p class="mt-1 text-sm text-stone-600">Adjust quantities or remove items before the inventory is confirmed.</p></div><p class="text-sm font-semibold text-stone-800">Individual items: {{ saved_inventory|sum(attribute='quantity') }}</p></div>
+          {% if saved_inventory %}
+          <form method="post" class="mt-4 space-y-5" data-question-form data-confirm-inventory>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="delete_selection_id" value="">
+            <div class="divide-y divide-stone-200 border-y border-stone-200">
+              {% for item in saved_inventory %}
+              <div class="grid items-center gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_8rem_auto]">
+                <input type="hidden" name="selection_id" value="{{ item.id }}">
+                <div><p class="font-semibold text-stone-900">{{ item.display_name }}</p><p class="text-xs text-stone-500">{{ item.category }}{% if item.fragile %} · Fragile{% endif %}{% if item.special_handling %} · Special handling{% endif %}</p></div>
+                <label class="text-xs font-semibold text-stone-700">Quantity<input type="number" name="quantity[]" value="{{ item.quantity }}" min="1" max="500" step="1" required class="mt-1 w-full rounded border border-stone-300 px-2 py-1.5 text-right tabular-nums"></label>
+                <button type="submit" name="action" value="delete_selection" data-remove-selection="{{ item.id }}" class="justify-self-start text-sm font-semibold text-red-700 underline">Remove</button>
               </div>
+              {% endfor %}
             </div>
-            {% endfor %}
-          </div>
-        </aside>
+            {% if inventory_questions %}{{ question_fields(inventory_questions, 'inventory_', inventory_answers) }}{% endif %}
+            <section class="rounded-xl border border-stone-200 bg-white p-4" aria-labelledby="heavy-items-heading" data-question-field data-condition-key="inventory_heavy_or_oversized" data-condition-value="yes" {% if inventory_answers.get('heavy_or_oversized') != 'yes' %}hidden{% endif %}>
+              <h3 id="heavy-items-heading" class="text-sm font-bold text-stone-900">Heavy or oversized items</h3>
+              <p class="mt-1 text-xs text-stone-600">Provide item details to help operations assess vehicle capacity and handling. Leave unknown weight or dimensions blank.</p><p id="heavy-items-error" hidden role="alert" class="mt-2 text-sm text-red-700"></p>
+              <div id="heavy-item-rows" class="mt-3 space-y-3">{% for heavy in (booking.workflow_data or {}).get('heavy_items', []) %}<div class="heavy-item-row grid gap-2 border-b border-stone-100 pb-3 sm:grid-cols-3"><select name="heavy_item_type[]" class="rounded-lg border border-stone-300 px-2 py-2 text-sm"><option value="other" {% if heavy.name not in ['Refrigerator', 'Large freezer', 'Large wardrobe', 'Piano', 'Treadmill or gym equipment', 'Large safe', 'Pool table', 'Large sectional sofa', 'Oversized office equipment'] %}selected{% endif %}>Other</option>{% for heavy_type in ['Refrigerator', 'Large freezer', 'Large wardrobe', 'Piano', 'Treadmill or gym equipment', 'Large safe', 'Pool table', 'Large sectional sofa', 'Oversized office equipment'] %}<option value="{{ heavy_type|lower|replace(' ', '-') }}" {% if heavy.name == heavy_type %}selected{% endif %}>{{ heavy_type }}</option>{% endfor %}</select><input name="heavy_item_name[]" value="{{ heavy.name if heavy.name not in ['Refrigerator', 'Large freezer', 'Large wardrobe', 'Piano', 'Treadmill or gym equipment', 'Large safe', 'Pool table', 'Large sectional sofa', 'Oversized office equipment'] else '' }}" placeholder="Custom item name" class="rounded-lg border border-stone-300 px-2 py-2 text-sm"><input name="heavy_item_quantity[]" type="number" min="1" max="500" value="{{ heavy.quantity }}" required aria-label="Heavy item quantity" class="rounded-lg border border-stone-300 px-2 py-2 text-sm"><input name="heavy_item_weight_kg[]" type="number" min="0.1" max="10000" step="0.1" value="{{ heavy.weight_kg or '' }}" placeholder="Approx. weight kg" class="rounded-lg border border-stone-300 px-2 py-2 text-sm"><input name="heavy_item_length_cm[]" type="number" min="0.1" step="0.1" value="{{ (heavy.dimensions_cm or {}).get('length', '') }}" placeholder="Length cm" class="rounded-lg border border-stone-300 px-2 py-2 text-sm"><input name="heavy_item_width_cm[]" type="number" min="0.1" step="0.1" value="{{ (heavy.dimensions_cm or {}).get('width', '') }}" placeholder="Width cm" class="rounded-lg border border-stone-300 px-2 py-2 text-sm"><input name="heavy_item_height_cm[]" type="number" min="0.1" step="0.1" value="{{ (heavy.dimensions_cm or {}).get('height', '') }}" placeholder="Height cm" class="rounded-lg border border-stone-300 px-2 py-2 text-sm"><select name="heavy_item_special_handling[]" aria-label="Special handling" class="rounded-lg border border-stone-300 px-2 py-2 text-sm"><option value="no">No special handling</option><option value="yes" {% if heavy.special_handling %}selected{% endif %}>Needs special handling</option></select><button type="button" data-remove-heavy-item class="justify-self-start text-sm font-semibold text-red-700 underline">Remove item</button></div>{% endfor %}</div>
+              <button type="button" id="add-heavy-item" class="mt-3 border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700">Add another item</button>
+              <template id="heavy-item-template"><div class="heavy-item-row grid gap-2 border-b border-stone-100 pb-3 sm:grid-cols-3"><select name="heavy_item_type[]" class="rounded-lg border border-stone-300 px-2 py-2 text-sm"><option value="other">Other</option>{% for heavy_type in ['Refrigerator', 'Large freezer', 'Large wardrobe', 'Piano', 'Treadmill or gym equipment', 'Large safe', 'Pool table', 'Large sectional sofa', 'Oversized office equipment'] %}<option value="{{ heavy_type|lower|replace(' ', '-') }}">{{ heavy_type }}</option>{% endfor %}</select><input name="heavy_item_name[]" placeholder="Custom item name" class="rounded-lg border border-stone-300 px-2 py-2 text-sm"><input name="heavy_item_quantity[]" type="number" min="1" max="500" value="1" required aria-label="Heavy item quantity" class="rounded-lg border border-stone-300 px-2 py-2 text-sm"><input name="heavy_item_weight_kg[]" type="number" min="0.1" max="10000" step="0.1" placeholder="Approx. weight kg" class="rounded-lg border border-stone-300 px-2 py-2 text-sm"><input name="heavy_item_length_cm[]" type="number" min="0.1" step="0.1" placeholder="Length cm" class="rounded-lg border border-stone-300 px-2 py-2 text-sm"><input name="heavy_item_width_cm[]" type="number" min="0.1" step="0.1" placeholder="Width cm" class="rounded-lg border border-stone-300 px-2 py-2 text-sm"><input name="heavy_item_height_cm[]" type="number" min="0.1" step="0.1" placeholder="Height cm" class="rounded-lg border border-stone-300 px-2 py-2 text-sm"><select name="heavy_item_special_handling[]" aria-label="Special handling" class="rounded-lg border border-stone-300 px-2 py-2 text-sm"><option value="no">No special handling</option><option value="yes">Needs special handling</option></select><button type="button" data-remove-heavy-item class="justify-self-start text-sm font-semibold text-red-700 underline">Remove item</button></div></template>
+            </section>
+            <div class="flex flex-wrap justify-between gap-3"><a href="{{ url_for('booking.workflow', request_id=booking.booking_request_id, stage='inventory') }}" class="border border-stone-300 px-4 py-3 text-sm font-semibold text-stone-700">Back to Inventory</a><div class="flex flex-wrap gap-2"><button type="submit" name="action" value="update_selection" class="border border-stone-300 px-4 py-3 text-sm font-semibold text-stone-800">Save quantity changes</button><button type="submit" name="action" value="confirm_inventory" class="rounded-xl bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800">Confirm Inventory &amp; Recommend Vehicle</button></div></div>
+          </form>
+          {% else %}
+            <div class="mt-4 space-y-3 border border-stone-200 bg-stone-50 p-4 text-sm text-stone-600">
+              <p>No items selected yet. Search the catalogue above and save at least one item to review it here.</p>
+              <form method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="confirm_inventory">
+                <button type="submit" disabled aria-disabled="true" class="rounded-xl bg-stone-300 px-6 py-3 text-sm font-bold text-stone-500 cursor-not-allowed">Confirm Inventory &amp; Recommend Vehicle</button>
+              </form>
+            </div>
+          {% endif %}
+        </section>
       </div>
+      <script>
+        (() => {
+          const search = document.getElementById('inventory-search');
+          const clear = document.getElementById('inventory-search-clear');
+          const groups = [...document.querySelectorAll('.inventory-category-group')];
+          const filterButtons = [...document.querySelectorAll('.inventory-category-toggle')];
+          const empty = document.getElementById('inventory-empty-state');
+          let activeCategory = 'all';
+          const applyFilters = () => {
+            const term = (search?.value || '').trim().toLocaleLowerCase();
+            let visibleCount = 0;
+            for (const group of groups) {
+              const categoryVisible = activeCategory === 'all' || group.dataset.category === activeCategory;
+              let groupCount = 0;
+              for (const item of group.querySelectorAll('.inventory-item')) {
+                const visible = categoryVisible && (!term || item.dataset.search.includes(term));
+                item.hidden = !visible;
+                if (visible) { groupCount += 1; visibleCount += 1; }
+              }
+              group.hidden = !categoryVisible || (term && groupCount === 0);
+            }
+            if (empty) empty.hidden = visibleCount !== 0;
+          };
+          search?.addEventListener('input', applyFilters);
+          clear?.addEventListener('click', () => { if (search) { search.value = ''; search.focus(); } activeCategory = 'all'; filterButtons.forEach((button) => { const selected = button.dataset.category === 'all'; button.setAttribute('aria-pressed', String(selected)); button.classList.toggle('bg-brand-700', selected); button.classList.toggle('text-white', selected); }); applyFilters(); });
+          filterButtons.forEach((button) => button.addEventListener('click', () => { activeCategory = button.dataset.category; filterButtons.forEach((candidate) => { const selected = candidate === button; candidate.setAttribute('aria-pressed', String(selected)); candidate.classList.toggle('bg-brand-700', selected); candidate.classList.toggle('text-white', selected); }); applyFilters(); }));
+          document.querySelectorAll('.inventory-item-check').forEach((checkbox) => checkbox.addEventListener('change', () => { const quantity = checkbox.closest('.inventory-item')?.querySelector('.inventory-item-quantity'); if (quantity) quantity.disabled = !checkbox.checked; }));
+          const rows = document.getElementById('heavy-item-rows');
+          const template = document.getElementById('heavy-item-template');
+          document.getElementById('add-heavy-item')?.addEventListener('click', () => { if (rows && template && rows.children.length < 25) rows.append(template.content.cloneNode(true)); });
+          rows?.addEventListener('click', (event) => { if (event.target.matches('[data-remove-heavy-item]')) event.target.closest('.heavy-item-row')?.remove(); });
+          const confirmForm = document.querySelector('[data-confirm-inventory]');
+          confirmForm?.addEventListener('click', (event) => { const button = event.target.closest('[data-remove-selection]'); if (button) confirmForm.querySelector('[name="delete_selection_id"]').value = button.dataset.removeSelection; });
+          confirmForm?.addEventListener('submit', (event) => {
+            if (event.submitter?.value !== 'confirm_inventory') return;
+            const choice = document.querySelector('[name="inventory_heavy_or_oversized"]:checked,select[name="inventory_heavy_or_oversized"]');
+            const value = choice?.value || '';
+            if (value === 'yes' && (!rows || rows.children.length === 0)) { event.preventDefault(); const message = document.getElementById('heavy-items-error'); if (message) { message.hidden = false; message.textContent = 'Add at least one heavy or oversized item, or change the answer to No.'; message.scrollIntoView({behavior: 'smooth', block: 'center'}); } }
+          });
+          applyFilters();
+        })();
+      </script>
       {% else %}
       <form method="post" class="space-y-6">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -505,6 +600,14 @@
     {% elif stage == 'services' %}
       <form method="post" class="space-y-6">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if booking.primary_service in ['residential', 'commercial'] %}
+        <fieldset class="border-b border-stone-200 pb-6">
+          <legend class="text-lg font-bold text-stone-900">Vehicle recommendation from confirmed inventory</legend>
+          <p class="mt-1 text-sm text-stone-600">Based on {{ inventory_summary.item_count }} confirmed items, {{ inventory_summary.volume_m3 }} m³ and {{ inventory_summary.weight_kg }} kg. Return to inventory if these details have changed.</p>
+          {% if inventory_summary.review_reasons %}<ul class="mt-3 list-disc border-l-4 border-amber-500 bg-amber-50 py-3 pl-8 pr-4 text-sm text-amber-950">{% for reason in inventory_summary.review_reasons %}<li>{{ reason }}</li>{% endfor %}</ul>{% endif %}
+          {% if vehicle_options %}<div class="mt-4 grid gap-3 lg:grid-cols-2">{% for vehicle in vehicle_options %}<label class="flex cursor-pointer items-start gap-3 border border-stone-200 bg-white p-3 {% if vehicle.recommended %}border-brand-600 ring-1 ring-brand-600{% endif %} {% if not vehicle.fits %}opacity-70{% endif %}"><input type="radio" name="vehicle_type_id" value="{{ vehicle.id }}" required {% if vehicle.selected %}checked{% endif %} class="mt-1 h-4 w-4 text-brand-700"><span class="min-w-0 flex-1">{% if vehicle.image %}<img src="{{ url_for('static', filename=vehicle.image) }}" alt="" class="mb-2 h-12 w-16 object-contain">{% endif %}<span class="block text-sm font-bold text-stone-900">{{ vehicle.name }}{% if vehicle.recommended %} · Recommended{% endif %}</span><span class="mt-1 block text-xs text-stone-600">{{ vehicle.capacity_m3 }} m³ · {{ vehicle.max_payload_kg }} kg capacity{% if vehicle.quantity > 1 %} · {{ vehicle.quantity }} vehicles required{% endif %}</span>{% if vehicle.recommendation_reason %}<span class="mt-1 block text-xs text-stone-600">{{ vehicle.recommendation_reason }}</span>{% endif %}{% if vehicle.capacity_exceeded %}<span class="mt-1 block text-xs font-semibold text-amber-800">Multiple vehicles required to fit the confirmed load.</span>{% endif %}</span></label>{% endfor %}</div>{% else %}<p class="mt-3 border-l-4 border-amber-500 bg-amber-50 p-3 text-sm text-amber-950">No active vehicle is configured. Operations must review this inventory before the booking can continue.</p>{% endif %}
+        </fieldset>
+        {% endif %}
         <h2 class="text-lg font-bold text-stone-900">Choose additional services</h2>
         <p class="text-sm text-stone-600">Your primary service is {{ service_workflow.label }}. Select any additional support for this request.</p>
         {% if service_cards %}
@@ -598,9 +701,11 @@
         {% set cleaning_answers = ((booking.workflow_data or {}).get('property') or {}).get('service_answers', {}) %}
         {% if booking.primary_service == 'cleaning' and cleaning_answers.get('cleaning_bedrooms') is not none %}<p class="text-sm text-stone-600">Cleaning Bedrooms: {{ cleaning_answers.get('cleaning_bedrooms') }}</p>{% endif %}
         {% set estimate_lines = calculation.get('estimate_details', {}).get('lines', []) %}
-        {% if estimate_lines %}<section class="rounded-lg border border-stone-200 p-4"><h3 class="text-sm font-bold text-stone-800">Indicative only: quote breakdown</h3><ul class="mt-3 space-y-2 text-sm text-stone-600">{% for line in estimate_lines %}<li>{{ 'Cleaning ' if booking.primary_service == 'cleaning' and line.label in ['Bedrooms', 'Bathrooms / toilets'] else '' }}{{ line.label }}</li>{% endfor %}</ul></section>{% endif %}
+        {% if booking.primary_service == 'cleaning' %}<aside class="border-l-4 border-sky-600 bg-sky-50 p-4 text-sm text-sky-950"><p>Water and electricity must be provided by the client at the service location.</p></aside>{% endif %}
+        <aside class="border-l-4 border-stone-400 bg-stone-50 p-4 text-sm leading-6 text-stone-700"><p>Under policy version chigo-terms-2026-10-16-v2, cancelling a paid booking on its scheduled service date makes only the amount actually paid toward the recorded deposit non-refundable. No deposit is forfeited for an unpaid booking. Earlier cancellations do not automatically receive this same-day treatment; paid amounts needing a refund decision are flagged for review.</p><p class="mt-2">Damage or loss must be reported within 72 hours of the recorded service completion time. The deadline is inclusive. These proposed terms apply only after you acknowledge them for this booking.</p><a class="mt-2 inline-block font-semibold text-brand-700 underline" href="{{ url_for('public.terms') }}#cancellations-rescheduling-and-refunds">Read cancellation and refund terms</a><a class="ml-4 inline-block font-semibold text-brand-700 underline" href="{{ url_for('public.terms') }}#damage-loss-liability">Read damage-reporting terms</a><a class="ml-4 inline-block font-semibold text-brand-700 underline" href="{{ url_for('public.contact') }}">Contact Chigo Support</a></aside>
+        {% if estimate_lines %}<section class="rounded-lg border border-stone-200 p-4"><h3 class="text-sm font-bold text-stone-800">{{ 'Indicative only: quote breakdown' if booking.quote_status == 'Quote Required' else 'Quote breakdown' }}</h3><dl class="mt-3 divide-y divide-stone-100">{% for line in estimate_lines %}<div class="flex justify-between gap-4 py-2 text-sm"><dt>{{ line.label }}{% if line.quantity is defined and line.unit_rate is defined %}<span class="block text-xs text-stone-500">{{ line.quantity }} × ₦{{ '{:,.0f}'.format(line.unit_rate) }}</span>{% endif %}</dt><dd class="shrink-0 font-semibold">₦{{ '{:,.0f}'.format(line.amount) }}</dd></div>{% endfor %}<div class="flex justify-between gap-4 border-t border-stone-300 pt-3 text-sm font-bold"><dt>{{ 'Indicative total' if booking.quote_status == 'Quote Required' else 'Total' }}</dt><dd>₦{{ '{:,.0f}'.format(calculation.get('indicative_total') or 0) }}</dd></div></dl><p class="mt-2 text-xs text-stone-500">The estimate is not a confirmed fixed-price quote until operations review and confirm service availability.</p></section>{% endif %}
         {% if booking.quote_status == 'Ready' %}
-        <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="accept_quote"><button type="submit" class="w-full rounded-xl bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800 sm:w-auto">Accept confirmed quote</button></form>
+        <form method="post" class="space-y-4"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="accept_quote"><label class="flex items-start gap-3 text-sm text-stone-700"><input type="checkbox" name="policy_acknowledged" required class="mt-1 h-4 w-4"><span>I have reviewed and agree to the <a class="font-semibold text-brand-700 underline" href="{{ url_for('public.terms') }}" target="_blank" rel="noopener">Terms of Service</a>, including the cancellation, same-day deposit and 72-hour damage-reporting terms{% if booking.primary_service in ['residential', 'commercial', 'packing', 'logistics'] %} and the moving inventory and property-handling terms{% endif %}.</span></label><button type="submit" class="w-full rounded-xl bg-brand-700 px-6 py-3 text-sm font-bold text-white hover:bg-brand-800 sm:w-auto">Accept confirmed quote</button></form>
         {% endif %}
       </section>
     {% elif stage == 'payment' %}

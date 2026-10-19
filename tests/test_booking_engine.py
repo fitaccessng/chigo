@@ -7,10 +7,14 @@ import pytest
 
 from moving_company import create_app
 from moving_company.extensions import db
-from moving_company.models import Booking, BookingEvent, BookingQuoteLine, Payment, Referral, ReferralAttribution, ReferralCampaign, ReferralCode, ReferralReward, RewardTransaction, ServicePricing, User, VehicleType
+from moving_company.models import (
+    Booking, BookingEvent, BookingQuoteLine, InventoryItem, Payment, Referral,
+    ReferralAttribution, ReferralCampaign, ReferralCode, ReferralReward,
+    RewardTransaction, ServicePricing, User, VehicleType,
+)
 from moving_company.services.booking_engine_service import (
     BULK_ITEM_OPTIONS, INVENTORY_CATALOG, accept_quote, apply_price_override, calculate_quote, create_booking_request,
-    catalogue_items_for_service, inventory_requirements, preview_move_duration,
+    catalogue_items_for_service, confirm_inventory, inventory_requirements, preview_move_duration,
     replace_inventory, save_vehicle_selection, save_workflow_section, vehicle_options,
 )
 from moving_company.services import booking_engine_service
@@ -166,7 +170,8 @@ def test_quote_uses_validated_service_answers_for_access_and_audit_snapshot(app)
         calculation = calculate_quote(booking)
         access_line = BookingQuoteLine.query.filter_by(booking_id=booking.id, code='access').one()
         assert access_line.quantity == 2
-        assert calculation['service_inputs']['property'] == answers
+        expected_answers = {**answers, 'destination_property_type': 'Flat / Apartment'}
+        assert calculation['service_inputs']['property'] == expected_answers
 
 
 def test_standalone_packing_scope_uses_existing_packing_rates(app):
@@ -262,7 +267,7 @@ def test_inventory_update_invalidates_quote_and_recalculates_vehicle_and_total(a
             {'name': 'Sofa', 'quantity': 1, 'size': 'large'},
             {'name': 'Wardrobe', 'quantity': 3, 'size': 'large', 'large': True},
         ])
-        assert booking.workflow_state == 'INVENTORY_COMPLETED'
+        assert booking.workflow_state == 'PROPERTY_COMPLETED'
         assert booking.quote_status == 'Draft'
         assert booking.estimated_total == 0
         assert booking.calculation_data == {}
@@ -295,6 +300,21 @@ def test_inventory_catalog_estimates_fragile_items_and_optional_overrides(app):
         assert requirements['fragile_items'] == 1
         assert requirements['special_items'] == 1
         assert requirements['weight_kg'] > 300
+
+
+def test_catalogue_and_custom_duplicate_inventory_lines_are_combined(app):
+    with app.app_context():
+        booking = create_request()
+        catalogue_items_for_service('residential')
+        wardrobe = InventoryItem.query.filter_by(name='Wardrobe', active=True).one()
+        replace_inventory(booking, [
+            {'inventory_item_id': wardrobe.id, 'name': wardrobe.name, 'quantity': 2},
+            {'custom_name': 'wardrobe', 'name': 'wardrobe', 'quantity': 3, 'category': 'Custom item'},
+        ])
+
+        assert len(booking.inventory) == 1
+        assert booking.inventory[0].inventory_item_id == wardrobe.id
+        assert booking.inventory[0].quantity == 5
 
 
 def test_vehicle_override_changes_server_quote_and_service_changes_duration(app):
@@ -381,6 +401,8 @@ def test_inventory_and_service_pages_have_previous_and_no_manual_service_hours(a
         save_workflow_section(booking, 'property', {'property_type': 'Apartment', 'bedrooms': 1, 'bathrooms': 1, 'floors': 1})
         replace_inventory(booking, [{'name': 'Wardrobe', 'quantity': 1}])
         booking.workflow_data = {**booking.workflow_data, 'inventory_answers': {'heavy_or_oversized': 'no'}}
+        booking.workflow_data = {**booking.workflow_data, 'inventory_confirmed': True}
+        booking.workflow_state = 'INVENTORY_COMPLETED'
         db.session.commit()
         request_id = booking.booking_request_id
     with client.session_transaction() as session:
@@ -389,7 +411,7 @@ def test_inventory_and_service_pages_have_previous_and_no_manual_service_hours(a
     assert inventory.status_code == 200
     inventory_html = inventory.get_data(as_text=True)
     assert 'Living Room' in inventory_html and 'Fragile / Valuable' in inventory_html
-    assert 'Vehicle recommendation' in inventory_html
+    assert 'Vehicle recommendation' not in inventory_html
     assert 'Previous: Property' in inventory_html
     services = client.get(f'/booking/{request_id}/services')
     assert services.status_code == 200
@@ -445,7 +467,7 @@ def test_customer_can_add_catalogue_items_with_quantity_only(app):
     continued = client.post(
         f'/booking/{request_id}/inventory',
         data={
-            'action': 'save_and_continue',
+            'action': 'confirm_inventory',
             'selection_id[]': str(selection_id),
             'quantity[]': '2',
             'inventory_heavy_or_oversized': 'no',
@@ -453,6 +475,115 @@ def test_customer_can_add_catalogue_items_with_quantity_only(app):
     )
     assert continued.status_code == 302
     assert continued.location.endswith(f'/booking/{request_id}/services')
+
+
+def test_residential_inventory_is_saved_reviewed_then_vehicle_is_recommended(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    login_customer(app, client)
+    with app.app_context():
+        booking = create_request()
+        save_workflow_section(booking, 'property', {
+            'property_type': 'Apartment', 'bedrooms': 2, 'bathrooms': 1, 'floors': 2,
+            'service_answers': {
+                'destination_property_type': 'Flat / Apartment',
+                'destination_bedrooms': 3, 'destination_floors': 2,
+                'restricted_vehicle_access': 'no', 'long_carry_distance': 'no',
+            },
+        })
+        request_id = booking.booking_request_id
+        catalogue_items_for_service('residential', property_type='Apartment')
+        television = InventoryItem.query.filter_by(name='Small TV', active=True).first()
+        refrigerator = InventoryItem.query.filter_by(name='Refrigerator', active=True).first()
+        assert television and refrigerator
+        television_id, refrigerator_id = television.id, refrigerator.id
+    with client.session_transaction() as session:
+        session['active_booking_request_id'] = request_id
+
+    property_page = client.get(f'/booking/{request_id}/property')
+    property_html = property_page.get_data(as_text=True)
+    assert property_page.status_code == 200
+    assert 'Bedrooms at destination' in property_html
+    assert 'Destination property floors or storeys' in property_html
+    assert 'data-condition-value="Flat / Apartment|Self-contained|Duplex|Detached House|Semi-detached House|Bungalow|Terrace House"' in property_html
+
+    inventory_page = client.get(f'/booking/{request_id}/inventory')
+    inventory_html = inventory_page.get_data(as_text=True)
+    assert inventory_page.status_code == 200
+    assert 'Vehicle recommendation' not in inventory_html
+    assert 'television tv television set' in inventory_html
+    assert 'data-category="Electronics"' in inventory_html
+    assert 'Save selected items' in inventory_html
+
+    saved_draft = client.post(f'/booking/{request_id}/inventory', data={
+        'action': 'add_catalogue',
+        f'inventory_item_id_{television_id}': str(television_id),
+        f'inventory_item_quantity_{television_id}': '2',
+    })
+    assert saved_draft.status_code == 302
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        assert len(booking.inventory) == 1
+        television_selection = booking.inventory[0]
+        assert television_selection.quantity == 2
+        assert booking.workflow_state == 'PROPERTY_COMPLETED'
+        assert booking.workflow_data['inventory_confirmed'] is False
+        television_selection_id = television_selection.id
+    services_before_confirmation = client.get(f'/booking/{request_id}/services')
+    assert services_before_confirmation.status_code == 302
+    assert services_before_confirmation.location.endswith(f'/booking/{request_id}/inventory')
+
+    second_draft = client.post(f'/booking/{request_id}/inventory', data={
+        'action': 'add_catalogue',
+        f'inventory_item_id_{refrigerator_id}': str(refrigerator_id),
+        f'inventory_item_quantity_{refrigerator_id}': '1',
+    })
+    assert second_draft.status_code == 302
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        assert len(booking.inventory) == 2
+        selection_ids = [str(item.id) for item in booking.inventory]
+        quantities = [str(item.quantity) for item in booking.inventory]
+
+    confirmed = client.post(f'/booking/{request_id}/inventory', data={
+        'action': 'confirm_inventory',
+        'selection_id': selection_ids,
+        'quantity[]': quantities,
+        'inventory_heavy_or_oversized': 'no',
+    })
+    assert confirmed.status_code == 302
+    assert confirmed.location.endswith(f'/booking/{request_id}/services')
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        assert booking.workflow_state == 'INVENTORY_COMPLETED'
+        assert booking.workflow_data['inventory_answers']['heavy_or_oversized'] == 'no'
+        recommended_vehicle = next(option for option in vehicle_options(booking) if option['recommended'])
+        assert recommended_vehicle['quantity'] >= 1
+
+    services_page = client.get(confirmed.location)
+    assert services_page.status_code == 200
+    assert 'Vehicle recommendation from confirmed inventory' in services_page.get_data(as_text=True)
+    assert 'type="radio" name="vehicle_type_id"' in services_page.get_data(as_text=True)
+    saved_services = client.post(confirmed.location, data={
+        'vehicle_type_id': str(recommended_vehicle['id']),
+    })
+    assert saved_services.status_code == 302
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        assert booking.workflow_data['vehicle']['selected_type_id'] == recommended_vehicle['id']
+
+    inventory_again = client.post(f'/booking/{request_id}/inventory', data={
+        'action': 'add_catalogue',
+        f'inventory_item_id_{television_id}': str(television_id),
+        f'inventory_item_quantity_{television_id}': '4',
+    })
+    assert inventory_again.status_code == 302
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        assert booking.workflow_state == 'PROPERTY_COMPLETED'
+        assert booking.workflow_data['inventory_confirmed'] is False
+        assert 'vehicle' not in booking.workflow_data
+        assert BookingQuoteLine.query.filter_by(booking_id=booking.id).count() == 0
 
 
 def test_catalogue_is_scoped_to_selected_property_and_packing_scope(app):
@@ -517,7 +648,7 @@ def test_bulk_material_submission_saves_unit_estimates_and_flags(app):
         assert line.fragile is True and line.special_handling is True
 
     continued = client.post(f'/booking/{request_id}/inventory', data={
-        'action': 'save_and_continue', 'selection_id[]': str(selection_id), 'quantity[]': '50',
+        'action': 'confirm_inventory', 'selection_id': str(selection_id), 'quantity[]': '50',
         'inventory_business_inventory_notes': 'Construction materials',
         'inventory_it_equipment_handling': 'no',
         'inventory_confidential_files': 'no',
@@ -578,6 +709,52 @@ def test_invalid_stage_transition_does_not_skip_required_information(app):
             transition_stage(booking, 'inventory')
 
 
+def test_inventory_confirmation_is_idempotent_and_event_key_is_unique(app):
+    with app.app_context():
+        booking = create_request()
+        replace_inventory(booking, [{'name': 'Sofa', 'quantity': 1, 'estimated_volume_m3': 0.5, 'estimated_weight_kg': 20}])
+        workflow_data = dict(booking.workflow_data or {})
+        workflow_data.update({'inventory_confirmed': False, 'inventory_answers': {'heavy_or_oversized': 'no'}})
+        booking.workflow_data = workflow_data
+        db.session.commit()
+
+        assert confirm_inventory(booking) is True
+        assert confirm_inventory(booking) is False
+        event = BookingEvent.query.filter_by(booking_id=booking.id, action='inventory.confirmed').one()
+        assert event.idempotency_key == f'inventory-confirmed-{booking.id}-1'
+        assert BookingEvent.query.filter_by(booking_id=booking.id, action='inventory.confirmed').count() == 1
+        assert confirm_inventory(booking) is False
+
+
+def test_api_identical_inventory_confirmation_retry_keeps_one_event(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    login_customer(app, client)
+    with app.app_context():
+        booking = create_request()
+        booking.workflow_state = 'PROPERTY_COMPLETED'
+        db.session.commit()
+        booking_id = booking.id
+        request_id = booking.booking_request_id
+    with client.session_transaction() as session:
+        session['active_booking_request_id'] = request_id
+
+    payload = {
+        'items': [{'name': 'Sofa', 'quantity': 1, 'estimated_volume_m3': 0.5, 'estimated_weight_kg': 20}],
+        'inventory_answers': {'heavy_or_oversized': 'no'},
+        'confirmed': True,
+    }
+    first = client.post(f'/api/bookings/{request_id}/inventory', json=payload)
+    second = client.post(f'/api/bookings/{request_id}/inventory', json=payload)
+    assert first.status_code == 200
+    assert second.status_code == 200
+    with app.app_context():
+        booking = db.session.get(Booking, booking_id)
+        assert booking.workflow_state == 'INVENTORY_COMPLETED'
+        assert booking.workflow_data['inventory_confirmed'] is True
+        assert BookingEvent.query.filter_by(booking_id=booking.id, action='inventory.confirmed').count() == 1
+
+
 def test_payment_is_not_faked_when_provider_is_unconfigured(app, monkeypatch):
     monkeypatch.delenv('STRIPE_SECRET_KEY', raising=False)
     monkeypatch.setitem(app.config, 'STRIPE_SECRET_KEY', None)
@@ -592,6 +769,144 @@ def test_payment_is_not_faked_when_provider_is_unconfigured(app, monkeypatch):
         assert Payment.query.filter_by(booking_id=booking.id).count() == 0
         assert booking.workflow_state == 'QUOTE_ACCEPTED'
         assert Booking.query.filter_by(booking_request_id=booking.booking_request_id).count() == 1
+
+
+def test_api_payment_allows_an_accepted_unpaid_quote_but_not_a_paid_booking(app, monkeypatch):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    login_customer(app, client)
+    with app.app_context():
+        booking = create_request()
+        complete_quote(booking)
+        accept_quote(booking, None)
+        request_id = booking.booking_request_id
+        booking_id = booking.id
+    with client.session_transaction() as session:
+        session['active_booking_request_id'] = request_id
+
+    initialized = []
+    monkeypatch.setattr(
+        'moving_company.routes.booking_engine.initialize_payment',
+        lambda booking, _email: initialized.append(booking.id) or type('PaymentResult', (), {
+            'payment_reference': 'test-reference', 'authorization_url': 'https://example.test/checkout',
+            'amount': 30000, 'currency': 'NGN',
+        })(),
+    )
+    response = client.post(f'/api/bookings/{request_id}/payment')
+    assert response.status_code == 200
+    assert initialized == [booking_id]
+
+    with app.app_context():
+        booking = db.session.get(Booking, booking_id)
+        booking.payment_status = 'Paid'
+        booking.workflow_state = 'CONFIRMED'
+        booking.status = 'Confirmed'
+        db.session.commit()
+    blocked = client.post(f'/api/bookings/{request_id}/payment')
+    assert blocked.status_code == 409
+
+
+@pytest.mark.parametrize(
+    ('path_suffix', 'method', 'json_payload'),
+    [
+        ('location', 'post', None),
+        ('property', 'post', None),
+        ('inventory', 'post', None),
+        ('services', 'post', None),
+        ('schedule', 'post', None),
+        ('quote', 'post', None),
+        ('api/bookings/{request_id}/property', 'put', {}),
+        ('api/bookings/{request_id}/inventory', 'post', {'items': []}),
+        ('api/bookings/{request_id}/services', 'put', {}),
+        ('api/bookings/{request_id}/schedule', 'put', {}),
+        ('api/bookings/{request_id}/calculate', 'post', {}),
+        ('api/bookings/{request_id}/quote/accept', 'post', {'policy_acknowledged': True}),
+        ('api/bookings/{request_id}/payment', 'post', {}),
+    ],
+)
+def test_paid_confirmed_booking_rejects_customer_workflow_edits(app, path_suffix, method, json_payload):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    with app.app_context():
+        owner = User(first_name='Paid', last_name='Booking', email=f'paid-{path_suffix.replace("/", "-")}@example.test', phone='')
+        owner.set_password('password123')
+        db.session.add(owner)
+        db.session.flush()
+        booking = create_request()
+        booking.customer_id = owner.id
+        booking.status = 'Confirmed'
+        booking.payment_status = 'Paid'
+        booking.quote_status = 'Accepted'
+        booking.workflow_state = 'CONFIRMED'
+        booking.estimated_total = 100000
+        booking.deposit_amount = 30000
+        booking_id = booking.id
+        request_id = booking.booking_request_id
+        owner_id = owner.id
+        db.session.commit()
+
+    with client.session_transaction() as session:
+        session['_user_id'] = str(owner_id)
+        session['_fresh'] = True
+        session['active_booking_request_id'] = request_id
+
+    path = path_suffix.format(request_id=request_id)
+    url = f'/booking/{request_id}/{path}' if not path.startswith('api/') else f'/{path}'
+    request_method = getattr(client, method)
+    response = request_method(url, json=json_payload) if json_payload is not None else request_method(url, data={})
+    assert response.status_code == 409
+
+    with app.app_context():
+        booking = db.session.get(Booking, booking_id)
+        assert booking.status == 'Confirmed'
+        assert booking.payment_status == 'Paid'
+        assert booking.quote_status == 'Accepted'
+        assert booking.workflow_state == 'CONFIRMED'
+        assert booking.estimated_total == 100000
+
+
+def test_paid_confirmed_location_edit_does_not_invalidate_quote_or_reservation_state(app, monkeypatch):
+    app.config['WTF_CSRF_ENABLED'] = False
+    monkeypatch.setattr('moving_company.routes.booking_engine.geocode_address', lambda _address: None)
+    client = app.test_client()
+    with app.app_context():
+        owner = User(first_name='Paid', last_name='Location', email='paid-location@example.test', phone='')
+        owner.set_password('password123')
+        db.session.add(owner)
+        db.session.flush()
+        booking = create_request()
+        booking.customer_id = owner.id
+        booking.status = 'Confirmed'
+        booking.payment_status = 'Paid'
+        booking.quote_status = 'Accepted'
+        booking.workflow_state = 'CONFIRMED'
+        booking.estimated_total = 100000
+        booking.deposit_amount = 30000
+        booking_id = booking.id
+        request_id = booking.booking_request_id
+        owner_id = owner.id
+        db.session.commit()
+
+    with client.session_transaction() as session:
+        session['_user_id'] = str(owner_id)
+        session['_fresh'] = True
+        session['active_booking_request_id'] = request_id
+
+    response = client.post(f'/booking/{request_id}/location', data={
+        'pickup_address': '1 Changed Road', 'pickup_city': 'Abuja', 'pickup_state': 'FCT',
+        'destination_address': '2 Changed Road', 'destination_city': 'Abuja', 'destination_state': 'FCT',
+        'pickup_floor': 'Ground', 'destination_floor': 'Ground',
+    })
+    assert response.status_code == 409
+
+    with app.app_context():
+        booking = db.session.get(Booking, booking_id)
+        assert booking.pickup_address == '12 Yakubu Gowon Way'
+        assert booking.status == 'Confirmed'
+        assert booking.payment_status == 'Paid'
+        assert booking.quote_status == 'Accepted'
+        assert booking.workflow_state == 'CONFIRMED'
+        assert booking.estimated_total == 100000
 
 
 def test_payment_stage_renders_deposit_and_secure_payment_action(app, monkeypatch):
@@ -787,8 +1102,18 @@ def test_customer_routes_complete_one_request_through_quote_acceptance(app):
         'csrf_token': csrf_token(inventory_page),
         'item_name[]': ['Sofa', 'Wardrobe'], 'item_quantity[]': ['1', '1'],
         'item_category[]': ['Furniture', 'Bedroom'], 'item_size[]': ['large', 'large'],
+    })
+    assert inventory_response.location.endswith(f'/booking/{request_id}/inventory')
+    review_page = client.get(inventory_response.location)
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        selection_ids = [str(item.id) for item in booking.inventory]
+    inventory_response = client.post(f'/booking/{request_id}/inventory', data={
+        'csrf_token': csrf_token(review_page), 'action': 'confirm_inventory',
+        'selection_id': selection_ids, 'quantity[]': ['1', '1'],
         'inventory_heavy_or_oversized': 'no',
     })
+    assert inventory_response.location.endswith(f'/booking/{request_id}/services')
     assert inventory_response.location.endswith(f'/booking/{request_id}/services')
     services_page = client.get(inventory_response.location)
     services_response = client.post(f'/booking/{request_id}/services', data={
@@ -833,9 +1158,12 @@ def test_customer_routes_complete_one_request_through_quote_acceptance(app):
 
     quote_token = csrf_token(quote_response)
     accepted = client.post(f'/booking/{request_id}/quote', data={
-        'csrf_token': quote_token, 'action': 'accept_quote',
+        'csrf_token': quote_token, 'action': 'accept_quote', 'policy_acknowledged': 'on',
     })
     assert accepted.location.endswith(f'/booking/{request_id}/payment')
+    with app.app_context():
+        accepted_booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        assert accepted_booking.calculation_data['policy_acceptance']['policy_version'] == 'chigo-terms-2026-10-16-v2'
     with app.app_context():
         persisted = Booking.query.filter_by(booking_request_id=request_id).one()
         assert persisted.workflow_state == 'QUOTE_ACCEPTED'
@@ -956,6 +1284,7 @@ def test_json_api_updates_same_request_and_rejects_stage_skips(app):
     item_response = client.post(f'/api/bookings/{request_id}/inventory', json={
         'items': [{'name': 'Sofa', 'quantity': 1, 'category': 'Furniture', 'size': 'large'}],
         'inventory_answers': {'heavy_or_oversized': 'no'},
+        'confirmed': True,
     })
     assert item_response.status_code == 200
     snapshot = client.get(f'/api/bookings/{request_id}').get_json()

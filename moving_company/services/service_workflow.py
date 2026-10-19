@@ -4,14 +4,19 @@ from collections.abc import Mapping
 from typing import Any
 
 SERVICE_TYPES = frozenset({'cleaning', 'residential', 'commercial', 'packing', 'storage', 'logistics', 'support', 'home_decor'})
-QUESTION_SCHEMA_VERSION = 3
+QUESTION_SCHEMA_VERSION = 4
+LEGACY_PACKING_SCHEMA_CUTOFF = 3
 LEGACY_PACKING_QUESTION_KEYS = {
     'property': frozenset({'packing_for', 'packing_scope', 'packing_rooms', 'packing_materials_needed', 'packing_materials_available'}),
     'inventory': frozenset({'packing_item_notes', 'packing_special_items'}),
 }
 PROPERTY_TYPES_BY_SERVICE = {
     'cleaning': ('Self-contained / studio', 'Flat / apartment', 'Duplex', 'Detached house', 'Bungalow', 'Office', 'Shop', 'Other'),
-    'residential': ('Apartment', 'House', 'Duplex'),
+    'residential': (
+        'Apartment', 'House', 'Duplex', 'Flat / Apartment', 'Self-contained',
+        'Detached House', 'Semi-detached House', 'Bungalow', 'Terrace House',
+        'Other',
+    ),
     'commercial': ('Office', 'Shop', 'Warehouse', 'Hotel', 'Estate', 'Construction Site'),
     'packing': ('Apartment', 'House', 'Duplex', 'Office', 'Shop', 'Warehouse', 'Hotel', 'Estate'),
     'storage': ('Apartment', 'House', 'Duplex', 'Office', 'Shop', 'Warehouse', 'Hotel', 'Estate'),
@@ -23,7 +28,7 @@ PROPERTY_TYPES_BY_SERVICE = {
 SERVICE_WORKFLOWS = {
     'cleaning': {
         'label': 'Cleaning',
-        'description': 'Choose the cleaning service and tell us about the property and areas to clean.',
+        'description': 'Choose Move-Clean, fumigation, upholstery or appliance care and tell us about the relevant property or items.',
         'steps': ('location', 'property', 'inventory', 'services', 'schedule', 'quote', 'payment', 'review'),
         'questions': {'property': ('cleaning_subtype', 'cleaning_type', 'cleaning_areas', 'cleaning_frequency'),
                       'inventory': ('cleaning_items', 'cleaning_instructions')},
@@ -138,13 +143,17 @@ def _question(key, label, input_type, *, required=False, options=(), minimum=Non
 SERVICE_QUESTION_SCHEMAS = {
     'cleaning': {
         'property': (
+            _question('morph_cleaning_category', 'Cleaning category', 'select', required=True,
+                      options=('legacy', 'residential-move-clean', 'commercial-move-clean',
+                               'fumigation-pest-control', 'upholstery-care', 'kitchen-appliance-cleaning')),
             _question('cleaning_subtype', 'Cleaning service', 'select', required=True,
-                      options=('home', 'office', 'move-in-out')),
+                      options=('home', 'office', 'move-in-out'), condition=('morph_cleaning_category', 'legacy')),
             _question('cleaning_stage', 'Cleaning is for', 'select', required=True,
                       options=('move-in', 'move-out', 'handover', 'post-renovation'),
                       condition=('cleaning_subtype', 'move-in-out')),
             _question('cleaning_property_type', 'Property type', 'select', required=True,
-                      options=('studio', 'flat', 'duplex', 'detached-house', 'bungalow', 'office-premises', 'coworking-space', 'shop', 'other')),
+                      options=('studio', 'flat', 'duplex', 'detached-house', 'bungalow', 'office-premises', 'coworking-space', 'shop', 'other'),
+                      condition=('morph_cleaning_category', 'legacy')),
             _question('cleaning_property_other', 'Describe the property', 'text', required=True, maximum=120,
                       condition=('cleaning_property_type', 'other')),
             _question('cleaning_business_type', 'Commercial premises type', 'select', required=True,
@@ -159,8 +168,10 @@ SERVICE_QUESTION_SCHEMAS = {
                       condition=('cleaning_subtype', 'move-in-out')),
             _question('cleaning_move_bathrooms', 'Bathrooms and toilets', 'number', required=True, minimum=0, maximum=100, step=1,
                       condition=('cleaning_subtype', 'move-in-out')),
-            _question('cleaning_floors', 'Number of floors', 'number', required=True, minimum=1, maximum=100, step=1),
-            _question('cleaning_size_m2', 'Approximate floor area (m²)', 'number', minimum=1, maximum=100000, step=0.1),
+            _question('cleaning_floors', 'Number of floors', 'number', required=True, minimum=1, maximum=100, step=1,
+                      condition=('morph_cleaning_category', 'legacy')),
+            _question('cleaning_size_m2', 'Approximate floor area (m²)', 'number', minimum=1, maximum=100000, step=0.1,
+                      condition=('morph_cleaning_category', 'legacy')),
             _question('cleaning_workstations', 'Approximate workstations', 'number', minimum=0, maximum=10000, step=1,
                       condition=('cleaning_subtype', 'office')),
             _question('cleaning_meeting_rooms', 'Meeting rooms', 'number', minimum=0, maximum=1000, step=1,
@@ -168,32 +179,118 @@ SERVICE_QUESTION_SCHEMAS = {
             _question('cleaning_restrooms', 'Restrooms', 'number', required=True, minimum=0, maximum=1000, step=1,
                       condition=('cleaning_subtype', 'office')),
             _question('cleaning_occupied', 'Will the property be occupied during cleaning?', 'select', required=True,
-                      options=('yes', 'no')),
+                      options=('yes', 'no'), condition=('morph_cleaning_category', 'legacy')),
             _question('cleaning_type', 'Cleaning type', 'select', required=True,
-                      options=('regular', 'deep', 'post-renovation')),
+                      options=('regular', 'deep', 'post-renovation'), condition=('morph_cleaning_category', 'legacy')),
             _question('cleaning_areas', 'Areas to be cleaned', 'multiselect', required=True,
                       options=('entire-property', 'living-room', 'bedrooms', 'kitchen', 'bathrooms', 'balcony',
                                'windows', 'cupboards', 'hallways', 'outdoor-areas', 'workstations', 'meeting-rooms',
-                               'restrooms', 'interior-glass', 'floor-care')),
+                               'restrooms', 'interior-glass', 'floor-care'), condition=('morph_cleaning_category', 'legacy')),
             _question('cleaning_frequency', 'Cleaning frequency', 'select', required=True,
-                      options=('one-time', 'weekly', 'twice-weekly', 'monthly', 'other')),
+                      options=('one-time', 'weekly', 'twice-weekly', 'monthly', 'other'),
+                      condition=('morph_cleaning_category', 'legacy')),
             _question('cleaning_frequency_other', 'Describe the requested arrangement', 'text', required=True, maximum=200,
                       condition=('cleaning_frequency', 'other')),
-            _question('cleaning_access_hours', 'Access hours or restrictions', 'text', maximum=250),
+            _question('cleaning_access_hours', 'Access hours or restrictions', 'text', maximum=250,
+                      condition=('morph_cleaning_category', 'legacy')),
+            _question('morph_fumigation_property_type', 'Property type for fumigation', 'select', required=True,
+                      options=('studio', 'apartment', 'house', 'duplex', 'office', 'shop', 'warehouse', 'other'),
+                      condition=('morph_cleaning_category', 'fumigation-pest-control')),
+            _question('morph_fumigation_property_other', 'Describe the property', 'text', required=True, maximum=120,
+                      condition=('morph_fumigation_property_type', 'other')),
+            _question('morph_fumigation_size_sqm', 'Approximate property size (m²)', 'number', required=True,
+                      minimum=1, maximum=100000, step=0.1,
+                      condition=('morph_cleaning_category', 'fumigation-pest-control')),
+            _question('morph_fumigation_pest_type', 'Pest or infestation type', 'select', required=True,
+                      options=('ants', 'cockroaches', 'termites', 'rodents', 'mosquitoes', 'bed-bugs', 'other'),
+                      condition=('morph_cleaning_category', 'fumigation-pest-control')),
+            _question('morph_fumigation_pest_other', 'Describe the pest or infestation', 'text', required=True, maximum=160,
+                      condition=('morph_fumigation_pest_type', 'other')),
+            _question('morph_fumigation_treatment_areas', 'Areas requiring treatment', 'multiselect', required=True,
+                      options=('entire-property', 'bedrooms', 'kitchen', 'bathrooms', 'storage-areas', 'outdoor-areas', 'office-areas'),
+                      condition=('morph_cleaning_category', 'fumigation-pest-control')),
+            _question('morph_fumigation_occupancy', 'Property occupancy during treatment', 'select', required=True,
+                      options=('vacant', 'occupied', 'not-sure'),
+                      condition=('morph_cleaning_category', 'fumigation-pest-control')),
+            _question('morph_fumigation_access_notes', 'Access, ventilation or safety considerations', 'textarea', maximum=1000,
+                      condition=('morph_cleaning_category', 'fumigation-pest-control')),
+            _question('morph_residential_property_type', 'Residential property size', 'select', required=True,
+                      options=('self-contain', '1-bedroom', '2-bedroom', '3-bedroom', '4-bedroom',
+                               '5-bedroom', '6-bedroom', '7-bedroom'),
+                      condition=('morph_cleaning_category', 'residential-move-clean')),
+            _question('morph_commercial_area_sqm', 'Commercial floor area (m²)', 'number', required=True,
+                      minimum=0.1, maximum=100000, step=0.1,
+                      condition=('morph_cleaning_category', 'commercial-move-clean')),
+            _question('morph_couch_1_seater', '1-seater couches', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'upholstery-care')),
+            _question('morph_couch_2_seater', '2-seater couches', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'upholstery-care')),
+            _question('morph_couch_3_seater', '3-seater couches', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'upholstery-care')),
+            _question('morph_couch_4_seater', '4-seater couches', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'upholstery-care')),
+            _question('morph_couch_5_seater', '5-seater couches', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'upholstery-care')),
+            _question('morph_couch_6_seater', '6-seater couches', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'upholstery-care')),
+            _question('morph_couch_7_seater', '7-seater couches', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'upholstery-care')),
+            _question('morph_bedframe_3x6_ft', '3 × 6 ft bedframes', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'upholstery-care')),
+            _question('morph_bedframe_4x6_ft', '4 × 6 ft bedframes', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'upholstery-care')),
+            _question('morph_bedframe_5x6_ft', '5 × 6 ft bedframes', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'upholstery-care')),
+            _question('morph_bedframe_6x6_ft', '6 × 6 ft bedframes', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'upholstery-care')),
+            _question('morph_bedframe_6x7_ft', '6 × 7 ft bedframes', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'upholstery-care')),
+            _question('morph_bedframe_7x7_ft', '7 × 7 ft bedframes', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'upholstery-care')),
+            _question('morph_appliance_oven', 'Ovens', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'kitchen-appliance-cleaning')),
+            _question('morph_appliance_refrigerator', 'Refrigerators', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'kitchen-appliance-cleaning')),
+            _question('morph_appliance_microwave', 'Microwaves', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'kitchen-appliance-cleaning')),
+            _question('morph_appliance_dishwasher', 'Dishwashers', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'kitchen-appliance-cleaning')),
+            _question('morph_appliance_other_approved', 'Other approved appliances', 'number', minimum=0, maximum=500, step=1,
+                      condition=('morph_cleaning_category', 'kitchen-appliance-cleaning')),
+            _question('morph_logistics_requested', 'Cleaning logistics requested separately?', 'select',
+                      options=('no', 'yes'), condition=('morph_cleaning_category', 'residential-move-clean')),
+            _question('morph_logistics_separate', 'Is logistics separate from general cleaning?', 'select',
+                      options=('no', 'yes'), condition=('morph_cleaning_category', 'residential-move-clean')),
+            _question('morph_commercial_logistics_requested', 'Cleaning logistics requested separately?', 'select',
+                      options=('no', 'yes'), condition=('morph_cleaning_category', 'commercial-move-clean')),
+            _question('morph_commercial_logistics_separate', 'Is logistics separate from general cleaning?', 'select',
+                      options=('no', 'yes'), condition=('morph_cleaning_category', 'commercial-move-clean')),
         ),
         'inventory': (
-            _question('cleaning_items', 'Large items or specialist tasks (include quantities)', 'textarea', maximum=1000),
+            _question('cleaning_items', 'Large items or specialist tasks (include quantities)', 'textarea', maximum=1000,
+                      condition=('morph_cleaning_category', 'legacy')),
             _question('cleaning_heavy_buildup', 'Is there heavy buildup, construction dust or significant staining?', 'select', required=True,
-                      options=('no', 'yes')),
+                      options=('no', 'yes'), condition=('morph_cleaning_category', 'legacy')),
             _question('cleaning_instructions', 'Special instructions, delicate surfaces, pets or access concerns', 'textarea', maximum=1200),
         ),
     },
     'residential': {
         'property': (
             _question('destination_property_type', 'Destination property type', 'select', required=True,
-                      options=('Apartment', 'House', 'Duplex', 'Other')),
+                      options=('Flat / Apartment', 'Self-contained', 'Duplex', 'Detached House',
+                               'Semi-detached House', 'Bungalow', 'Terrace House', 'Other')),
             _question('destination_property_other', 'Describe the destination property', 'text', required=True, maximum=120,
                       condition=('destination_property_type', 'Other')),
+            _question('destination_bedrooms', 'Bedrooms at destination', 'number', minimum=0, maximum=100, step=1,
+                      condition=('destination_property_type', (
+                          'Flat / Apartment', 'Self-contained', 'Duplex', 'Detached House',
+                          'Semi-detached House', 'Bungalow', 'Terrace House',
+                      ))),
+            _question('destination_floors', 'Destination property floors or storeys', 'number', minimum=1, maximum=100, step=1,
+                      condition=('destination_property_type', (
+                          'Flat / Apartment', 'Self-contained', 'Duplex', 'Detached House',
+                          'Semi-detached House', 'Bungalow', 'Terrace House',
+                      ))),
             _question('restricted_vehicle_access', 'Is truck access restricted at either property?', 'select', required=True,
                       options=('no', 'yes')),
             _question('long_carry_distance', 'Is there a long carry from the entrance to the vehicle?', 'select', required=True,
@@ -420,6 +517,12 @@ ADDON_QUESTION_SCHEMAS['storage'] = SERVICE_QUESTION_SCHEMAS['storage']
 def validate_question_answers(schema, answers: Mapping[str, Any]) -> dict[str, Any]:
     """Normalize only configured answers and enforce required/conditional constraints."""
     submitted = dict(answers or {})
+    if submitted.get('destination_property_type') == 'Apartment':
+        submitted['destination_property_type'] = 'Flat / Apartment'
+    elif submitted.get('destination_property_type') == 'House':
+        submitted['destination_property_type'] = 'Detached House'
+    if any(field['key'] == 'morph_cleaning_category' for field in schema):
+        submitted.setdefault('morph_cleaning_category', 'legacy')
     definitions = {field['key']: field for field in schema}
     unknown = sorted(set(submitted) - set(definitions))
     if unknown:
@@ -430,7 +533,13 @@ def validate_question_answers(schema, answers: Mapping[str, Any]) -> dict[str, A
         key = field['key']
         value = submitted.get(key)
         condition = field['condition']
-        visible = condition is None or str(submitted.get(condition[0], '')).casefold() == condition[1].casefold()
+        visible = True
+        if condition:
+            expected_values = condition[1] if isinstance(condition[1], (list, tuple, set, frozenset)) else (condition[1],)
+            visible = any(
+                str(submitted.get(condition[0], '')).casefold() == str(expected).casefold()
+                for expected in expected_values
+            )
         if not visible:
             continue
         if value is None:
@@ -511,7 +620,7 @@ def booking_questions_for(booking: Mapping[str, Any] | Any, section: str) -> tup
     service_type = normalize_service_type(_booking_value(booking, 'primary_service') or 'residential')
     schema = service_questions_for(service_type, section)
     workflow_data = _booking_value(booking, 'workflow_data', {}) or {}
-    if service_type == 'packing' and workflow_data.get('question_schema_version', 0) < QUESTION_SCHEMA_VERSION:
+    if service_type == 'packing' and workflow_data.get('question_schema_version', 0) < LEGACY_PACKING_SCHEMA_CUTOFF:
         allowed = LEGACY_PACKING_QUESTION_KEYS[section]
         return tuple(field for field in schema if field['key'] in allowed)
     return schema
@@ -559,6 +668,8 @@ def validate_booking_question_data(booking: Mapping[str, Any] | Any) -> dict[str
     property_data = dict(workflow_data.get('property') or {})
     inventory_answers = workflow_data.get('inventory_answers') or {}
     property_answers = property_data.get('service_answers') or {}
+    if service_type == 'cleaning' and 'morph_cleaning_category' not in property_answers:
+        property_answers = {**property_answers, 'morph_cleaning_category': 'legacy'}
     if not isinstance(property_answers, Mapping) or not isinstance(inventory_answers, Mapping):
         raise ValueError('Service property and inventory answers must be objects.')
     property_data['service_answers'] = validate_question_answers(

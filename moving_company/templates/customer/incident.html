@@ -3,6 +3,29 @@
 {% block dashboard_content %}
 <section class="mx-auto max-w-2xl px-4 py-12">
   <a href="{{ url_for('customer.booking_detail', booking_id=booking.id) }}" class="text-sm font-semibold text-brand-700 underline">Back to booking</a>
+  {% if damage_report %}
+  <h1 class="mt-4 text-3xl font-black">Report Damage</h1>
+  <p class="mt-2 text-sm leading-6 text-stone-600">Damage or loss must be reported within 72 hours of service completion. Please provide the details and supporting photographs so Chigo can review your report.</p>
+  {% if damage_window.available %}
+  <p class="mt-3 border-l-4 border-amber-500 bg-amber-50 p-3 text-sm text-amber-950">Report by {{ damage_window.deadline_local.strftime('%d %B %Y at %I:%M %p') }} Africa/Lagos time.</p>
+  <p class="mt-2 text-xs text-stone-500">Service completion: {{ damage_window.completed_local.strftime('%d %B %Y at %I:%M %p') }} Africa/Lagos time.</p>
+  <p class="mt-1 text-xs text-stone-500">Booking reference: {{ booking.booking_number }} · {{ current_user.full_name }} · {{ current_user.email }} · {{ current_user.phone }}</p>
+  <form method="post" enctype="multipart/form-data" class="mt-6 space-y-5">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="block font-semibold">Affected item or property<input name="item" maxlength="120" required class="mt-2 block w-full border border-stone-300 bg-white px-3 py-3"></label>
+    <label class="block font-semibold">Description<textarea name="description" required maxlength="5000" rows="5" class="mt-2 block w-full border border-stone-300 bg-white px-3 py-3"></textarea></label>
+    <label class="block font-semibold">When was the damage or loss noticed? <span class="font-normal text-stone-500">(optional, local time)</span><input name="noticed_at" type="datetime-local" class="mt-2 block w-full border border-stone-300 bg-white px-3 py-3"></label>
+    <label class="block font-semibold">Supporting photographs <span class="font-normal text-stone-500">(up to 5 JPG, PNG or WebP images; max {{ (config.MAX_IMAGE_SIZE // (1024 * 1024)) }} MB each)</span><input name="evidence" type="file" accept="image/jpeg,image/png,image/webp" multiple class="mt-2 block w-full border border-dashed border-stone-300 bg-white px-3 py-3"></label>
+    <button type="submit" class="bg-brand-700 px-5 py-3 font-semibold text-white">Submit damage report</button>
+  </form>
+  {% elif damage_window.expired %}
+  <p class="mt-5 text-sm text-stone-700">The 72-hour damage-reporting window for this booking has expired. If you need assistance, please <a class="font-semibold text-brand-700 underline" href="{{ url_for('public.contact') }}">contact Chigo Support</a>.</p>
+  {% elif damage_window.missing_completion_time %}
+  <p class="mt-5 text-sm text-stone-700">A reliable service completion time is not recorded for this booking, so a reporting deadline cannot be calculated. Please <a class="font-semibold text-brand-700 underline" href="{{ url_for('public.contact') }}">contact Chigo Support</a> for record review.</p>
+  {% else %}
+  <p class="mt-5 text-sm text-stone-700">Damage reports are available after the service is recorded as completed. Contact <a class="font-semibold text-brand-700 underline" href="{{ url_for('public.contact') }}">Chigo Support</a> for assistance.</p>
+  {% endif %}
+  {% else %}
   <h1 class="mt-4 text-3xl font-black">Report an issue</h1>
   <p class="mt-2 text-stone-600">Booking {{ booking.booking_number }}</p>
   <form method="post" class="mt-8 space-y-5">
@@ -21,5 +44,6 @@
     </label>
     <button type="submit" class="rounded-lg bg-brand-700 px-5 py-3 font-semibold text-white">Submit report</button>
   </form>
+  {% endif %}
 </section>
 {% endblock %}

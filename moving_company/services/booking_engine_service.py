@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+from hashlib import sha256
 from math import ceil
 from secrets import token_hex
+import json
 
 from flask import abort, current_app
+from sqlalchemy.exc import IntegrityError
 
 from ..extensions import db
 from ..models import (
@@ -22,6 +25,8 @@ from .service_workflow import (
     service_questions_for, validate_booking_question_data, validate_question_answers,
     validate_service_bundle,
 )
+from .morph_cleaning_pricing import RATE_CARD_VERSION, calculate_morph_cleaning_quote
+from .booking_policy_service import BOOKING_POLICY_VERSION
 from .vehicle_catalogue import ensure_active_vehicle_catalogue
 from .referral_service import apply_referral_discount
 
@@ -56,10 +61,10 @@ ITEM_ESTIMATES = {
 SIZE_FACTORS = {'small': 0.6, 'medium': 1.0, 'large': 1.5, 'oversized': 2.2}
 
 
-def record_event(booking: Booking, action: str, previous=None, new=None, user_id=None):
+def record_event(booking: Booking, action: str, previous=None, new=None, user_id=None, idempotency_key=None):
     db.session.add(BookingEvent(
         booking_id=booking.id, user_id=user_id, action=action,
-        previous_value=previous, new_value=new,
+        idempotency_key=idempotency_key, previous_value=previous, new_value=new,
     ))
 
 
@@ -102,6 +107,7 @@ def create_booking_request(customer_id=None, location=None, user_id=None, servic
         workflow_data={
             'service_intent': service_type,
             'question_schema_version': QUESTION_SCHEMA_VERSION,
+            'inventory_confirmed': False,
             'property': {'service_answers': dict(initial_service_answers or {})},
             'services': dict(initial_services or {}), 'schedule': {},
             'location_access': dict(location_access or {}),
@@ -146,6 +152,14 @@ def invalidate_from(booking: Booking, stage: str, user_id=None):
     booking.manually_overridden_total = None
     booking.price_override_reason = None
     booking.vehicle_override_reason = None
+    if index <= STAGES.index('inventory'):
+        workflow_data = dict(booking.workflow_data or {})
+        workflow_data['inventory_confirmed'] = False
+        workflow_data['inventory_confirmation_generation'] = int(
+            workflow_data.get('inventory_confirmation_generation') or 0
+        ) + 1
+        workflow_data.pop('vehicle', None)
+        booking.workflow_data = workflow_data
     BookingQuoteLine.query.filter_by(booking_id=booking.id).delete()
     record_event(booking, f'{stage}.changed_downstream_invalidated', previous=previous,
                  new={'workflow_state': booking.workflow_state, 'quote_status': booking.quote_status}, user_id=user_id)
@@ -261,9 +275,13 @@ def replace_inventory(booking: Booking, inventory: list[dict], user_id=None):
     clean_items = [_normalise_inventory_item(item) for item in inventory]
     selected_keys = {}
     for item in clean_items:
-        key = (item['inventory_item_id'], item['custom_name'] or item['name'])
+        key = item['name'].casefold()
         if key in selected_keys:
-            selected_keys[key]['quantity'] += item['quantity']
+            existing = selected_keys[key]
+            existing['quantity'] += item['quantity']
+            if existing['inventory_item_id'] is None and item['inventory_item_id'] is not None:
+                quantity = existing['quantity']
+                selected_keys[key] = {**item, 'quantity': quantity}
             continue
         selected_keys[key] = item
     previous_count = BookingInventory.query.filter_by(booking_id=booking.id).count()
@@ -311,10 +329,94 @@ def replace_inventory(booking: Booking, inventory: list[dict], user_id=None):
     invalidate_from(booking, 'inventory', user_id)
     record_event(booking, 'inventory.replaced', previous={'line_count': previous_count},
                  new={'line_count': len(selected_keys)}, user_id=user_id)
-    booking.workflow_state = STAGE_STATES['inventory']
+    booking.workflow_state = STAGE_STATES['property']
     db.session.commit()
     booking.items = list(BookingItem.query.filter_by(booking_id=booking.id).all())
     booking.inventory = list(BookingInventory.query.filter_by(booking_id=booking.id).all())
+
+
+def inventory_is_confirmed(booking: Booking) -> bool:
+    workflow_data = booking.workflow_data or {}
+    if 'inventory_confirmed' in workflow_data:
+        return workflow_data['inventory_confirmed'] is True
+    return booking.workflow_state in {
+        'INVENTORY_COMPLETED', 'SERVICES_COMPLETED', 'SCHEDULE_COMPLETED', 'QUOTE_READY',
+        'QUOTE_ACCEPTED', 'PAYMENT_PENDING', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED',
+        'REVIEW_PENDING', 'REVIEWED',
+    }
+
+
+def confirm_inventory(booking: Booking, user_id=None) -> bool:
+    db.session.flush()
+    locked_booking = db.session.query(Booking).filter_by(id=booking.id).with_for_update().populate_existing().one()
+    workflow_data = dict(locked_booking.workflow_data or {})
+    if workflow_data.get('inventory_confirmed') is True:
+        return False
+    generation = int(workflow_data.get('inventory_confirmation_generation') or 0)
+    workflow_data['inventory_confirmation_fingerprint'] = inventory_fingerprint(
+        locked_booking, answers=workflow_data.get('inventory_answers') or {},
+    )
+    workflow_data['inventory_confirmed'] = True
+    locked_booking.workflow_data = workflow_data
+    locked_booking.workflow_state = 'INVENTORY_COMPLETED'
+    record_event(
+        locked_booking, 'inventory.confirmed', previous={'confirmed': False},
+        new={'confirmed': True, 'line_count': len(locked_booking.inventory), 'generation': generation},
+        user_id=user_id, idempotency_key=f'inventory-confirmed-{locked_booking.id}-{generation}',
+    )
+    try:
+        db.session.commit()
+        return True
+    except IntegrityError:
+        db.session.rollback()
+        refreshed = db.session.get(Booking, booking.id)
+        if refreshed and inventory_is_confirmed(refreshed):
+            return False
+        raise
+
+
+def inventory_fingerprint(booking: Booking, items=None, answers=None) -> str:
+    selections_by_name = {}
+    if items is None:
+        selections = [{
+            'inventory_item_id': item.inventory_item_id,
+            'custom_name': item.custom_name,
+            'name': item.display_name,
+            'quantity': item.quantity,
+            'category': item.category,
+            'size': item.size,
+            'notes': item.notes,
+            'fragile': item.fragile,
+            'large': item.large,
+            'special_handling': item.special_handling,
+            'details': item.details,
+            'dimensions_cm': item.dimensions_cm,
+            'estimated_volume_m3': item.estimated_volume_m3,
+            'estimated_weight_kg': item.estimated_weight_kg,
+        } for item in booking.inventory]
+    else:
+        selections = [_normalise_inventory_item(item) for item in items]
+    selections_by_name = {}
+    for normalized in selections:
+        key = normalized['name'].casefold()
+        previous = selections_by_name.get(key)
+        if previous is None:
+            selections_by_name[key] = normalized
+        else:
+            quantity = previous['quantity'] + normalized['quantity']
+            if previous['inventory_item_id'] is None and normalized['inventory_item_id'] is not None:
+                normalized['quantity'] = quantity
+                selections_by_name[key] = normalized
+            else:
+                previous['quantity'] = quantity
+    selections = list(selections_by_name.values())
+    selections.sort(key=lambda item: (item['name'].casefold(), item['custom_name'] or '', item['inventory_item_id'] or 0))
+    payload = {
+        'items': selections,
+        'answers': answers if answers is not None else (booking.workflow_data or {}).get('inventory_answers') or {},
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(',', ':'), default=str)
+    return sha256(encoded.encode()).hexdigest()
 
 
 def add_inventory_selection(booking: Booking, item: dict, user_id=None):
@@ -365,8 +467,8 @@ def update_inventory_selections(booking: Booking, changes: list[tuple[int, int, 
             'large': item.large,
             'special_handling': item.special_handling,
             'details': item.details,
-            'estimated_volume_m3': round(unit_volume * factor, 3),
-            'estimated_weight_kg': round(unit_weight * factor, 1),
+            'estimated_volume_m3': round(unit_volume * factor, 3) if unit_volume > 0 else None,
+            'estimated_weight_kg': round(unit_weight * factor, 1) if unit_weight > 0 else None,
         })
     replace_inventory(booking, selected_items, user_id)
     return BookingInventory.query.filter_by(booking_id=booking.id).all()
@@ -489,6 +591,13 @@ def catalogue_items_for_service(service_type: str, query: str = '', property_typ
 def ensure_inventory_catalogue():
     existing_items = {item.name: item for item in InventoryItem.query.all()}
     category_order = {category: index for index, category in enumerate(INVENTORY_CATALOG)}
+    search_aliases = {
+        'Small TV': 'television tv television set',
+        'Medium TV': 'television tv television set',
+        'Large TV': 'television tv television set',
+        'Refrigerator': 'fridge fridge-freezer',
+        'Double-door refrigerator': 'double door fridge double-door fridge',
+    }
     for sort_order, name in enumerate(ALL_CATALOGUE_ITEMS):
         category = CATEGORY_BY_ITEM[name]
         item = existing_items.get(name)
@@ -508,7 +617,10 @@ def ensure_inventory_catalogue():
             'description': f'{name} for {category.casefold()} moving inventory.',
             'estimated_volume_m3': round(volume, 3),
             'estimated_weight_kg': round(weight, 1),
-            'aliases': name.casefold(),
+            'aliases': ' '.join(dict.fromkeys(filter(None, (
+                (item.aliases or '').strip() if item else '',
+                name.casefold(), search_aliases.get(name, ''),
+            )))),
             'fragile': fragile,
             'special_handling': special_handling,
             'vehicle_compatibility': 'Heavy vehicle' if special_handling or volume >= 2 else 'All vehicles',
@@ -565,6 +677,29 @@ def inventory_requirements(booking: Booking):
         large_items += item.quantity if item.large else 0
     workflow_data = booking.workflow_data or {}
     inventory_answers = workflow_data.get('inventory_answers') or {}
+    review_reasons = []
+    heavy_items = workflow_data.get('heavy_items') or []
+    for heavy_item in heavy_items:
+        quantity = int(heavy_item.get('quantity') or 0)
+        if quantity <= 0:
+            continue
+        dimensions = heavy_item.get('dimensions_cm') or {}
+        if all(dimensions.get(key) for key in ('length', 'width', 'height')):
+            volume += (
+                float(dimensions['length']) * float(dimensions['width']) * float(dimensions['height'])
+                / 1_000_000 * quantity
+            )
+        if heavy_item.get('weight_kg') is not None:
+            weight += float(heavy_item['weight_kg']) * quantity
+        if not all(dimensions.get(key) for key in ('length', 'width', 'height')) and heavy_item.get('weight_kg') is None:
+            review_reasons.append(f"{heavy_item.get('name', 'A heavy item')} has no weight or dimensions; operations must assess vehicle fit.")
+        total_items += quantity
+        large_items += quantity
+        if heavy_item.get('special_handling') or any(
+            token in str(heavy_item.get('name') or '').casefold()
+            for token in ('piano', 'safe', 'treadmill', 'pool table', 'freezer', 'generator')
+        ):
+            special_items += quantity
     if booking.primary_service == 'logistics' and inventory_answers:
         shipment = validate_question_answers(service_questions_for('logistics', 'inventory'), inventory_answers)
         shipment_count = shipment['shipment_quantity']
@@ -589,6 +724,7 @@ def inventory_requirements(booking: Booking):
         'weight_kg': booking.estimated_weight_kg, 'fragile_items': fragile_items,
         'special_items': special_items, 'large_items': large_items,
         'oversized_items': sum(item.quantity for item in booking.items if item.size == 'oversized'),
+        'review_reasons': review_reasons,
         'loading_minutes': ceil(volume / 5 * 60), 'unloading_minutes': ceil(volume / 6 * 60),
     }
 
@@ -624,6 +760,11 @@ def vehicle_options(booking: Booking):
         'capacity_exceeded': not fits(vehicle),
         'recommended': recommendation is not None and vehicle.id == recommendation.id,
         'selected': vehicle.id == selected_id if selected_id else recommendation is not None and vehicle.id == recommendation.id,
+        'recommendation_reason': (
+            f"Recommended from {requirements['item_count']} confirmed items, "
+            f"{requirements['volume_m3']:.1f} m³ and {requirements['weight_kg']:.0f} kg."
+            if recommendation is not None and vehicle.id == recommendation.id else None
+        ),
     } for vehicle in vehicles]
 
 
@@ -733,9 +874,10 @@ def save_vehicle_selection(booking: Booking, vehicle_type_id, user_id=None):
         raise ValueError(f'{vehicle.name} cannot safely carry this inventory. Operations must review the request.')
     workflow_data = dict(booking.workflow_data or {})
     previous = workflow_data.get('vehicle', {})
+    invalidate_from(booking, 'services', user_id)
+    workflow_data = dict(booking.workflow_data or {})
     workflow_data['vehicle'] = {'selected_type_id': vehicle.id}
     booking.workflow_data = workflow_data
-    invalidate_from(booking, 'inventory', user_id)
     booking.workflow_state = STAGE_STATES['inventory']
     record_event(booking, 'vehicle.selected', previous=previous, new=workflow_data['vehicle'], user_id=user_id)
     db.session.commit()
@@ -825,6 +967,17 @@ def _approved_service_rates(keys):
 
 def _save_quote_required(booking: Booking, reason: str | list[str], *, indicative_total=None, estimate_details=None, user_id=None):
     review_flags = [reason] if isinstance(reason, str) else [item for item in reason if item]
+    previous_calculation = booking.calculation_data or {}
+    quote_history = list(previous_calculation.get('quote_history') or [])
+    if previous_calculation.get('estimate_type') or previous_calculation.get('indicative_total') is not None:
+        quote_history.append({
+            'saved_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+            'quote_status': booking.quote_status,
+            'estimate_type': previous_calculation.get('estimate_type'),
+            'indicative_total': previous_calculation.get('indicative_total'),
+            'estimate_details': previous_calculation.get('estimate_details', {}),
+            'service_inputs': previous_calculation.get('service_inputs', {}),
+        })
     calculation = {
         'estimate_type': 'indicative' if indicative_total is not None else 'quote_required',
         'service_type': booking.primary_service,
@@ -832,9 +985,11 @@ def _save_quote_required(booking: Booking, reason: str | list[str], *, indicativ
         'manual_review_resolved': False,
         'availability_confirmation_required': True,
         'availability_confirmed': False,
-        'pricing_rule_version': 'admin-configured-v1' if indicative_total is not None else None,
+        'pricing_rule_version': (estimate_details or {}).get('rate_card_version')
+        or ('admin-configured-v1' if indicative_total is not None else None),
         'indicative_total': round(float(indicative_total), 2) if indicative_total is not None else None,
         'estimate_details': estimate_details or {},
+        'quote_history': quote_history,
         'service_inputs': {
             'property': ((booking.workflow_data or {}).get('property') or {}).get('service_answers', {}),
             'inventory': (booking.workflow_data or {}).get('inventory_answers', {}),
@@ -857,6 +1012,52 @@ def _save_quote_required(booking: Booking, reason: str | list[str], *, indicativ
 
 def _cleaning_indicative_total(booking: Booking):
     answers = ((booking.workflow_data or {}).get('property') or {}).get('service_answers', {})
+    morph_category = answers.get('morph_cleaning_category', 'legacy')
+    if morph_category != 'legacy':
+        inventory_answers = (booking.workflow_data or {}).get('inventory_answers') or {}
+        description = ' '.join(
+            str(inventory_answers.get(key) or '') for key in ('cleaning_items', 'cleaning_instructions')
+        ).casefold()
+        category_terms = {
+            'residential-move-clean': ('deep clean', 'deep-clean', 'fumigation', 'pest control', 'couch cleaning', 'sofa cleaning', 'oven cleaning', 'refrigerator cleaning', 'office premises'),
+            'commercial-move-clean': ('fumigation', 'pest control', 'couch cleaning', 'sofa cleaning', 'oven cleaning', 'refrigerator cleaning'),
+            'fumigation-pest-control': ('move clean', 'move-clean', 'couch cleaning', 'sofa cleaning', 'appliance cleaning'),
+            'upholstery-care': ('fumigation', 'pest control', 'move clean', 'move-clean', 'oven cleaning', 'refrigerator cleaning'),
+            'kitchen-appliance-cleaning': ('fumigation', 'pest control', 'move clean', 'move-clean', 'couch cleaning', 'sofa cleaning'),
+        }
+        conflicts = [term for term in category_terms.get(morph_category, ()) if term in description]
+        if conflicts:
+            return None, (
+                f'The description mentions {", ".join(conflicts)} but the selected cleaning category is '
+                f'{morph_category.replace("-", " ")}; Chigo must clarify the service scope before pricing.'
+            ), []
+        selection = {'category': morph_category}
+        if morph_category == 'residential-move-clean':
+            selection['property_type'] = answers.get('morph_residential_property_type')
+            selection['logistics_requested'] = answers.get('morph_logistics_requested') == 'yes'
+            selection['logistics_separate'] = answers.get('morph_logistics_separate') == 'yes'
+        elif morph_category == 'commercial-move-clean':
+            selection['area_sqm'] = answers.get('morph_commercial_area_sqm')
+            selection['logistics_requested'] = answers.get('morph_commercial_logistics_requested') == 'yes'
+            selection['logistics_separate'] = answers.get('morph_commercial_logistics_separate') == 'yes'
+        elif morph_category == 'upholstery-care':
+            selection['couch_quantities'] = {
+                f'{size}-seater': answers.get(f'morph_couch_{size}_seater', 0)
+                for size in range(1, 8)
+            }
+            selection['bedframe_quantities'] = {
+                size: answers.get(f'morph_bedframe_{size.replace("-", "_")}', 0)
+                for size in ('3x6-ft', '4x6-ft', '5x6-ft', '6x6-ft', '6x7-ft', '7x7-ft')
+            }
+        elif morph_category == 'kitchen-appliance-cleaning':
+            selection['appliance_quantities'] = {
+                appliance: answers.get(f'morph_appliance_{appliance.replace("-", "_")}', 0)
+                for appliance in ('oven', 'refrigerator', 'microwave', 'dishwasher', 'other-approved')
+            }
+        quote = calculate_morph_cleaning_quote(selection)
+        if quote['total'] is None:
+            return None, quote['reason'], []
+        return quote['total'], None, quote['lines']
     if answers.get('cleaning_frequency') != 'one-time':
         return None, 'Recurring cleaning billing and scheduling are not configured; this request needs an operations quote.', []
     keys = (
@@ -1002,7 +1203,11 @@ def calculate_quote(booking: Booking, user_id=None):
             reasons.append('The requested cleaning date must be confirmed by operations.')
         return _save_quote_required(
             booking, reasons, indicative_total=estimate,
-            estimate_details={'basis': 'admin-configured cleaning unit rates', 'tax_included': False, 'lines': rate_lines},
+            estimate_details={
+                'basis': 'Morph Cleaning approved rate card' if ((booking.workflow_data or {}).get('property') or {}).get('service_answers', {}).get('morph_cleaning_category') not in {None, 'legacy'} else 'admin-configured cleaning unit rates',
+                'rate_card_version': RATE_CARD_VERSION if ((booking.workflow_data or {}).get('property') or {}).get('service_answers', {}).get('morph_cleaning_category') not in {None, 'legacy', 'fumigation-pest-control'} else 'admin-configured-v1' if estimate is not None else None,
+                'currency': 'NGN', 'tax_included': False, 'lines': rate_lines,
+            },
             user_id=user_id,
         )
     if booking.primary_service == 'storage':
@@ -1258,9 +1463,11 @@ def calculate_quote(booking: Booking, user_id=None):
     return booking.calculation_data
 
 
-def accept_quote(booking: Booking, user_id):
+def accept_quote(booking: Booking, user_id, *, policy_acknowledged=None):
     if booking.quote_status != 'Ready' or booking.workflow_state != 'QUOTE_READY':
         raise ValueError('Only a ready quote can be accepted.')
+    if policy_acknowledged is False:
+        raise ValueError('Review and acknowledge the applicable terms before accepting this quote.')
     if float(booking.estimated_total or 0) <= 0 or not booking.quote_lines:
         raise ValueError('A confirmed quote with a positive total is required before acceptance.')
     calculation = booking.calculation_data or {}
@@ -1269,9 +1476,22 @@ def accept_quote(booking: Booking, user_id):
     if calculation.get('manual_review_flags') and not calculation.get('manual_review_resolved'):
         raise ValueError('Operations must review this service scope and publish a confirmed quote before it can be accepted.')
     previous = booking.quote_status
+    calculation = dict(calculation)
+    calculation['policy_acceptance'] = {
+        'policy_version': BOOKING_POLICY_VERSION,
+        'accepted_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+        'booking_reference': booking.booking_request_id or booking.booking_number,
+        'customer_id': user_id,
+        'policy_snapshot': {
+            'same_day_cancellation': 'If a paid booking is cancelled on its scheduled service date, the amount actually paid toward the recorded deposit is non-refundable. No deposit is created for an unpaid booking; other payments remain subject to review.',
+            'damage_reporting': 'Damage or loss must be reported within 72 hours after the recorded service completion time. The deadline is inclusive; a report after it is not accepted under this policy version.',
+        },
+    }
+    booking.calculation_data = calculation
     booking.quote_status = 'Accepted'
     booking.workflow_state = 'QUOTE_ACCEPTED'
-    record_event(booking, 'quote.accepted', previous=previous, new=booking.quote_status, user_id=user_id)
+    record_event(booking, 'quote.accepted', previous=previous,
+                 new={'status': booking.quote_status, 'policy_acceptance': calculation['policy_acceptance']}, user_id=user_id)
     db.session.commit()
 
 

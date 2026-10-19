@@ -45,6 +45,8 @@ def save_assignment(booking, truck_id=None, driver_name=None, mover_names=None, 
     assignment = BookingAssignment.query.filter_by(booking_id=booking.id).first()
     if assignment is None:
         assignment = BookingAssignment(booking_id=booking.id)
+    assignment.partner_id = None
+    assignment.partner_vehicle_id = None
     assignment.truck_id = truck_id or None
     assignment.driver_name = driver_name or None
     assignment.mover_1 = mover_names[0] if len(mover_names) > 0 else None

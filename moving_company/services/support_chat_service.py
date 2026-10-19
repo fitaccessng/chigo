@@ -63,8 +63,10 @@ SUPPORT_KNOWLEDGE = {
         'A payment status is not a promise that a move has started or completed.'
     ),
     'cancel': (
-        'A booking can be cancelled through the supported booking workflow. Cancellation timing and any '
-        'charges depend on the booking status and applicable Chigo policy.'
+        'Eligible customers can cancel from their booking details. Completed or in-progress services cannot '
+        'use ordinary customer cancellation. Under the accepted current policy, a same-day cancellation '
+        'makes only the amount actually paid toward the recorded deposit non-refundable; unpaid bookings '
+        'have no deposit forfeiture. Any other refund eligibility is flagged for review, not marked complete.'
     ),
     'modify': (
         'Bookings can be modified when the workflow and booking state permit it. Contact support if your '

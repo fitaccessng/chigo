@@ -1,5 +1,5 @@
 from flask_wtf import FlaskForm
-from wtforms import BooleanField, DateField, FloatField, IntegerField, PasswordField, SelectField, StringField, SubmitField, TextAreaField
+from wtforms import BooleanField, DateField, FloatField, IntegerField, PasswordField, SelectField, SelectMultipleField, StringField, SubmitField, TextAreaField
 from wtforms.validators import DataRequired, Email, EqualTo, Length, NumberRange, Optional
 
 
@@ -36,6 +36,10 @@ class TruckPartnerForm(FlaskForm):
     capacity = StringField('Capacity', filters=[lambda value: value.strip() if value else value], validators=[Optional(), Length(max=50)])
     rate = FloatField('Partner rate (NGN)', validators=[DataRequired(), NumberRange(min=0)])
     operating_areas = StringField('Operating areas', filters=[lambda value: value.strip() if value else value], validators=[Optional(), Length(max=255)])
+    service_types = SelectMultipleField('Supported services', choices=[
+        ('residential', 'Residential moving'), ('commercial', 'Commercial moving'),
+        ('packing', 'Packing'), ('logistics', 'Logistics'),
+    ], validators=[Optional()])
     submit = SubmitField('Add truck partner')
 
 

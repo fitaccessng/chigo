@@ -285,7 +285,9 @@ def test_decor_operations_quote_requires_availability_and_customer_acceptance(ap
     assert quote_page.status_code == 200
     with app.app_context():
         assert HomeDecorRequest.query.filter_by(id=request_id).one().status == 'Awaiting Client Approval'
-    accepted = customer_client.post(f'/booking/{booking_request_id}/quote', data={'action': 'accept_quote'})
+    accepted = customer_client.post(f'/booking/{booking_request_id}/quote', data={
+        'action': 'accept_quote', 'policy_acknowledged': 'on',
+    })
     assert accepted.status_code == 302
     assert accepted.headers['Location'].endswith(f'/booking/{booking_request_id}/payment')
     with app.app_context():

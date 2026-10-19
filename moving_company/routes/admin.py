@@ -3,6 +3,8 @@ from datetime import date, datetime, time, timedelta
 import json
 from math import ceil
 from pathlib import Path
+from datetime import timezone
+from zoneinfo import ZoneInfo
 
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_file, send_from_directory, url_for
 from flask_login import current_user, login_required, login_user
@@ -11,11 +13,13 @@ from sqlalchemy.orm import aliased, joinedload, selectinload
 
 from ..extensions import db
 from ..forms import AdminAccountForm, InventoryItemForm, LoginForm, MoverForm, PricingForm, TruckPartnerForm
-from ..models import AuditLog, Booking, BookingAssignment, BookingEvent, BookingPhoto, BookingQuoteLine, Cleaner, HomeDecorAttachment, HomeDecorRequest, IncidentReport, InventoryItem, Mover, Payment, Referral, ReferralCampaign, ReferralCode, ReferralReward, RewardTransaction, ServicePricing, SupportRequest, Team, Truck, TruckPartner, User, VehicleImage, VehicleType
+from ..models import AuditLog, Booking, BookingAssignment, BookingEvent, BookingPhoto, BookingQuoteLine, Cleaner, DispatchOffer, DispatchRequest, HomeDecorAttachment, HomeDecorRequest, IncidentReport, InventoryItem, Mover, Payment, Referral, ReferralCampaign, ReferralCode, ReferralReward, ResourceReservation, RewardTransaction, ServicePricing, SupportRequest, Team, Truck, TruckPartner, User, VehicleImage, VehicleType
 from ..services.assignment_service import save_assignment
 from ..services.booking_engine_service import apply_price_override, calculate_quote, record_event
+from ..services.booking_policy_service import utc_now
 from ..services.image_upload_service import delete_image, save_image
 from ..services.referral_service import expire_referral_rewards, get_campaign, issue_referral_reward, reverse_referral_reward
+from ..services.dispatch_service import expire_dispatch_offers, release_booking_reservations, retry_failed_dispatch_notifications, start_dispatch
 from ..services.location_service import (
     add_location_alias, merge_canonical_locations, merge_local_places,
     normalize_location_name, review_location_observation, upsert_location_records,
@@ -72,13 +76,13 @@ ROLE_PERMISSIONS = {
     'admin': frozenset({'*'}),
     'operations_manager': frozenset({
         'dashboard', 'bookings', 'jobs', 'schedule', 'customers', 'fleet',
-        'movers', 'locations', 'quotes', 'services', 'inventory', 'support',
+        'movers', 'locations', 'quotes', 'services', 'inventory', 'support', 'dispatch',
         'reviews', 'reports',
     }),
-    'dispatcher': frozenset({'dashboard', 'bookings', 'jobs', 'schedule', 'fleet', 'movers', 'locations'}),
+    'dispatcher': frozenset({'dashboard', 'bookings', 'jobs', 'schedule', 'fleet', 'movers', 'locations', 'dispatch'}),
     'finance_manager': frozenset({'dashboard', 'quotes', 'payments', 'finance', 'reports'}),
     'customer_support': frozenset({'dashboard', 'customers', 'bookings', 'reviews', 'support', 'notifications'}),
-    'fleet_manager': frozenset({'dashboard', 'fleet', 'movers', 'schedule'}),
+    'fleet_manager': frozenset({'dashboard', 'fleet', 'movers', 'schedule', 'dispatch'}),
     'content_marketing_manager': frozenset({'dashboard', 'services', 'promotions'}),
 }
 
@@ -356,6 +360,10 @@ def dashboard():
         'outstanding_payments': float(outstanding_amount or 0),
         'available_movers': Mover.query.filter_by(status='Available').count(),
         'available_vehicles': Truck.query.filter_by(status='Available').count(),
+        'dispatch_attention': DispatchRequest.query.filter(
+            DispatchRequest.status.in_(['PENDING_DISPATCH', 'REASSIGNMENT_REQUIRED', 'MANUAL_REVIEW'])
+        ).count(),
+        'active_dispatch_offers': DispatchOffer.query.filter_by(status='OFFERED').count(),
     }
     return render_template(
         'admin/dashboard.html', bookings=bookings, metrics=metrics,
@@ -364,6 +372,90 @@ def dashboard():
         vehicle_status_counts=vehicle_status_counts, mover_status_counts=mover_status_counts,
         human_requests=human_requests,
     )
+
+
+@admin_bp.route('/dispatch')
+@login_required
+@admin_required('dispatch')
+def dispatch_queue():
+    selected_status = request.args.get('status', '').strip()
+    query = DispatchRequest.query.join(Booking)
+    if selected_status:
+        query = query.filter(DispatchRequest.status == selected_status)
+    dispatch_requests = query.order_by(DispatchRequest.updated_at.desc()).limit(200).all()
+    offers = DispatchOffer.query.order_by(DispatchOffer.offered_at.desc()).limit(100).all()
+    reservations = ResourceReservation.query.filter_by(status='RESERVED').order_by(
+        ResourceReservation.reservation_date, ResourceReservation.created_at,
+    ).limit(200).all()
+    existing_dispatch_ids = db.session.query(DispatchRequest.booking_id)
+    awaiting_dispatch = Booking.query.filter(
+        Booking.primary_service.in_(('residential', 'commercial')),
+        Booking.status == 'Confirmed', Booking.quote_status == 'Accepted',
+        Booking.payment_status == 'Paid', Booking.id.notin_(existing_dispatch_ids),
+    ).order_by(Booking.move_date, Booking.created_at).limit(100).all()
+    return render_template(
+        'admin/dispatch.html', dispatch_requests=dispatch_requests,
+        offers=offers, reservations=reservations, awaiting_dispatch=awaiting_dispatch,
+        selected_status=selected_status,
+    )
+
+
+@admin_bp.route('/bookings/<int:booking_id>/dispatch', methods=['POST'])
+@login_required
+@admin_required('dispatch')
+def begin_booking_dispatch(booking_id):
+    booking = db.get_or_404(Booking, booking_id)
+    try:
+        dispatch_request = start_dispatch(booking.id, current_user.id)
+        write_admin_audit('dispatch.started', 'booking', booking.id, after={
+            'dispatch_request_id': dispatch_request.id, 'status': dispatch_request.status,
+        })
+        db.session.commit()
+        flash(f'Dispatch status: {dispatch_request.status.replace("_", " ").lower()}.', 'success')
+    except (LookupError, ValueError) as error:
+        db.session.rollback()
+        flash(str(error), 'error')
+    return redirect(request.referrer or url_for('admin.dispatch_queue'))
+
+
+@admin_bp.route('/dispatch/<int:dispatch_id>/retry', methods=['POST'])
+@login_required
+@admin_required('dispatch')
+def retry_booking_dispatch(dispatch_id):
+    dispatch_request = db.get_or_404(DispatchRequest, dispatch_id)
+    reason = request.form.get('reason', '').strip()
+    if dispatch_request.status not in {'MANUAL_REVIEW', 'REASSIGNMENT_REQUIRED'} or len(reason) < 8:
+        flash('Dispatch can only be retried from a review/reassignment state; record a reason of at least 8 characters.', 'error')
+        return redirect(url_for('admin.dispatch_queue'))
+    try:
+        dispatch_request.status = 'PENDING_DISPATCH'
+        dispatch_request.last_error = None
+        db.session.commit()
+        dispatch_request = start_dispatch(dispatch_request.booking_id, current_user.id, retry_manual=True)
+        write_admin_audit('dispatch.retried', 'booking', dispatch_request.booking_id, after={
+            'dispatch_request_id': dispatch_request.id, 'status': dispatch_request.status,
+            'reason': reason[:500],
+        })
+        db.session.commit()
+        flash(f'Dispatch retry status: {dispatch_request.status.replace("_", " ").lower()}.', 'success')
+    except (LookupError, ValueError) as error:
+        db.session.rollback()
+        flash(str(error), 'error')
+    return redirect(url_for('admin.dispatch_queue'))
+
+
+@admin_bp.route('/dispatch/maintenance', methods=['POST'])
+@login_required
+@admin_required('dispatch')
+def run_dispatch_maintenance():
+    expired_count = expire_dispatch_offers()
+    failed_email_count = retry_failed_dispatch_notifications()
+    write_admin_audit('dispatch.maintenance_run', 'dispatch', None, after={
+        'expired_offers': expired_count, 'retried_offer_emails': failed_email_count,
+    })
+    db.session.commit()
+    flash(f'Dispatch maintenance processed {expired_count} expired offers and retried {failed_email_count} failed emails.', 'success')
+    return redirect(url_for('admin.dispatch_queue'))
 
 
 @admin_bp.route('/bookings')
@@ -645,6 +737,8 @@ def update_home_decor_status(request_id):
         }.get(target)
         if booking_status:
             booking.status = booking_status
+            if target == 'Completed' and booking.service_completed_at is None:
+                booking.service_completed_at = utc_now()
         if target in {'Cancelled', 'Rejected'}:
             booking.workflow_state = 'CANCELLED'
         booking.workflow_data = {**(booking.workflow_data or {}), 'home_decor_request': {
@@ -869,6 +963,7 @@ def assign_booking(booking_id):
             mover_names=movers,
             cleaner=request.form.get('cleaner', '').strip(),
         )
+        release_booking_reservations(booking.id, 'Replaced by an administrator assignment.', commit=False)
         write_admin_audit('booking.assignment_updated', 'booking', booking.id, before=before, after={
             'truck_id': truck.id if truck else None,
             'driver_name': request.form.get('driver_name', '').strip(),
@@ -963,6 +1058,49 @@ def update_incident(incident_id):
     return redirect(url_for('admin.booking_detail', booking_id=incident.booking_id))
 
 
+@admin_bp.route('/incidents/<int:incident_id>/evidence/<int:index>')
+@login_required
+@admin_required('support')
+def serve_incident_evidence(incident_id, index):
+    incident = db.get_or_404(IncidentReport, incident_id)
+    evidence = incident.evidence or []
+    if index < 0 or index >= len(evidence):
+        abort(404)
+    return send_from_directory(current_app.config['UPLOAD_FOLDER'], evidence[index]['file_url'])
+
+
+@admin_bp.route('/bookings/<int:booking_id>/completion-time', methods=['POST'])
+@login_required
+@admin_required('jobs')
+def correct_service_completion_time(booking_id):
+    booking = db.get_or_404(Booking, booking_id)
+    if booking.status not in {'Completed', 'Delivered'} and booking.workflow_state not in {'COMPLETED', 'REVIEW_PENDING', 'REVIEWED'}:
+        flash('A service completion time can only be recorded for a completed booking.', 'error')
+        return redirect(url_for('admin.booking_detail', booking_id=booking.id))
+    raw_value = request.form.get('service_completed_at', '').strip()
+    try:
+        parsed = datetime.fromisoformat(raw_value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=ZoneInfo('Africa/Lagos'))
+        corrected = parsed.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        flash('Enter a valid completion date and time in Africa/Lagos time.', 'error')
+        return redirect(url_for('admin.booking_detail', booking_id=booking.id))
+    if corrected > utc_now():
+        flash('Service completion time cannot be in the future.', 'error')
+        return redirect(url_for('admin.booking_detail', booking_id=booking.id))
+    previous = booking.service_completed_at.isoformat() if booking.service_completed_at else None
+    booking.service_completed_at = corrected
+    record_event(booking, 'service.completion_time_corrected', previous=previous,
+                 new=corrected.isoformat(timespec='seconds'), user_id=current_user.id)
+    write_admin_audit('service.completion_time_corrected', 'booking', booking.id,
+                      before={'service_completed_at': previous},
+                      after={'service_completed_at': corrected.isoformat(timespec='seconds')})
+    db.session.commit()
+    flash('Recorded service completion time. The customer damage-reporting deadline has been updated.', 'success')
+    return redirect(url_for('admin.booking_detail', booking_id=booking.id))
+
+
 @admin_bp.route('/bookings/<int:booking_id>/status', methods=['POST'])
 @login_required
 @admin_required('jobs')
@@ -985,10 +1123,17 @@ def update_booking_status(booking_id):
         booking.workflow_state = 'IN_PROGRESS'
     elif target == 'Completed':
         booking.workflow_state = 'COMPLETED'
+        if booking.service_completed_at is None:
+            booking.service_completed_at = utc_now()
+        release_booking_reservations(booking.id, 'Booking completed.', commit=False)
     elif target == 'Cancelled':
         booking.workflow_state = 'CANCELLED'
+        release_booking_reservations(booking.id, 'Booking cancelled by operations.', commit=False)
     record_event(booking, 'ride.status_changed', previous=previous,
-                 new={'status': booking.status, 'workflow_state': booking.workflow_state}, user_id=current_user.id)
+                 new={
+                     'status': booking.status, 'workflow_state': booking.workflow_state,
+                     'service_completed_at': booking.service_completed_at.isoformat() if target == 'Completed' else None,
+                 }, user_id=current_user.id)
     write_admin_audit('ride.status_changed', 'booking', booking.id, before=previous,
                       after={'status': booking.status, 'workflow_state': booking.workflow_state})
     if target == 'Completed':
@@ -1345,13 +1490,14 @@ def trucks():
             capacity=form.capacity.data or None,
             rate=form.rate.data,
             operating_areas=form.operating_areas.data or None,
+            service_types=form.service_types.data or [],
             status='Available',
         )
         db.session.add(partner)
         db.session.flush()
         write_admin_audit('truck_partner.created', 'truck_partner', partner.id, after={
             'name': partner.name, 'company': partner.company, 'vehicle_type': partner.vehicle_type,
-            'rate': partner.rate,
+            'rate': partner.rate, 'service_types': partner.service_types,
         })
         db.session.commit()
         flash('Truck partner added.', 'success')
@@ -1377,6 +1523,37 @@ def trucks():
         trucks=resources, partners=partners, partner_form=form,
         status_filter=status, vehicle_type_filter=vehicle_type, area_filter=area,
     )
+
+
+@admin_bp.route('/trucks/<int:partner_id>/dispatch-profile', methods=['POST'])
+@login_required
+@admin_required('fleet')
+def update_partner_dispatch_profile(partner_id):
+    partner = db.get_or_404(TruckPartner, partner_id)
+    allowed_services = {'residential', 'commercial', 'packing', 'logistics'}
+    services = set(request.form.getlist('service_types'))
+    status = request.form.get('status', '')
+    areas = request.form.get('operating_areas', '').strip()
+    if services - allowed_services or status not in {'Available', 'Unavailable'} or len(areas) > 255:
+        flash('Check service eligibility, status and coverage values.', 'error')
+        return redirect(url_for('admin.trucks'))
+    previous = {
+        'service_types': partner.service_types or [],
+        'operating_areas': partner.operating_areas,
+        'status': partner.status,
+    }
+    partner.service_types = sorted(services)
+    partner.operating_areas = areas or None
+    partner.status = status
+    write_admin_audit('truck_partner.dispatch_profile_updated', 'truck_partner', partner.id,
+                      before=previous, after={
+                          'service_types': partner.service_types,
+                          'operating_areas': partner.operating_areas,
+                          'status': partner.status,
+                      })
+    db.session.commit()
+    flash('Partner dispatch eligibility saved. Coverage is exact-match only.', 'success')
+    return redirect(url_for('admin.trucks'))
 
 
 @admin_bp.route('/movers', methods=['GET', 'POST'])

@@ -1,7 +1,7 @@
 import os
 
 import click
-from flask import Flask, flash, redirect, render_template, request, session, url_for
+from flask import Flask, current_app, flash, redirect, render_template, request, session, url_for
 from flask_wtf.csrf import CSRFError
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
@@ -17,6 +17,7 @@ from .routes.customer import customer_bp
 from .routes.locations import locations_bp
 from .routes.home_decor import home_decor_bp
 from .routes.public import public_bp
+from .routes.partner_dispatch import partner_dispatch_bp
 from .routes.support_admin import support_admin_bp
 from .routes.support_chat import support_bp
 from .services.google_oauth_service import configure_google_oauth
@@ -28,7 +29,13 @@ login_manager.login_view = 'auth.login'
 
 @login_manager.user_loader
 def load_user(user_id):
-    return db.session.get(User, int(user_id))
+    try:
+        user_pk = int(user_id)
+    except (TypeError, ValueError):
+        return None
+    if user_pk <= 0:
+        return None
+    return db.session.get(User, user_pk)
 
 
 def validate_database_connection(app):
@@ -53,6 +60,10 @@ def validate_database_connection(app):
 def create_app(testing=False):
     app = Flask(__name__)
     app.config.from_object(Config)
+    if str(app.config.get('APP_ENV', '')).strip().lower() == 'production':
+        secret_key = str(app.config.get('SECRET_KEY') or '')
+        if len(secret_key) < 32 or secret_key in {'dev-secret-key', 'change-me'}:
+            raise RuntimeError('Production requires a SECRET_KEY with at least 32 characters.')
     if testing:
         app.config['TESTING'] = True
         app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
@@ -79,6 +90,7 @@ def create_app(testing=False):
     app.register_blueprint(admin_bp, url_prefix='/admin')
     app.register_blueprint(support_admin_bp, url_prefix='/admin')
     app.register_blueprint(support_bp)
+    app.register_blueprint(partner_dispatch_bp)
 
     @app.errorhandler(404)
     def not_found(_error):
@@ -182,6 +194,15 @@ def create_app(testing=False):
                 f"{report['movers']} movers, and {report['teams']} teams."
             )
 
+    @app.cli.command('dispatch-maintenance')
+    def dispatch_maintenance_command():
+        """Expire partner offers, advance reassignment, and retry failed offer email deliveries."""
+        from .services.dispatch_service import expire_dispatch_offers, retry_failed_dispatch_notifications
+        with app.app_context():
+            expired = expire_dispatch_offers()
+            retried = retry_failed_dispatch_notifications()
+            click.echo(f'Expired offers processed: {expired}; failed offer emails retried: {retried}.')
+
     with app.app_context():
         if app.config.get('AUTO_CREATE_SCHEMA'):
             try:
@@ -202,7 +223,7 @@ def seed_defaults():
     from .services.location_service import seed_fct_locations
     from .services.vehicle_catalogue import DEFAULT_VEHICLE_TYPES
 
-    if not User.query.filter_by(email='admin@chigo.com').first():
+    if current_app.config.get('APP_ENV') != 'production' and not User.query.filter_by(email='admin@chigo.com').first():
         admin = User(
             first_name='Admin',
             last_name='User',
@@ -339,6 +360,8 @@ def upgrade_booking_schema():
             'estimated_total': 'FLOAT DEFAULT 0', 'deposit_amount': 'FLOAT DEFAULT 0',
             'balance_amount': 'FLOAT DEFAULT 0', 'referral_id': 'INTEGER REFERENCES referrals(id)',
             'referral_discount_amount': 'FLOAT DEFAULT 0 NOT NULL', 'payment_status': "VARCHAR(30) DEFAULT 'Pending'",
+            'cancellation_data': "JSON DEFAULT '{}' NOT NULL", 'service_completed_at': 'TIMESTAMP',
+            'cancelled_at': 'TIMESTAMP',
         },
         'booking_items': {
             'size': "VARCHAR(20) DEFAULT 'medium'", 'special_handling': 'BOOLEAN DEFAULT FALSE',
@@ -348,6 +371,16 @@ def upgrade_booking_schema():
         'payments': {
             'gateway': 'VARCHAR(40)', 'authorization_url': 'TEXT',
             'currency': "VARCHAR(3) DEFAULT 'NGN' NOT NULL", 'transaction_status': 'VARCHAR(30)',
+        },
+        'service_pricing': {
+            'is_configured': 'BOOLEAN DEFAULT FALSE NOT NULL',
+        },
+        'incident_reports': {
+            'customer_id': 'INTEGER',
+            'evidence': "JSON DEFAULT '[]' NOT NULL",
+            'contact_snapshot': "JSON DEFAULT '{}' NOT NULL",
+            'noticed_at': 'TIMESTAMP',
+            'submitted_at': 'TIMESTAMP',
         },
         'local_places': {
             'parent_id': 'INTEGER REFERENCES local_places(id)', 'state': "VARCHAR(100) DEFAULT 'Federal Capital Territory' NOT NULL",
@@ -373,6 +406,11 @@ def upgrade_booking_schema():
                 present = {column['name'] for column in inspect(connection).get_columns(table)}
                 if name not in present:
                     connection.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {sql_type}'))
+            if table == 'incident_reports' and 'submitted_at' in columns:
+                connection.execute(text(
+                    'UPDATE incident_reports SET submitted_at = COALESCE(date_time, CURRENT_TIMESTAMP) '
+                    'WHERE submitted_at IS NULL'
+                ))
             if table == 'bookings':
                 connection.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS ix_bookings_booking_request_id ON bookings (booking_request_id)'))
         if 'local_places' in existing_tables:

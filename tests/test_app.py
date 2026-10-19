@@ -14,6 +14,15 @@ from moving_company.services.location_service import normalize_query, search_pla
 from moving_company.services.referral_service import get_campaign
 
 
+@pytest.fixture
+def app():
+    app = create_app(testing=True)
+    with app.app_context():
+        yield app
+        db.session.remove()
+        db.drop_all()
+
+
 def _login_test_customer(app, client):
     with app.app_context():
         customer = User.query.filter_by(email='booking-test@example.com').first()
@@ -270,6 +279,26 @@ def test_postgres_config_disables_automatic_schema_creation(monkeypatch):
     app = create_app(testing=False)
 
     assert app.config['AUTO_CREATE_SCHEMA'] is False
+
+
+def test_production_config_rejects_default_or_short_secret_key(monkeypatch):
+    from moving_company.config import Config
+
+    monkeypatch.setattr(Config, 'APP_ENV', 'production')
+    monkeypatch.setattr(Config, 'SECRET_KEY', 'dev-secret-key')
+    with pytest.raises(RuntimeError, match='SECRET_KEY'):
+        create_app(testing=False)
+
+
+def test_production_seed_does_not_create_default_admin(app, monkeypatch):
+    from moving_company import seed_defaults
+
+    monkeypatch.setitem(app.config, 'APP_ENV', 'production')
+    with app.app_context():
+        User.query.filter_by(email='admin@chigo.com').delete()
+        db.session.commit()
+        seed_defaults()
+        assert User.query.filter_by(email='admin@chigo.com').first() is None
 
 
 def test_local_place_merge_reassigns_booking_references_and_preserves_aliases():
@@ -691,6 +720,35 @@ def test_login_page_renders_login_fields():
     assert b'name="password"' in response.data
 
 
+def test_user_loader_rejects_foreign_remember_cookie_ids():
+    from moving_company import load_user
+    from flask_login.utils import encode_cookie
+
+    app = create_app(testing=True)
+    with app.app_context():
+        assert load_user('instructor:2') is None
+        assert load_user('invalid') is None
+        assert load_user(None) is None
+
+        user = User(
+            first_name='Remember', last_name='User',
+            email='remember-user@example.com', phone='',
+        )
+        user.set_password('password123')
+        db.session.add(user)
+        db.session.commit()
+
+        loaded = load_user(str(user.id))
+        assert loaded is not None
+        assert loaded.id == user.id
+        foreign_cookie = encode_cookie('instructor:2')
+
+    client = app.test_client()
+    client.set_cookie(app.config.get('REMEMBER_COOKIE_NAME', 'remember_token'), foreign_cookie)
+    response = client.get('/')
+    assert response.status_code == 200
+
+
 def test_admin_auth_pages_and_account_creation_permissions():
     app = create_app(testing=True)
     app.config['WTF_CSRF_ENABLED'] = False
@@ -836,8 +894,13 @@ def test_inventory_page_has_searchable_categories_and_selection_summary():
     assert 'id="inventory-search"' in html
     assert 'id="inventory-category-filter"' in html
     assert 'inventory-category-toggle' in html
-    assert 'Your selections' in html
-    assert 'Save inventory and continue' in html
+    assert 'Review selected inventory' in html
+    assert 'Save selected items' in html
+    assert 'Confirm Inventory &amp; Recommend Vehicle' in html
+    assert 'Vehicle recommendation' not in html
+    assert 'inventory-search-clear' in html
+    assert "addEventListener('input', applyFilters)" in html
+    assert "addEventListener('click'" in html
 
 
 def test_admin_login_accepts_admin_role():
@@ -1104,6 +1167,7 @@ def test_admin_ride_statuses_follow_sequence_and_record_history():
         booking = Booking.query.get(booking_id)
         assert booking.status == 'Completed'
         assert booking.workflow_state == 'COMPLETED'
+        assert booking.service_completed_at is not None
         assert BookingEvent.query.filter_by(booking_id=booking_id, action='ride.status_changed').count() == 6
         assert AuditLog.query.filter_by(action='ride.status_changed', entity_id=str(booking_id)).count() == 6
 
