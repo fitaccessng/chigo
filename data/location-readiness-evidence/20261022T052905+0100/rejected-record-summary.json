@@ -1,0 +1,7 @@
+{
+  "database_rejected_records": 0,
+  "generated_at": "2026-10-22T04:29:11.700178+00:00",
+  "no_database_writes_performed": true,
+  "reason": "No source rows were ingested or rejected in this read-only audit; source report parser conflicts are not treated as database rejects.",
+  "source_report_conflicts_and_unresolved_count": 0
+}

@@ -1,0 +1,56 @@
+{
+  "generated_at": "2026-10-22T05:17:46+01:00",
+  "command": ".venv/bin/python -m moving_company.services.postgis_ingestion --data-dir data/geodata --import-geonames --import-boundaries --dry-run",
+  "database_writes": 0,
+  "sources_used": {
+    "geonames": {
+      "processed_nigeria_records": 76332,
+      "fct_candidate_records": 541,
+      "records_with_coordinates": 541,
+      "records_with_area_council_parent": 541,
+      "duplicate_source_identifiers": 0,
+      "by_feature_type": {
+        "settlement": 441,
+        "city": 1,
+        "administrative_seat": 5,
+        "administrative_area": 7,
+        "water_feature": 40,
+        "landform": 15,
+        "facility": 15,
+        "geographic_feature": 17
+      },
+      "by_area_council": {
+        "Abuja Municipal Area Council": 163,
+        "Bwari Area Council": 61,
+        "Gwagwalada Area Council": 66,
+        "Kuje Area Council": 152,
+        "Kwali Area Council": 59,
+        "Abaji Area Council": 40
+      }
+    },
+    "chigo_curated_parser_candidates": {
+      "records": 47,
+      "records_with_coordinates": 47,
+      "by_area_council": {
+        "Abuja Municipal Area Council": 30,
+        "Bwari Area Council": 5,
+        "Gwagwalada Area Council": 5,
+        "Kuje Area Council": 3,
+        "Kwali Area Council": 2,
+        "Abaji Area Council": 2
+      }
+    },
+    "geo_boundaries": {
+      "records_retained": 7,
+      "area_councils_resolved": 6,
+      "area_councils_missing": []
+    }
+  },
+  "total_candidate_locations_in_this_dry_run": 588,
+  "limitations": [
+    "Parser candidates are not imported database rows.",
+    "The OSM 677 MB Nigeria PBF was not parsed in this run.",
+    "WOF bundle and OpenAddresses data were unavailable locally.",
+    "No target database or migration was touched."
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "generated_at": "2026-10-22T04:18:29.604899+00:00",
+  "sources": [
+    {
+      "attribution": "Credit OpenStreetMap contributors and provide ODbL notice/link; review database extraction obligations.",
+      "coverage": "Nigeria extract available; FCT-specific coverage not measured in this run.",
+      "edition": "Geofabrik Nigeria extract; embedded extract date not verified",
+      "license": "ODbL-1.0",
+      "path": "data/geodata/nigeria-latest.osm.pbf",
+      "present": true,
+      "retrieval_date": "2026-10-06T11:29:19.243582+00:00",
+      "sha256": "1d14816c1ac3ff0d8f757cc9bd0a497809ea86f9df5565fc8d07c9a9d85f4e80",
+      "size_bytes": 709511772,
+      "source": "osm"
+    },
+    {
+      "attribution": "Credit GeoNames and retain source ID/reference.",
+      "coverage": "Nigeria gazetteer available; FCT candidates are documented in prior dry-run evidence, not re-imported here.",
+      "edition": "GeoNames Nigeria dump; embedded edition date not verified",
+      "license": "CC-BY-4.0 per current project importer metadata; confirm against source terms before reuse.",
+      "path": "data/geodata/NG.zip",
+      "present": true,
+      "retrieval_date": "2026-10-06T11:01:50.593496+00:00",
+      "sha256": "f2642e2258a87fc0fc3ccd2929170c35163341dba5107978755047d25b690051",
+      "size_bytes": 1957738,
+      "source": "geonames"
+    },
+    {
+      "attribution": "Retain geoBoundaries dataset/version/source URL and required attribution.",
+      "coverage": "Nigeria ADM1 geometries; FCT membership is used only if feature labels resolve unambiguously.",
+      "edition": "File metadata must be reviewed for release/version.",
+      "license": "Not conclusively verified in this run; inspect dataset metadata/license before reuse.",
+      "path": "data/geodata/geoboundaries-NGA-ADM1.geojson",
+      "present": true,
+      "retrieval_date": "2026-10-06T10:55:31.307695+00:00",
+      "sha256": "64fa218ac3d453cc1e66412ff461c5dfa1a4a1ade0da93b239a9891b587d28f9",
+      "size_bytes": 2289696,
+      "source": "geoboundaries_adm1"
+    },
+    {
+      "attribution": "Retain geoBoundaries dataset/version/source URL and required attribution.",
+      "coverage": "Nigeria ADM2 geometries; six council boundaries must be independently verified.",
+      "edition": "File metadata must be reviewed for release/version.",
+      "license": "Not conclusively verified in this run; inspect dataset metadata/license before reuse.",
+      "path": "data/geodata/geoboundaries-NGA-ADM2.geojson",
+      "present": true,
+      "retrieval_date": "2026-10-06T10:55:51.186548+00:00",
+      "sha256": "bef7f2cfa45e012f4772eaa61c7b99e5188aeba4d5c6badae7e9f9aae8c02fcd",
+      "size_bytes": 9422551,
+      "source": "geoboundaries_adm2"
+    },
+    {
+      "attribution": "Keep the report source URLs and per-record provenance.",
+      "coverage": "Report only; counts do not prove corresponding database rows.",
+      "edition": "Report timestamp is read from the JSON metadata.",
+      "license": "Mixed upstream sources; verify each underlying source license and attribution.",
+      "path": "data/geodata/reports/fct-location-import-latest.json",
+      "present": true,
+      "reported_duplicate_candidates": 15,
+      "reported_postcodes": 916,
+      "reported_reconciled_records": 1053,
+      "reported_verified_coordinates": 0,
+      "retrieval_date": "2026-10-20T14:39:48.184559+00:00",
+      "sha256": "965d77c6a371179ea9849c1e8d7425423527e133bbedfb1eb5d1c35eea3f60fd",
+      "size_bytes": 1356930,
+      "source": "fct_directory_report",
+      "source_report_generated_at": "2026-10-20T14:39:44.286750+00:00"
+    },
+    {
+      "coverage": "No local complete bundle was identified.",
+      "license": "Per-record sources and terms must be reviewed; WOF requires license link and source-specific attribution.",
+      "present": false,
+      "source": "whos-on-first"
+    },
+    {
+      "coverage": "No local source package was identified.",
+      "license": "Must be assessed per source listing.",
+      "present": false,
+      "source": "openaddresses"
+    }
+  ]
+}

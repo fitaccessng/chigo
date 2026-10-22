@@ -1,8 +1,12 @@
 {% extends 'dashboard_base.html' %}
 {% block title %}Home Décor Request | Chigo Relocations{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/booking.css') }}">
+<script defer src="{{ url_for('static', filename='js/booking.js') }}"></script>
+{% endblock %}
 {% block content %}
 {% set step_title = steps[step][0] %}
-<main class="mx-auto max-w-5xl px-4 py-8 sm:px-7 sm:py-10">
+<main class="booking-experience mx-auto max-w-5xl px-4 py-8 sm:px-7 sm:py-10">
   <a href="{{ url_for('public.services') }}" class="inline-flex items-center gap-2 text-sm font-semibold text-stone-600 hover:text-brand-800" aria-label="Back to services"><span aria-hidden="true">←</span><span>Back to services</span></a>
   <header class="mt-6 border-b border-stone-200 pb-6">
     <p class="text-xs font-bold uppercase text-brand-700">Home Décor · {{ decor_request.public_reference }}</p>
@@ -10,7 +14,11 @@
     <p class="mt-3 max-w-3xl text-sm leading-6 text-stone-600">Tell us about your space, your style, and what you have in mind. Our team will review your requirements and help you plan the next steps.</p>
   </header>
 
-  <nav aria-label="Request progress" class="mt-6 overflow-x-auto">
+  <div class="mt-6 sm:hidden" role="progressbar" aria-label="Home Décor request progress" aria-valuemin="1" aria-valuemax="{{ steps|length }}" aria-valuenow="{{ step }}" aria-valuetext="Step {{ step }} of {{ steps|length }}: {{ step_title }}">
+    <div class="flex items-center justify-between text-xs font-semibold text-stone-600"><span>Step {{ step }} of {{ steps|length }}</span><span>{{ step_title }}</span></div>
+    <progress aria-hidden="true" class="mt-2 block h-1.5 w-full" value="{{ step }}" max="{{ steps|length }}"></progress>
+  </div>
+  <nav aria-label="Request progress" class="mt-6 hidden overflow-x-auto sm:block">
     <ol class="flex min-w-max items-center gap-3">
       {% for number, (label, subtitle) in steps.items() %}
       <li class="flex items-center gap-2 {% if number == step %}text-brand-800{% else %}text-stone-500{% endif %}" {% if number == step %}aria-current="step"{% endif %}>
@@ -26,21 +34,21 @@
   <p role="alert" class="mt-5 border-l-4 border-red-700 bg-red-50 px-4 py-3 text-sm text-red-900">{{ message }}</p>
   {% endfor %}
 
-  <section class="mt-7 border-y border-stone-200 py-6">
+  <section class="mt-7 border-y border-stone-200 bg-white px-4 py-6 sm:px-7">
     <h2 class="text-xl font-bold text-stone-900">Step {{ step }} · {{ step_title }}</h2>
     <p class="mt-1 text-sm text-stone-600">{{ steps[step][1] }}</p>
     <form method="post" enctype="multipart/form-data" class="mt-6 space-y-6" data-decor-form>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       {% if step == 1 %}
       <div class="grid gap-4 sm:grid-cols-2">
-        <label class="text-sm font-semibold text-stone-800">Full name <span class="text-red-700">*</span><input name="full_name" required maxlength="160" autocomplete="name" value="{{ values.get('full_name', '') }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"></label>
-        <label class="text-sm font-semibold text-stone-800">Phone number <span class="text-red-700">*</span><input name="phone" required maxlength="30" autocomplete="tel" value="{{ values.get('phone', '') }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"></label>
-        <label class="text-sm font-semibold text-stone-800">Email address<input type="email" name="email" maxlength="254" autocomplete="email" value="{{ values.get('email', '') }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"></label>
-        <label class="text-sm font-semibold text-stone-800">Preferred contact method <span class="text-red-700">*</span><select name="contact_method" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal">{% for option in contact_methods %}<option value="{{ option }}" {% if values.get('contact_method', 'WhatsApp') == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+        <label class="text-sm font-semibold text-stone-800">Full name <span class="text-red-700">*</span><input name="full_name" required maxlength="160" autocomplete="name" value="{{ values.get('full_name', '') }}" class="mt-1.5 w-full border border-stone-300 bg-white px-3 py-2.5 font-normal"></label>
+        <label class="text-sm font-semibold text-stone-800">Phone number <span class="text-red-700">*</span><input name="phone" required maxlength="30" autocomplete="tel" value="{{ values.get('phone', '') }}" class="mt-1.5 w-full border border-stone-300 bg-white px-3 py-2.5 font-normal"></label>
+        <label class="text-sm font-semibold text-stone-800">Email address<input type="email" name="email" maxlength="254" autocomplete="email" value="{{ values.get('email', '') }}" class="mt-1.5 w-full border border-stone-300 bg-white px-3 py-2.5 font-normal"></label>
+        <label class="text-sm font-semibold text-stone-800">Preferred contact method <span class="text-red-700">*</span><select name="contact_method" required class="mt-1.5 w-full border border-stone-300 bg-white px-3 py-2.5 font-normal">{% for option in contact_methods %}<option value="{{ option }}" {% if values.get('contact_method', 'WhatsApp') == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
       </div>
       {% elif step == 2 %}
       <div class="grid gap-4 sm:grid-cols-2">
-        <label class="text-sm font-semibold text-stone-800">Property type <span class="text-red-700">*</span><select name="property_type" required data-property-type class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"><option value="">Choose an option</option>{% for option in property_types %}<option {% if values.get('property_type') == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+        <label class="text-sm font-semibold text-stone-800">Property type <span class="text-red-700">*</span><select name="property_type" required data-property-type class="mt-1.5 w-full border border-stone-300 bg-white px-3 py-2.5 font-normal"><option value="">Choose an option</option>{% for option in property_types %}<option {% if values.get('property_type') == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
         <label class="text-sm font-semibold text-stone-800">Property status <span class="text-red-700">*</span><select name="property_status" required class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 font-normal"><option value="">Choose an option</option>{% for option in property_statuses %}<option {% if values.get('property_status') == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
         <div class="sm:col-span-2">
           <label for="location_search" class="text-sm font-semibold text-stone-800">Property location in FCT <span class="text-red-700">*</span></label>
@@ -102,11 +110,11 @@
     const sync = () => {
       const commercial = form.elements.namedItem('property_type')?.value === 'Office or commercial space';
       const bedrooms = form.querySelector('[data-bedroom-field]');
-      if (bedrooms) { bedrooms.hidden = commercial; bedrooms.querySelector('input').required = !commercial; }
+      if (bedrooms) { bedrooms.hidden = commercial; bedrooms.querySelector('input').required = !commercial; bedrooms.querySelector('input').disabled = commercial; }
       const otherService = form.querySelector('[data-other-service]');
-      if (otherService) { const visible = [...form.querySelectorAll('[name="decor_services"]')].some(input => input.checked && input.value === 'Other'); otherService.classList.toggle('hidden', !visible); otherService.querySelector('textarea').required = visible; }
+      if (otherService) { const visible = [...form.querySelectorAll('[name="decor_services"]')].some(input => input.checked && input.value === 'Other'); otherService.classList.toggle('hidden', !visible); otherService.querySelector('textarea').required = visible; otherService.querySelector('textarea').disabled = !visible; }
       const otherStyle = form.querySelector('[data-other-style]');
-      if (otherStyle) { const visible = form.elements.namedItem('design_style')?.value === 'Other'; otherStyle.classList.toggle('hidden', !visible); otherStyle.querySelector('input').required = visible; }
+      if (otherStyle) { const visible = form.elements.namedItem('design_style')?.value === 'Other'; otherStyle.classList.toggle('hidden', !visible); otherStyle.querySelector('input').required = visible; otherStyle.querySelector('input').disabled = !visible; }
     };
     form.addEventListener('change', sync); sync();
     form.addEventListener('submit', event => {
@@ -154,7 +162,7 @@
             const option = document.createElement('button'); option.type = 'button'; option.className = 'block w-full border-b border-stone-100 px-4 py-3 text-left hover:bg-emerald-50';
             const name = document.createElement('span'); name.className = 'block text-sm font-semibold text-stone-900'; name.textContent = result.name || result.formatted_address || result.display_name;
             const context = document.createElement('span'); context.className = 'mt-1 block text-xs text-stone-500'; context.textContent = [result.area_council, result.district || result.neighborhood, result.state || 'FCT'].filter(Boolean).join(' · '); option.append(name, context);
-            option.addEventListener('click', () => { const formatted = result.formatted_address || result.display_name || result.name; input.value = formatted; set('', formatted); set('address', result.name || formatted); set('city', result.city || 'Abuja'); set('state', result.state || 'Federal Capital Territory'); set('country', result.country || 'Nigeria'); set('area', result.area); set('area_council', result.area_council); set('district', result.district); set('neighborhood', result.neighborhood); set('formatted_address', formatted); set('latitude', result.latitude); set('longitude', result.longitude); set('place_id', result.place_id || result.provider_place_id || result.id); set('provider', result.provider); set('provider_raw_id', result.provider_raw_id || result.provider_place_id || result.id); set('location_type', result.location_type || result.type); close(); });
+            option.addEventListener('click', () => { const formatted = result.formatted_address || result.display_name || result.name; input.value = formatted; set('', formatted); set('address', result.name || formatted); set('city', result.city); set('state', result.state); set('country', result.country); set('area', result.area); set('area_council', result.area_council); set('district', result.district); set('neighborhood', result.neighborhood); set('formatted_address', formatted); set('latitude', result.latitude); set('longitude', result.longitude); set('place_id', result.place_id || result.provider_place_id || result.id); set('provider', result.provider); set('provider_raw_id', result.provider_raw_id || result.provider_place_id || result.id); set('location_type', result.location_type || result.type); close(); });
             panel.append(option);
           }
         } catch (error) { if (error.name === 'AbortError' || current !== sequence) return; panel.replaceChildren(); const failed = document.createElement('p'); failed.className = 'px-4 py-3 text-xs text-amber-800'; failed.textContent = 'Location search is unavailable. Try again shortly.'; panel.append(failed); }

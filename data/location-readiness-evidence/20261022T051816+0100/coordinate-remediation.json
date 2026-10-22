@@ -1,0 +1,24 @@
+{
+  "boundary_evidence": {
+    "adm1_fct_feature_matches": 1,
+    "adm2_council_features": {
+      "Abaji Area Council": 1,
+      "Abuja Municipal Area Council": 1,
+      "Bwari Area Council": 1,
+      "Gwagwalada Area Council": 1,
+      "Kuje Area Council": 1,
+      "Kwali Area Council": 1
+    },
+    "boundary_error": null,
+    "six_councils_found": true
+  },
+  "categories": {
+    "manual_review_council_mismatch": 4,
+    "must_remain_unknown_unless_trusted_source_match": 961,
+    "trusted_coordinate_boundary_match_requires_source_review": 46
+  },
+  "generated_at": "2026-10-22T04:18:29.604899+00:00",
+  "method": "numeric validation plus local GeoBoundaries FCT/council polygon covers checks; rough bounding box is only a preliminary rejection filter",
+  "no_coordinate_updates_performed": true,
+  "records_to_keep_unknown": 961
+}

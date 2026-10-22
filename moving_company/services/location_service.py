@@ -16,11 +16,20 @@ from .fct_location_data import FCT_AREA_COUNCILS, FCT_LOCATION_SEED
 
 ABUJA_FCT_CENTER = {'latitude': 9.0765, 'longitude': 7.3986}
 FCT_BOUNDS = {'min_latitude': 8.2, 'max_latitude': 9.85, 'min_longitude': 6.6, 'max_longitude': 7.85}
+
+
+class LocationSearchUnavailable(RuntimeError):
+    def __init__(self, kind='database'):
+        self.kind = kind
+        super().__init__('Location search is temporarily unavailable.')
+
+
 _SEARCH_CACHE = {}
 _SEARCH_CACHE_TTL = 90
 _SEARCH_CACHE_LIMIT = 500
 _ROUTE_CACHE = {}
 _ROUTE_CACHE_TTL = 300
+_REQUEST_FAILED = object()
 
 ABUJA_ALIAS_MAP = {
     'gwarimpa': 'gwarinpa',
@@ -55,7 +64,7 @@ def _request_json(url, headers=None, timeout=12):
                 return None
             return json.loads(payload)
     except Exception:
-        return None
+        return _REQUEST_FAILED
 
 
 def _nominatim_request(path, params=None, timeout=3.5):
@@ -68,7 +77,8 @@ def _nominatim_request(path, params=None, timeout=3.5):
         request_params['countrycodes'] = 'ng'
     query_string = urllib.parse.urlencode(request_params, doseq=True)
     headers = {'User-Agent': _get_config_value('OSM_USER_AGENT') or 'ChigoRelocations/1.0'}
-    return _request_json(f'{request_path}?{query_string}', headers=headers, timeout=timeout)
+    payload = _request_json(f'{request_path}?{query_string}', headers=headers, timeout=timeout)
+    return None if payload is _REQUEST_FAILED else payload
 
 
 def _photon_request(path, params=None, timeout=3.5):
@@ -78,7 +88,14 @@ def _photon_request(path, params=None, timeout=3.5):
     if params:
         request_params.update(params)
     query_string = urllib.parse.urlencode(request_params, doseq=True)
-    return _request_json(f'{request_path}?{query_string}', headers={'User-Agent': _get_config_value('OSM_USER_AGENT') or 'ChigoRelocations/1.0'}, timeout=timeout)
+    payload = _request_json(
+        f'{request_path}?{query_string}',
+        headers={'User-Agent': _get_config_value('OSM_USER_AGENT') or 'ChigoRelocations/1.0'},
+        timeout=timeout,
+    )
+    if payload is _REQUEST_FAILED:
+        raise LocationSearchUnavailable('provider')
+    return payload
 
 
 def _osrm_request(path, params=None, timeout=5):
@@ -89,7 +106,8 @@ def _osrm_request(path, params=None, timeout=5):
         request_params.update(params)
     query_string = urllib.parse.urlencode(request_params, doseq=True)
     headers = {'User-Agent': _get_config_value('OSM_USER_AGENT') or 'ChigoRelocations/1.0'}
-    return _request_json(f'{request_path}?{query_string}', headers=headers, timeout=timeout)
+    payload = _request_json(f'{request_path}?{query_string}', headers=headers, timeout=timeout)
+    return None if payload is _REQUEST_FAILED else payload
 
 
 def normalize_location_name(value):
@@ -105,6 +123,36 @@ def normalize_location_name(value):
         if value == alias:
             return canonical
     return value
+
+
+def canonical_area_council(value):
+    normalized = normalize_location_name(value)
+    if not normalized:
+        return None
+    council_aliases = {
+        'amac': 'abuja municipal area council',
+        'abuja municipal': 'abuja municipal area council',
+        'abuja municipal area council': 'abuja municipal area council',
+        'bwari': 'bwari area council',
+        'bwari area council': 'bwari area council',
+        'gwagwalada': 'gwagwalada area council',
+        'gwagwalada area council': 'gwagwalada area council',
+        'kuje': 'kuje area council',
+        'kuje area council': 'kuje area council',
+        'kwali': 'kwali area council',
+        'kwali area council': 'kwali area council',
+        'abaji': 'abaji area council',
+        'abaji area council': 'abaji area council',
+    }
+    return council_aliases.get(normalized)
+
+
+def _distance_km(latitude, longitude, target_latitude, target_longitude):
+    lat1, lon1, lat2, lon2 = map(math.radians, (latitude, longitude, target_latitude, target_longitude))
+    delta_latitude = lat2 - lat1
+    delta_longitude = lon2 - lon1
+    value = math.sin(delta_latitude / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_longitude / 2) ** 2
+    return 6371.0088 * 2 * math.asin(min(1.0, math.sqrt(value)))
 
 
 def clear_location_search_cache():
@@ -150,7 +198,7 @@ def get_local_place(place_id):
                     'area': row['district'] or row['area_council'] or 'Abuja',
                     'area_council': row['area_council'] or '', 'district': row['district'] or '',
                     'neighborhood': '', 'location_type': 'cached_user_location',
-                    'city': 'Abuja', 'state': 'Federal Capital Territory', 'country': 'Nigeria',
+                    'city': '', 'state': '', 'country': '',
                     'latitude': row['latitude'], 'longitude': row['longitude'],
                     'place_id': value, 'provider_place_id': value,
                     'provider': 'local-reference', 'provider_raw_id': str(row['id']),
@@ -165,8 +213,8 @@ def get_local_place(place_id):
             try:
                 identifier = int(value.partition('-')[2])
                 row = db.session.execute(text("""
-                    SELECT id, name, address, area, area_council, district, neighborhood,
-                           place_type, state, country, latitude, longitude, source_id, source
+                          SELECT id, name, address, area, area_council, district, neighborhood,
+                              place_type, state, country, latitude, longitude, postal_code, source_id, source
                     FROM location_records WHERE id = :id AND active IS TRUE
                 """), {'id': identifier}).mappings().first()
             except (ValueError, SQLAlchemyError):
@@ -174,14 +222,24 @@ def get_local_place(place_id):
                 return None
             if row:
                 return {
-                    'id': row['id'], 'name': row['name'],
-                    'formatted_address': row['address'] or row['name'],
-                    'display_name': row['address'] or row['name'],
+                    'id': row['id'], 'local_place_id': row['id'], 'name': row['name'],
+                    'formatted_address': (
+                        f"{row['address'] or row['name']} · {row['postal_code']}"
+                        if row['postal_code'] and row['postal_code'] not in (row['address'] or row['name'])
+                        else row['address'] or row['name']
+                    ),
+                    'display_name': (
+                        f"{row['address'] or row['name']} · {row['postal_code']}"
+                        if row['postal_code'] and row['postal_code'] not in (row['address'] or row['name'])
+                        else row['address'] or row['name']
+                    ),
                     'area': row['area'] or row['neighborhood'] or row['district'] or row['name'],
                     'area_council': row['area_council'] or '', 'district': row['district'] or '',
                     'neighborhood': row['neighborhood'] or '', 'location_type': row['place_type'],
-                    'city': 'Abuja', 'state': row['state'], 'country': row['country'],
-                    'latitude': float(row['latitude']), 'longitude': float(row['longitude']),
+                    'city': '', 'state': row['state'] or '', 'country': row['country'] or '',
+                    'latitude': float(row['latitude']) if row['latitude'] is not None else None,
+                    'longitude': float(row['longitude']) if row['longitude'] is not None else None,
+                    'postal_code': row['postal_code'],
                     'place_id': value, 'provider_place_id': value,
                     'provider': 'local-reference', 'provider_raw_id': row['source_id'],
                     'source': row['source'],
@@ -203,8 +261,10 @@ def get_local_place(place_id):
         'display_name': place.address or place.name, 'area': place.area or place.neighborhood or place.district or place.name,
         'area_council': place.area_council, 'district': place.district or '',
         'neighborhood': place.neighborhood or '', 'location_type': place.place_type,
-        'city': 'Abuja', 'state': place.state, 'country': place.country,
-        'latitude': float(place.latitude), 'longitude': float(place.longitude),
+        'city': place.city or '', 'state': place.state or '', 'country': place.country or '',
+        'latitude': float(place.latitude) if place.latitude is not None else None,
+        'longitude': float(place.longitude) if place.longitude is not None else None,
+        'postal_code': place.postal_code,
         'place_id': f'local-{place.id}', 'provider_place_id': f'local-{place.id}',
         'provider': 'local-reference', 'provider_raw_id': f'local-{place.id}',
         'source': place.provider,
@@ -247,7 +307,7 @@ def normalize_query(query):
 
 def _normalise_result(raw_result):
     address = raw_result.get('address') or {}
-    provider_place_id = raw_result.get('provider_place_id') or raw_result.get('place_id') or raw_result.get('osm_id') or raw_result.get('id') or raw_result.get('name')
+    provider_place_id = raw_result.get('provider_place_id') or raw_result.get('place_id') or raw_result.get('osm_id') or raw_result.get('id') or raw_result.get('name') or ''
     result = {
         'name': raw_result.get('name') or raw_result.get('display_name') or raw_result.get('formatted_address') or 'Location',
         'formatted_address': raw_result.get('formatted_address') or raw_result.get('display_name') or raw_result.get('name') or 'Address unavailable',
@@ -257,11 +317,12 @@ def _normalise_result(raw_result):
         'district': raw_result.get('district') or address.get('city_district') or address.get('county') or '',
         'neighborhood': raw_result.get('neighborhood') or raw_result.get('neighbourhood') or address.get('neighbourhood') or address.get('suburb') or '',
         'location_type': raw_result.get('location_type') or raw_result.get('place_type') or raw_result.get('type') or 'address',
-        'city': raw_result.get('city') or address.get('city') or address.get('town') or address.get('village') or raw_result.get('town') or raw_result.get('village') or raw_result.get('municipality') or 'Abuja',
-        'state': raw_result.get('state') or address.get('state') or address.get('state_district') or raw_result.get('state_district') or raw_result.get('administrative_area_level_1') or 'Federal Capital Territory',
-        'country': raw_result.get('country') or address.get('country') or raw_result.get('country_name') or 'Nigeria',
+        'city': raw_result.get('city') or address.get('city') or address.get('town') or address.get('village') or raw_result.get('town') or raw_result.get('village') or raw_result.get('municipality') or '',
+        'state': raw_result.get('state') or address.get('state') or address.get('state_district') or raw_result.get('state_district') or raw_result.get('administrative_area_level_1') or '',
+        'country': raw_result.get('country') or address.get('country') or raw_result.get('country_name') or '',
         'latitude': float(raw_result.get('latitude') or raw_result.get('lat') or 0),
         'longitude': float(raw_result.get('longitude') or raw_result.get('lng') or raw_result.get('lon') or 0),
+        'postal_code': raw_result.get('postal_code') or address.get('postcode') or '',
         'place_id': provider_place_id,
         'provider_place_id': provider_place_id,
         'provider': raw_result.get('provider') or 'nominatim',
@@ -299,13 +360,14 @@ def _photon_to_location(item):
     location = {
         'name': name,
         'formatted_address': display_name,
-        'area': properties.get('district') or properties.get('suburb') or properties.get('city') or properties.get('town') or 'Abuja',
+        'area': properties.get('district') or properties.get('suburb') or properties.get('city') or properties.get('town') or '',
         'area_council': area_council_for_point(latitude, longitude),
         'district': properties.get('district') or '', 'neighborhood': properties.get('suburb') or '',
         'location_type': properties.get('type') or osm_type or 'address',
-        'city': properties.get('city') or properties.get('town') or properties.get('village') or 'Abuja',
-        'state': properties.get('state') or 'Federal Capital Territory',
-        'country': properties.get('country') or 'Nigeria', 'latitude': latitude, 'longitude': longitude,
+        'city': properties.get('city') or properties.get('town') or properties.get('village') or '',
+        'state': properties.get('state') or '',
+        'country': properties.get('country') or '', 'latitude': latitude, 'longitude': longitude,
+        'postal_code': properties.get('postcode') or properties.get('postal_code') or '',
         'place_id': f"photon-{properties.get('osm_id') or latitude}:{longitude}",
         'provider_place_id': f"photon-{properties.get('osm_id') or latitude}:{longitude}",
         'provider': 'photon', 'provider_raw_id': properties.get('osm_id') or '',
@@ -319,20 +381,21 @@ def _nominatim_to_location(item):
     address = item.get('address') or {}
     display_name = item.get('display_name') or item.get('name') or 'Location'
     name = item.get('name') or display_name.split(',')[0].strip() or 'Location'
-    city = address.get('city') or address.get('town') or address.get('village') or address.get('municipality') or 'Abuja'
-    state = address.get('state') or address.get('state_district') or 'Federal Capital Territory'
+    city = address.get('city') or address.get('town') or address.get('village') or address.get('municipality') or ''
+    state = address.get('state') or address.get('state_district') or ''
     area = address.get('suburb') or address.get('neighbourhood') or address.get('city_district') or address.get('county') or city
     location = {
         'name': name,
         'formatted_address': display_name,
         'area': area,
-        'area_council': '',
+        'area_council': area_council_for_point(item.get('lat'), item.get('lon')),
         'district': address.get('county') or address.get('state_district') or '',
         'neighborhood': address.get('neighbourhood') or address.get('suburb') or '',
         'location_type': item.get('type') or item.get('class') or 'address',
         'city': city,
         'state': state,
-        'country': address.get('country') or 'Nigeria',
+        'country': address.get('country') or '',
+        'postal_code': address.get('postcode') or '',
         'latitude': float(item.get('lat') or 0),
         'longitude': float(item.get('lon') or 0),
         'place_id': item.get('place_id') or item.get('osm_id') or str(item.get('lat')) + ':' + str(item.get('lon')),
@@ -365,6 +428,7 @@ def area_council_for_point(latitude, longitude):
 
 def _search_local_abuja_places(query, limit=8):
     try:
+        from ..extensions import db
         from ..models import LocalPlace
     except Exception:
         return []
@@ -376,8 +440,12 @@ def _search_local_abuja_places(query, limit=8):
 
     base = LocalPlace.query.filter(LocalPlace.active.is_(True))
     candidates = {}
-    exact = base.filter(func.lower(LocalPlace.normalized_name) == normalized).limit(30).all()
-    prefixes = base.filter(func.lower(LocalPlace.normalized_name).like(f'{normalized}%')).limit(60).all()
+    exact = base.filter(LocalPlace.normalized_name == normalized).limit(30).all()
+    if db.engine.dialect.name == 'sqlite':
+        prefix_filter = LocalPlace.normalized_name.op('GLOB')(f'{normalized}*')
+    else:
+        prefix_filter = LocalPlace.normalized_name.like(f'{normalized}%')
+    prefixes = base.filter(prefix_filter).limit(60).all()
     for place in exact + prefixes:
         candidates[place.id] = place
 
@@ -387,10 +455,14 @@ def _search_local_abuja_places(query, limit=8):
         for term in terms[:4]:
             like = f'%{term}%'
             clauses.extend((
+                func.lower(LocalPlace.postal_code).like(like),
                 func.lower(LocalPlace.aliases).like(like),
                 func.lower(LocalPlace.search_keywords).like(like),
                 func.lower(LocalPlace.district).like(f'{term}%'),
                 func.lower(LocalPlace.neighborhood).like(f'{term}%'),
+                func.lower(LocalPlace.area).like(f'{term}%'),
+                func.lower(LocalPlace.area_council).like(f'{term}%'),
+                func.lower(LocalPlace.address).like(like),
             ))
         for place in base.filter(or_(*clauses)).limit(120).all():
             candidates[place.id] = place
@@ -406,21 +478,34 @@ def _search_local_abuja_places(query, limit=8):
         name = normalize_location_name(place.name)
         aliases = [normalize_location_name(alias) for alias in re.split(r'[,;|]', place.aliases or '') if alias.strip()]
         keywords = [normalize_location_name(word) for word in re.split(r'[,;|]', place.search_keywords or '') if word.strip()]
+        postal_code = str(place.postal_code or '').strip().casefold()
         fields = [name, normalize_location_name(place.normalized_name), *aliases, *keywords,
-                  normalize_location_name(place.district), normalize_location_name(place.neighborhood)]
-        if normalized == name or normalized == normalize_location_name(place.normalized_name) or normalized in aliases:
-            rank = 1000
+                  postal_code, normalize_location_name(place.district), normalize_location_name(place.neighborhood),
+                  normalize_location_name(place.area), normalize_location_name(place.area_council),
+                  normalize_location_name(place.address)]
+        if normalized == name or normalized == normalize_location_name(place.normalized_name):
+            rank = 1300
+        elif normalized in aliases:
+            rank = 1200
+        elif normalized == postal_code:
+            rank = 1100
         elif name.startswith(normalized) or normalize_location_name(place.normalized_name).startswith(normalized):
-            rank = 850
+            rank = 900
         elif any(field and normalized in field for field in fields):
             rank = 650
         elif any(field and field.startswith(normalized) for field in aliases + keywords):
             rank = 600
         else:
-            ratio = max((SequenceMatcher(None, normalized, field).ratio() for field in fields if field), default=0)
-            if ratio < 0.62:
-                continue
-            rank = 350 + int(ratio * 100)
+            query_terms = [term for term in normalized.split() if term]
+            haystack = ' '.join(field for field in fields if field)
+            coverage = sum(term in haystack for term in query_terms) / max(1, len(query_terms))
+            if coverage == 1 and len(query_terms) > 1:
+                rank = 720
+            else:
+                ratio = max((SequenceMatcher(None, normalized, field).ratio() for field in fields if field), default=0)
+                if ratio < 0.62 and coverage < 0.5:
+                    continue
+                rank = 350 + int(max(ratio, coverage) * 100)
         if 'airport' in normalized and place.place_type == 'airport':
             rank += 250
         rank += min(100, int(place.popularity_score or 0))
@@ -430,27 +515,37 @@ def _search_local_abuja_places(query, limit=8):
     results = []
     seen_local = set()
     for _, place in matches[:limit]:
-        canonical_key = (normalize_location_name(place.name), round(float(place.latitude or 0), 4), round(float(place.longitude or 0), 4))
+        canonical_key = (
+            normalize_location_name(place.name),
+            normalize_location_name(place.area_council or ''),
+            normalize_location_name(place.district or ''),
+            str(place.place_type or '').casefold(),
+            round(float(place.latitude or 0), 4), round(float(place.longitude or 0), 4),
+        )
         if canonical_key in seen_local:
             continue
         seen_local.add(canonical_key)
         result_id = f'local-{place.id}'
         council = place.area_council or ''
         context = ', '.join(part for part in (place.neighborhood, place.district, council, 'FCT', 'Nigeria') if part)
+        formatted_address = place.address or f'{place.name}, {context}'
+        if place.postal_code and place.postal_code.casefold() not in formatted_address.casefold():
+            formatted_address = f'{formatted_address} · {place.postal_code}'
         results.append({
             'id': place.id, 'local_place_id': place.id,
             'name': place.name,
-            'formatted_address': place.address or f'{place.name}, {context}',
-            'display_name': place.address or f'{place.name}, {context}',
+            'formatted_address': formatted_address,
+            'display_name': formatted_address,
             'area': place.area or place.neighborhood or place.district or place.name,
             'area_council': council,
             'district': place.district or '',
             'neighborhood': place.neighborhood or '',
             'location_type': place.place_type or 'point_of_interest',
             'type': place.place_type or 'point_of_interest',
-            'city': 'Abuja', 'state': place.state or 'Federal Capital Territory',
-            'country': place.country or 'Nigeria', 'latitude': place.latitude,
+            'city': place.city or '', 'state': place.state or '',
+            'country': place.country or '', 'latitude': place.latitude,
             'longitude': place.longitude, 'place_id': result_id,
+            'postal_code': place.postal_code,
             'provider_place_id': result_id, 'provider': 'local-reference',
             'provider_raw_id': result_id, 'source': place.provider or 'chigo-curated',
             'popularity_score': place.popularity_score or 0,
@@ -458,7 +553,7 @@ def _search_local_abuja_places(query, limit=8):
     return results
 
 
-def _search_postgis_locations(query, limit=8):
+def _search_postgis_locations(query, limit=8, area_council=None):
     if not has_app_context():
         return []
     from ..extensions import db
@@ -466,6 +561,11 @@ def _search_postgis_locations(query, limit=8):
     if db.engine.dialect.name != 'postgresql':
         return []
     normalized = normalize_location_name(query)
+    canonical_council = canonical_area_council(area_council) if area_council else None
+    council_pattern = None
+    if canonical_council:
+        council_pattern = f"%{canonical_council.removesuffix(' area council')}%"
+    result_limit = max(1, min(int(limit), 50))
     try:
         rows = db.session.execute(text("""
             WITH matches AS (
@@ -474,22 +574,28 @@ def _search_postgis_locations(query, limit=8):
                 location_records.place_type, location_records.area_council,
                 location_records.district, location_records.neighborhood, location_records.area,
                 location_records.state, location_records.country, location_records.latitude,
-                location_records.longitude, location_records.source, location_records.source_id,
+                location_records.longitude, location_records.postal_code, location_records.source, location_records.source_id,
                 location_records.confidence, location_records.verification_status,
                 location_records.address, location_records.aliases,
                 COALESCE(location_records.popularity_score, 0) AS popularity_score,
-                CASE WHEN location_records.normalized_name = :normalized THEN 1000
+                 CASE WHEN location_records.normalized_name = :normalized THEN 1300
+                     WHEN location_aliases.normalized_alias = :normalized THEN 1200
+                     WHEN location_records.postal_code = :normalized THEN 1100
                      WHEN location_records.normalized_name ILIKE :prefix THEN 800
-                     WHEN location_aliases.normalized_alias = :normalized THEN 950
                      WHEN location_aliases.normalized_alias ILIKE :prefix THEN 700
                      ELSE similarity(location_records.normalized_name, :normalized) * 500 END AS match_score
                 FROM location_records
                 LEFT JOIN location_aliases ON location_aliases.location_id = location_records.id
-                WHERE location_records.active IS TRUE AND (
+                                WHERE location_records.active IS TRUE
+                                    AND (:area_council_pattern IS NULL OR lower(location_records.area_council) LIKE :area_council_pattern)
+                                    AND (
                     location_records.normalized_name ILIKE :prefix
                     OR location_aliases.normalized_alias ILIKE :contains
+                    OR COALESCE(location_records.postal_code, '') ILIKE :contains
                     OR COALESCE(location_records.district, '') ILIKE :contains
                     OR COALESCE(location_records.neighborhood, '') ILIKE :contains
+                    OR COALESCE(location_records.area, '') ILIKE :contains
+                    OR COALESCE(location_records.address, '') ILIKE :contains
                     OR similarity(location_records.normalized_name, :normalized) >= 0.25
                 )
             ), deduplicated AS (
@@ -503,14 +609,15 @@ def _search_postgis_locations(query, limit=8):
             LIMIT :limit
         """), {
             'prefix': f'{normalized}%', 'contains': f'%{normalized}%',
-            'normalized': normalized, 'limit': max(1, min(int(limit), 10)),
+            'normalized': normalized, 'limit': result_limit,
+            'area_council_pattern': council_pattern,
         }).mappings().all()
-    except SQLAlchemyError:
+    except SQLAlchemyError as error:
         db.session.rollback()
-        return []
+        raise LocationSearchUnavailable('database') from error
 
-    if len(rows) < max(1, min(int(limit), 10)):
-        remaining = max(1, min(int(limit), 10)) - len(rows)
+    if len(rows) < result_limit:
+        remaining = result_limit - len(rows)
         try:
             observations = db.session.execute(text("""
                   SELECT id, raw_input, formatted_address, provider_reference, latitude, longitude,
@@ -525,20 +632,20 @@ def _search_postgis_locations(query, limit=8):
                 LIMIT :limit
             """), {'prefix': f'{normalized}%', 'contains': f'%{normalized}%',
                   'normalized': normalized, 'limit': remaining}).mappings().all()
-        except SQLAlchemyError:
+        except SQLAlchemyError as error:
             db.session.rollback()
-            observations = []
+            raise LocationSearchUnavailable('database') from error
         for observation in observations:
             results.append({
                 'id': f"observation-{observation['id']}",
                 'name': observation['nearest_landmark'] or observation['raw_input'],
                 'formatted_address': observation['formatted_address'] or observation['raw_input'],
                 'display_name': observation['formatted_address'] or observation['raw_input'],
-                'area': observation['district'] or observation['area_council'] or 'Abuja',
+                'area': observation['district'] or observation['area_council'] or '',
                 'area_council': observation['area_council'] or '',
                 'district': observation['district'] or '', 'neighborhood': '',
                 'location_type': 'cached_user_location', 'type': 'cached_user_location',
-                'city': 'Abuja', 'state': 'Federal Capital Territory', 'country': 'Nigeria',
+                'city': '', 'state': '', 'country': '',
                 'latitude': observation['latitude'], 'longitude': observation['longitude'],
                 'place_id': f"observation-{observation['id']}",
                 'provider_place_id': f"observation-{observation['id']}",
@@ -550,15 +657,19 @@ def _search_postgis_locations(query, limit=8):
 
     for row in rows:
         context = ', '.join(part for part in (row['neighborhood'], row['district'], row['area_council'], 'FCT', 'Nigeria') if part)
+        formatted_address = row['address'] or f"{row['name']}, {context}"
+        if row['postal_code'] and row['postal_code'] not in formatted_address:
+            formatted_address = f"{formatted_address} · {row['postal_code']}"
         results.append({
             'id': row['id'], 'name': row['name'],
-            'formatted_address': row['address'] or f"{row['name']}, {context}",
-            'display_name': row['address'] or f"{row['name']}, {context}",
+            'formatted_address': formatted_address,
+            'display_name': formatted_address,
             'area': row['area'] or row['neighborhood'] or row['district'] or row['name'],
             'area_council': row['area_council'] or '', 'district': row['district'] or '',
             'neighborhood': row['neighborhood'] or '', 'location_type': row['place_type'],
-            'type': row['place_type'], 'city': 'Abuja', 'state': row['state'],
-            'country': row['country'], 'latitude': row['latitude'], 'longitude': row['longitude'],
+            'type': row['place_type'], 'city': '', 'state': row['state'] or '',
+            'country': row['country'] or '', 'latitude': row['latitude'], 'longitude': row['longitude'],
+            'postal_code': row['postal_code'],
             'place_id': f"postgis-{row['id']}", 'provider_place_id': f"postgis-{row['id']}",
             'provider': 'local-reference', 'provider_raw_id': row['source_id'],
             'source': row['source'], 'confidence': row['confidence'],
@@ -987,22 +1098,32 @@ def _search_variants(query):
     return variants[:4]
 
 
-def search_places(query, session_token=None, latitude=None, longitude=None, limit=8):
+def search_places(query, session_token=None, latitude=None, longitude=None, limit=8, area_council=None):
     raw_query = (query or '').strip()
     if len(raw_query) < 2:
         return []
 
     result_limit = max(1, min(int(limit or 8), 10))
     normalized = normalize_location_name(raw_query)
-    cache_key = (normalized, result_limit)
+    canonical_council = canonical_area_council(area_council) if area_council else None
+    if area_council and canonical_council is None:
+        return []
+    cache_key = (
+        normalized, result_limit, canonical_council,
+        round(float(latitude), 4) if latitude is not None else None,
+        round(float(longitude), 4) if longitude is not None else None,
+    )
     cached = _SEARCH_CACHE.get(cache_key)
     now = time.monotonic()
     if cached and now - cached[0] < _SEARCH_CACHE_TTL:
         return [dict(result) for result in cached[1]]
 
-    local_results = _search_postgis_locations(raw_query, limit=result_limit)
+    candidate_limit = min(50, result_limit * 5) if canonical_council or latitude is not None else result_limit
+    local_results = _search_postgis_locations(
+        raw_query, limit=candidate_limit, area_council=area_council,
+    )
     if not local_results:
-        local_results = _search_local_abuja_places(raw_query, limit=result_limit)
+        local_results = _search_local_abuja_places(raw_query, limit=candidate_limit)
     if local_results:
         results = local_results
         for result in results:
@@ -1014,6 +1135,8 @@ def search_places(query, session_token=None, latitude=None, longitude=None, limi
         payload = _photon_request('/api/?q={}'.format(urllib.parse.quote(external_query)), {
             'limit': result_limit,
         }, timeout=2.5)
+        if payload is None:
+            raise LocationSearchUnavailable('provider')
         results = []
         if isinstance(payload, dict):
             hits = payload.get('features') or payload.get('hits') or []
@@ -1023,6 +1146,21 @@ def search_places(query, session_token=None, latitude=None, longitude=None, limi
                 result['normalized_query'] = normalized
                 results.append(result)
             results = _merge_results(results)
+
+    if canonical_council:
+        results = [
+            result for result in results
+            if canonical_area_council(result.get('area_council')) == canonical_council
+        ]
+    if latitude is not None and longitude is not None:
+        ranked = []
+        for index, result in enumerate(results):
+            coordinates = validate_coordinates(result.get('latitude'), result.get('longitude'))
+            distance = _distance_km(*coordinates, latitude, longitude) if coordinates else None
+            proximity_bonus = 20 / (1 + distance) if distance is not None else 0
+            ranked.append((-(1000 - index * 20 + proximity_bonus), distance if distance is not None else float('inf'), result))
+        ranked.sort(key=lambda item: (item[0], item[1]))
+        results = [item[2] for item in ranked]
 
     _SEARCH_CACHE[cache_key] = (now, [dict(result) for result in results])
     if len(_SEARCH_CACHE) > _SEARCH_CACHE_LIMIT:
@@ -1147,23 +1285,32 @@ def upsert_location_records(records, commit=True):
             raise ValueError(f'Unsupported location type for {name}.')
         if council not in FCT_AREA_COUNCILS and place_type != 'area_council':
             raise ValueError(f'Choose one of the six FCT Area Councils for {name}.')
-        try:
-            latitude = float(record.get('latitude'))
-            longitude = float(record.get('longitude'))
-        except (TypeError, ValueError):
-            raise ValueError(f'Valid coordinates are required for {name}.') from None
-        if not (FCT_BOUNDS['min_latitude'] <= latitude <= FCT_BOUNDS['max_latitude'] and FCT_BOUNDS['min_longitude'] <= longitude <= FCT_BOUNDS['max_longitude']):
-            raise ValueError(f'{name} coordinates fall outside the supported FCT area.')
+        raw_latitude, raw_longitude = record.get('latitude'), record.get('longitude')
+        if raw_latitude in (None, '') or raw_longitude in (None, ''):
+            latitude = longitude = None
+        else:
+            try:
+                latitude, longitude = float(raw_latitude), float(raw_longitude)
+            except (TypeError, ValueError):
+                raise ValueError(f'Valid coordinates are required for {name}.') from None
+            if not (FCT_BOUNDS['min_latitude'] <= latitude <= FCT_BOUNDS['max_latitude'] and FCT_BOUNDS['min_longitude'] <= longitude <= FCT_BOUNDS['max_longitude']):
+                raise ValueError(f'{name} coordinates fall outside the supported FCT area.')
+        source_identifier = str(record.get('source_identifier') or record.get('source_id') or '')[:255] or None
+        postal_code = str(record.get('postal_code') or '').strip()[:20] or None
+        if postal_code and not re.fullmatch(r'\d{6}|[A-Z0-9 ]{5,16}', postal_code, re.I):
+            raise ValueError(f'{name} has an invalid postal code.')
         prepared.append({**record, 'name': name, 'normalized_name': normalized,
                          'place_type': place_type, 'area_council': council,
-                         'latitude': latitude, 'longitude': longitude})
+                         'latitude': latitude, 'longitude': longitude,
+                         'source_identifier': source_identifier, 'postal_code': postal_code})
 
     rows = {}
     for record in prepared:
         council = record['area_council'] or record['name']
         existing = LocalPlace.query.filter(func.lower(LocalPlace.normalized_name) == record['normalized_name']).all()
         place = next((candidate for candidate in existing
-                      if normalize_location_name(candidate.area_council) == normalize_location_name(council)), None)
+                      if normalize_location_name(candidate.area_council) == normalize_location_name(council)
+                      and str(candidate.place_type or '').casefold() == record['place_type']), None)
         if place is None and len(existing) == 1:
             place = existing[0]
         if place is None:
@@ -1176,26 +1323,87 @@ def upsert_location_records(records, commit=True):
                 duplicate.active = False
         aliases = record.get('aliases') or []
         keywords = record.get('search_keywords') or record.get('keywords') or []
-        place.name = record['name']
-        place.normalized_name = record['normalized_name']
-        place.place_type = record['place_type']
-        place.area_council = record['area_council'] or record['name']
-        place.district = record.get('district') or None
-        place.neighborhood = record.get('neighborhood') or None
-        place.area = record.get('area') or place.neighborhood or place.district or place.name
-        place.lga = place.area_council
-        place.state = record.get('state') or 'Federal Capital Territory'
-        place.country = record.get('country') or 'Nigeria'
-        place.address = record.get('address') or None
-        place.aliases = '|'.join(str(alias).strip() for alias in aliases if str(alias).strip()) if isinstance(aliases, (list, tuple)) else str(aliases)
-        place.search_keywords = '|'.join(str(word).strip() for word in keywords if str(word).strip()) if isinstance(keywords, (list, tuple)) else str(keywords)
-        place.popularity_score = max(0.0, min(100.0, float(record.get('popularity_score') or 0)))
-        place.latitude = record['latitude']
-        place.longitude = record['longitude']
-        place.provider = str(record.get('provider') or record.get('source') or 'admin-import')[:50]
-        place.provider_place_id = str(record.get('provider_place_id') or f"chigo:{record['normalized_name'].replace(' ', '-')}")[:255]
-        place.verified = bool(record.get('verified', True))
-        place.active = bool(record.get('active', True))
+        record_source = record.get('source') or record.get('provider')
+        trusted_curation = bool(record.get('verified')) and record_source == 'chigo-curated'
+        preserve_verified = bool(place.verified) and not trusted_curation
+        if not preserve_verified:
+            place.name = record['name']
+            place.normalized_name = record['normalized_name']
+            place.place_type = record['place_type']
+        if not preserve_verified or not place.area_council:
+            place.area_council = record['area_council'] or record['name']
+        place.district = place.district or record.get('district') or None
+        place.neighborhood = place.neighborhood or record.get('neighborhood') or None
+        place.area = place.area or record.get('area') or place.neighborhood or place.district or place.name
+        place.lga = place.lga or place.area_council
+        place.state = place.state or record.get('state')
+        place.country = place.country or record.get('country')
+        place.address = place.address or record.get('address') or None
+        existing_aliases = [item.strip() for item in re.split(r'[,;|]', place.aliases or '') if item.strip()]
+        incoming_aliases = (
+            [str(alias).strip() for alias in aliases if str(alias).strip()]
+            if isinstance(aliases, (list, tuple))
+            else [item.strip() for item in re.split(r'[,;|]', str(aliases or '')) if item.strip()]
+        )
+        alias_map = {normalize_location_name(alias): alias for alias in existing_aliases}
+        for alias in incoming_aliases:
+            alias_map.setdefault(normalize_location_name(alias), alias)
+        place.aliases = '|'.join(alias_map.values())
+        existing_keywords = [item.strip() for item in re.split(r'[,;|]', place.search_keywords or '') if item.strip()]
+        incoming_keywords = (
+            [str(word).strip() for word in keywords if str(word).strip()]
+            if isinstance(keywords, (list, tuple))
+            else [item.strip() for item in re.split(r'[,;|]', str(keywords or '')) if item.strip()]
+        )
+        keyword_map = {normalize_location_name(word): word for word in existing_keywords}
+        for word in incoming_keywords:
+            keyword_map.setdefault(normalize_location_name(word), word)
+        place.search_keywords = '|'.join(keyword_map.values())
+        if record.get('popularity_score') is not None and not preserve_verified:
+            place.popularity_score = max(0.0, min(100.0, float(record.get('popularity_score') or 0)))
+        imported_status = str(record.get('verification_status') or ('verified' if record.get('verified') else 'source_listed'))
+        trusted_import = imported_status in {'verified', 'source_listed', 'administrative_reference'} and record.get('source') == 'chigo-curated'
+        if preserve_verified:
+            place.postal_code = place.postal_code or record['postal_code']
+        else:
+            if record['latitude'] is not None:
+                place.latitude = record['latitude']
+                place.longitude = record['longitude']
+            elif getattr(place, 'id', None) is None:
+                place.latitude = place.longitude = None
+            if record['postal_code'] and not record.get('postal_code_conflicts'):
+                place.postal_code = record['postal_code']
+            if record.get('area_council'):
+                place.area_council = record['area_council']
+            place.provider = str(record_source or 'admin-import')[:50]
+            place.source_name = str(record.get('source_name') or record_source or '')[:120] or None
+            place.source_url = str(record.get('source_url') or '')[:500] or None
+            place.source_identifier = record['source_identifier']
+            place.raw_source_name = str(record.get('raw_source_name') or record['name'])[:180]
+            place.verification_status = imported_status
+            place.verified = imported_status == 'verified'
+            place.active = bool(record.get('active', True))
+        if record.get('source_identifier') and place.source_identifier is None:
+            place.source_identifier = record['source_identifier']
+        if not place.provider_place_id:
+            place.provider_place_id = str(record.get('provider_place_id') or record.get('source_identifier') or f"chigo:{record['normalized_name'].replace(' ', '-')}")[:255]
+        source_metadata = dict(place.source_metadata or {})
+        if record.get('source_attributes'):
+            source_metadata.setdefault('source_attributes', record['source_attributes'])
+        if record.get('provenance'):
+            provenance = source_metadata.setdefault('provenance', [])
+            provenance_keys = {
+                (item.get('source_name'), item.get('source_url'), item.get('raw_source_name'))
+                for item in provenance
+            }
+            for item in record['provenance']:
+                key = (item.get('source_name'), item.get('source_url'), item.get('raw_source_name'))
+                if key not in provenance_keys:
+                    provenance.append(item)
+                    provenance_keys.add(key)
+        if record.get('postal_code_conflicts'):
+            source_metadata['postal_code_conflicts'] = record['postal_code_conflicts']
+        place.source_metadata = source_metadata
         rows[record['normalized_name']] = place
 
     db.session.flush()
@@ -1245,8 +1453,8 @@ def get_place_details(place_id, session_token=None):
         'longitude': payload.get('lon'),
         'country': address.get('country') or payload.get('country'),
         'state': address.get('state') or payload.get('state'),
-        'city': address.get('city') or address.get('town') or address.get('village') or 'Abuja',
-        'area': address.get('suburb') or address.get('neighbourhood') or address.get('city_district') or payload.get('county') or 'Abuja',
+        'city': address.get('city') or address.get('town') or address.get('village') or '',
+        'area': address.get('suburb') or address.get('neighbourhood') or address.get('city_district') or payload.get('county') or '',
         'district': address.get('county') or address.get('state_district'),
         'postal_code': address.get('postcode'),
         'address_components': address,
@@ -1306,10 +1514,10 @@ def reverse_geocode(latitude, longitude):
         'formatted_address': payload.get('display_name'),
         'latitude': latitude,
         'longitude': longitude,
-        'country': address.get('country') or 'Nigeria',
-        'state': address.get('state') or 'Federal Capital Territory',
-        'city': address.get('city') or address.get('town') or address.get('village') or 'Abuja',
-        'area': address.get('suburb') or address.get('neighbourhood') or address.get('city_district') or payload.get('county') or 'Abuja',
+        'country': address.get('country') or '',
+        'state': address.get('state') or '',
+        'city': address.get('city') or address.get('town') or address.get('village') or '',
+        'area': address.get('suburb') or address.get('neighbourhood') or address.get('city_district') or payload.get('county') or '',
         'district': address.get('county') or address.get('state_district'),
         'postal_code': address.get('postcode'),
         'address_components': address,

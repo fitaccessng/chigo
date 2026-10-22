@@ -14,13 +14,20 @@ def normalize_database_url(database_url):
     return url.render_as_string(hide_password=False)
 
 
+def is_strong_secret(secret):
+    value = str(secret or '')
+    return (
+        len(value) >= 32
+        and len(set(value)) >= 16
+        and value not in {'dev-secret-key', 'change-me'}
+    )
+
+
 class Config:
     APP_ENV = os.getenv('APP_ENV', 'development').strip().lower()
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key')
-    if APP_ENV == 'production' and (
-        len(SECRET_KEY) < 32 or SECRET_KEY in {'dev-secret-key', 'change-me'}
-    ):
-        raise RuntimeError('Production requires a SECRET_KEY with at least 32 characters.')
+    if APP_ENV == 'production' and not is_strong_secret(SECRET_KEY):
+        raise RuntimeError('Production requires a strong SECRET_KEY of at least 32 characters.')
     DB_HOST = os.getenv('POSTGIS_HOST', 'localhost')
     DB_PORT = os.getenv('POSTGIS_PORT', '5432')
     DB_NAME = os.getenv('POSTGIS_DB', 'chigo')

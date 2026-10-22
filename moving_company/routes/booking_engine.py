@@ -14,7 +14,8 @@ from ..services.booking_engine_service import (
     save_workflow_section, suggested_inventory, update_inventory_selections, vehicle_options,
 )
 from ..services.service_workflow import (
-    addon_questions_for, booking_questions_for, get_service_workflow, property_types_for_service,
+    addon_questions_for, booking_questions_for, booking_stage_is_unlocked, booking_stages_for as service_stages,
+    get_service_workflow, next_booking_stage, property_types_for_service,
     validate_property_type_for_service, validate_question_answers,
 )
 from ..services.morph_cleaning_pricing import (
@@ -34,11 +35,6 @@ from ..services.ai_assistance_service import AIAssistanceUnavailable, suggest_bo
 
 booking_bp = Blueprint('booking', __name__)
 booking_api_bp = Blueprint('booking_api', __name__)
-STAGE_STATES = {
-    'property': 'LOCATION_COMPLETED', 'inventory': 'PROPERTY_COMPLETED',
-    'services': 'INVENTORY_COMPLETED', 'schedule': 'SERVICES_COMPLETED',
-    'quote': 'SCHEDULE_COMPLETED', 'payment': 'QUOTE_ACCEPTED', 'review': 'COMPLETED',
-}
 PROPERTY_TYPES = tuple(dict.fromkeys(type_name for types in (
     ('Apartment', 'House', 'Duplex'),
     ('Office', 'Shop', 'Warehouse', 'Hotel', 'Estate', 'Construction Site'),
@@ -60,32 +56,6 @@ LOCATION_SERVICES = {
     'storage': (),
     'support': (),
 }
-
-
-def service_stages(service_type, booking=None):
-    if service_type == 'cleaning':
-        stages = ('location', 'property', 'inventory', 'schedule', 'quote')
-        if booking and booking.workflow_state in {'QUOTE_ACCEPTED', 'PAYMENT_PENDING', 'CONFIRMED'}:
-            return (*stages, 'payment')
-        return stages
-    if service_type == 'support':
-        return ('location', 'property', 'inventory', 'quote')
-    if service_type == 'logistics':
-        stages = ('location', 'inventory', 'services', 'schedule', 'quote')
-        if booking and booking.workflow_state in {'QUOTE_ACCEPTED', 'PAYMENT_PENDING', 'CONFIRMED'}:
-            return (*stages, 'payment')
-        return stages
-    if service_type == 'packing':
-        stages = ('location', 'property', 'inventory', 'services', 'schedule', 'quote')
-        if booking and booking.workflow_state in {'QUOTE_ACCEPTED', 'PAYMENT_PENDING', 'CONFIRMED'}:
-            return (*stages, 'payment')
-        return stages
-    if service_type == 'storage':
-        stages = ('location', 'property', 'inventory', 'services', 'schedule', 'quote')
-        if booking and booking.workflow_state in {'QUOTE_ACCEPTED', 'PAYMENT_PENDING', 'CONFIRMED'}:
-            return (*stages, 'payment')
-        return stages
-    return STAGES
 
 
 def location_places_for(service_type, answers=None):
@@ -234,6 +204,13 @@ def _get_request(request_id):
             db.session.commit()
         elif booking.customer_id != current_user.id and current_user.role not in {'admin', 'super_admin'}:
             abort(404)
+        # Apply an administrator's per-service restriction at this shared
+        # boundary as well as at the new-booking entry points.  Otherwise a
+        # customer could continue an existing request by typing a legacy URL
+        # or calling an API endpoint directly.
+        if (current_user.role not in {'admin', 'super_admin'}
+                and not current_user.can_use_service(booking.primary_service)):
+            abort(403)
     elif session.get('active_booking_request_id') != request_id:
         abort(404)
     return booking
@@ -271,33 +248,8 @@ def _reject_locked_booking_api_edit(booking, *, allow_accepted_quote=False):
     return None
 
 
-def _next_stage(booking):
-    if booking.primary_service == 'support' and booking.workflow_state in {'INVENTORY_COMPLETED', 'QUOTE_READY'}:
-        return 'quote'
-    if booking.primary_service == 'logistics' and booking.workflow_state == 'LOCATION_COMPLETED':
-        return 'inventory'
-    if booking.primary_service == 'cleaning' and booking.workflow_state == 'INVENTORY_COMPLETED':
-        return 'schedule'
-    states = {
-        'LOCATION_COMPLETED': 'property', 'PROPERTY_COMPLETED': 'inventory',
-        'INVENTORY_COMPLETED': 'services', 'SERVICES_COMPLETED': 'schedule',
-        'SCHEDULE_COMPLETED': 'quote', 'QUOTE_READY': 'quote',
-        'QUOTE_ACCEPTED': 'payment', 'PAYMENT_PENDING': 'payment',
-        'CONFIRMED': 'payment', 'IN_PROGRESS': 'payment', 'COMPLETED': 'review',
-        'REVIEW_PENDING': 'review', 'REVIEWED': 'review',
-    }
-    return states.get(booking.workflow_state, 'property')
-
-
 def _stage_is_unlocked(booking, stage):
-    progress = {
-        'LOCATION_COMPLETED': 0, 'PROPERTY_COMPLETED': 1, 'INVENTORY_COMPLETED': 2,
-        'SERVICES_COMPLETED': 3, 'SCHEDULE_COMPLETED': 4, 'QUOTE_READY': 5,
-        'QUOTE_ACCEPTED': 6, 'PAYMENT_PENDING': 6, 'CONFIRMED': 6,
-        'IN_PROGRESS': 6, 'COMPLETED': 7, 'REVIEW_PENDING': 7, 'REVIEWED': 7,
-    }
-    target = STAGES.index(stage)
-    return progress.get(booking.workflow_state, -1) >= target - 1
+    return booking_stage_is_unlocked(booking, stage)
 
 
 def _location_payload(form, service_type, places=None):
@@ -311,12 +263,12 @@ def _location_payload(form, service_type, places=None):
         'pickup_address', 'pickup_unit', 'pickup_area', 'pickup_area_council', 'pickup_district', 'pickup_neighborhood',
         'pickup_location_type', 'pickup_original_input', 'pickup_city', 'pickup_state', 'pickup_country', 'pickup_formatted_address',
         'pickup_normalized_location', 'pickup_location_id',
-        'pickup_latitude', 'pickup_longitude', 'pickup_place_id', 'pickup_provider', 'pickup_provider_raw_id',
+        'pickup_latitude', 'pickup_longitude', 'pickup_place_id', 'pickup_postal_code', 'pickup_provider', 'pickup_provider_raw_id',
         'pickup_notes', 'pickup_access', 'pickup_inside_estate', 'pickup_narrow_road', 'pickup_parking_close', 'pickup_floor', 'pickup_stairs',
         'destination_address', 'destination_unit', 'destination_area', 'destination_area_council', 'destination_district',
         'destination_neighborhood', 'destination_location_type', 'destination_original_input',
         'destination_normalized_location', 'destination_city', 'destination_state', 'destination_country', 'destination_formatted_address',
-        'destination_latitude', 'destination_longitude', 'destination_place_id', 'dropoff_location_id', 'destination_provider', 'destination_provider_raw_id',
+        'destination_latitude', 'destination_longitude', 'destination_place_id', 'destination_postal_code', 'dropoff_location_id', 'destination_provider', 'destination_provider_raw_id',
         'destination_notes', 'destination_access', 'destination_inside_estate', 'destination_narrow_road', 'destination_parking_close', 'destination_floor', 'destination_stairs',
     )
     data = {
@@ -327,6 +279,13 @@ def _location_payload(form, service_type, places=None):
         data[f'{place}_address'] = (
             data.get(f'{place}_address') or request.form.get(f'{place}_search', '').strip()
         )
+    if service_type in {'residential', 'commercial', 'logistics'}:
+        missing_admin = [
+            f'{place}_{field}' for place in places for field in ('city', 'state')
+            if not str(data.get(f'{place}_{field}') or '').strip()
+        ]
+        if missing_admin:
+            raise ValueError('Confirm the city and state for each location before continuing.')
     required = tuple(f'{place}_address' for place in places)
     missing = [field for field in required if not str(data.get(field) or '').strip()]
     if missing:
@@ -346,7 +305,7 @@ def _location_payload(form, service_type, places=None):
             data[f'{place}_provider'] = local_place.get('provider') or data.get(f'{place}_provider')
             for target, source in (
                 ('latitude', 'latitude'), ('longitude', 'longitude'), ('formatted_address', 'formatted_address'),
-                ('city', 'city'), ('state', 'state'), ('country', 'country'), ('area', 'area'),
+                ('city', 'city'), ('state', 'state'), ('country', 'country'), ('postal_code', 'postal_code'), ('area', 'area'),
                 ('area_council', 'area_council'), ('district', 'district'), ('neighborhood', 'neighborhood'),
                 ('location_type', 'location_type'), ('provider', 'provider'), ('provider_place_id', 'provider_place_id'),
             ):
@@ -364,7 +323,7 @@ def _location_payload(form, service_type, places=None):
                         result = verified_local
                 for target, source in (
                     ('formatted_address', 'formatted_address'), ('latitude', 'latitude'), ('longitude', 'longitude'),
-                    ('city', 'city'), ('state', 'state'), ('country', 'country'), ('area', 'area'),
+                    ('city', 'city'), ('state', 'state'), ('country', 'country'), ('postal_code', 'postal_code'), ('area', 'area'),
                     ('area_council', 'area_council'), ('district', 'district'), ('neighborhood', 'neighborhood'),
                     ('location_type', 'location_type'), ('place_id', 'provider_place_id'),
                     ('provider', 'provider'), ('provider_raw_id', 'provider_place_id'),
@@ -400,9 +359,6 @@ def _location_payload(form, service_type, places=None):
                 nearest_road=nearby.get('nearest_road'),
                 route_resolution=data[f'{place}_route_resolution'],
             )
-        data[f'{place}_city'] = data.get(f'{place}_city') or 'Abuja'
-        data[f'{place}_state'] = data.get(f'{place}_state') or 'Federal Capital Territory'
-        data[f'{place}_country'] = data.get(f'{place}_country') or 'Nigeria'
         hierarchy = [data.get(f'{place}_{key}') for key in ('neighborhood', 'district', 'area', 'area_council')]
         data[f'{place}_normalized_location'] = ', '.join(str(value).strip() for value in hierarchy if value) or str(data.get(f'{place}_formatted_address') or data.get(f'{place}_address') or '').strip()
 
@@ -454,6 +410,9 @@ def start(service_type='residential'):
         service_type = get_service_workflow({'primary_service': service_type})['service_type']
     except ValueError:
         abort(404)
+    if not current_user.can_use_service(service_type):
+        flash('This service is not available for your account. Contact support for help.', 'error')
+        return redirect(url_for('customer.dashboard'))
     session.pop('active_booking_request_id', None)
     if service_type == 'cleaning':
         if request.method == 'POST':
@@ -501,7 +460,7 @@ def index():
     request_id = session.get('active_booking_request_id')
     booking = Booking.query.filter_by(booking_request_id=request_id).first() if request_id else None
     if booking:
-        return redirect(url_for('booking.workflow', request_id=request_id, stage=_next_stage(booking)))
+        return redirect(url_for('booking.workflow', request_id=request_id, stage=next_booking_stage(booking)))
     return redirect(url_for('booking.location'))
 
 
@@ -509,6 +468,13 @@ def index():
 @booking_bp.route('/location/<service_type>', methods=['GET', 'POST'])
 @login_required
 def location(service_type='residential'):
+    try:
+        service_type = get_service_workflow({'primary_service': service_type})['service_type']
+    except ValueError:
+        abort(404)
+    if not current_user.can_use_service(service_type):
+        flash('This service is not available for your account. Contact support for help.', 'error')
+        return redirect(url_for('customer.dashboard'))
     form = BookingLocationForm()
     workflow = get_service_workflow({'primary_service': service_type})
     location_places = location_places_for(service_type, session.get('booking_storage_setup'))
@@ -528,7 +494,7 @@ def location(service_type='residential'):
                 ):
                     return redirect(url_for(
                         'booking.workflow', request_id=active_request_id,
-                        stage=_next_stage(previous_booking),
+                        stage=next_booking_stage(previous_booking),
                     ))
                 booking = create_booking_request(
                     customer_id=current_user.id if current_user.is_authenticated else None,
@@ -582,6 +548,11 @@ def edit_location(request_id):
         else:
             try:
                 location_data = _location_payload(form, booking.primary_service, location_places)
+                if booking.primary_service in {'residential', 'commercial', 'logistics'} and any(
+                    not str(location_data.get(f'{place}_{field}') or '').strip()
+                    for place in location_places for field in ('city', 'state')
+                ):
+                    raise ValueError('Confirm the city and state for each location before continuing.')
                 location_access = _location_access_payload(form)
                 previous = {'pickup': booking.pickup_formatted_address or booking.pickup_address,
                             'destination': booking.destination_formatted_address or booking.destination_address}
@@ -612,8 +583,10 @@ def edit_location(request_id):
 @login_required
 def resume(request_id):
     booking = Booking.query.filter_by(booking_request_id=request_id, customer_id=current_user.id).first_or_404()
+    if not current_user.can_use_service(booking.primary_service):
+        abort(403)
     session['active_booking_request_id'] = booking.booking_request_id
-    return redirect(url_for('booking.workflow', request_id=request_id, stage=_next_stage(booking)))
+    return redirect(url_for('booking.workflow', request_id=request_id, stage=next_booking_stage(booking)))
 
 
 @booking_bp.route('/<request_id>/<stage>', methods=['GET', 'POST'])
@@ -622,11 +595,15 @@ def workflow(request_id, stage):
     if stage not in STAGES[1:]:
         abort(404)
     booking = _get_request(request_id)
+    if not current_user.can_use_service(booking.primary_service):
+        flash('This service is not available for your account. Contact support for help.', 'error')
+        return redirect(url_for('customer.dashboard'))
     if request.method == 'POST':
         booking = _lock_customer_booking_for_edit(booking)
     stages = service_stages(booking.primary_service, booking)
-    if stage not in stages and not (booking.primary_service == 'logistics' and stage == 'property'):
-        return redirect(url_for('booking.workflow', request_id=request_id, stage=_next_stage(booking)))
+    logistics_property_info = booking.primary_service == 'logistics' and stage == 'property'
+    if stage not in stages and not logistics_property_info:
+        return redirect(url_for('booking.workflow', request_id=request_id, stage=next_booking_stage(booking)))
     if booking.primary_service == 'logistics' and stage == 'inventory' and booking.workflow_state == 'LOCATION_COMPLETED':
         save_workflow_section(booking, 'property', {}, current_user.id)
     if (stage in {'services', 'schedule', 'quote'}
@@ -634,8 +611,8 @@ def workflow(request_id, stage):
             and not inventory_is_confirmed(booking)):
         flash('Review and confirm your inventory before continuing to vehicle recommendations.', 'error')
         return redirect(url_for('booking.workflow', request_id=request_id, stage='inventory'))
-    if not _stage_is_unlocked(booking, stage):
-        return redirect(url_for('booking.workflow', request_id=request_id, stage=_next_stage(booking)))
+    if not logistics_property_info and not _stage_is_unlocked(booking, stage):
+        return redirect(url_for('booking.workflow', request_id=request_id, stage=next_booking_stage(booking)))
     if stage == 'services':
         try:
             validate_question_answers(
@@ -1402,7 +1379,11 @@ def payment(request_id):
                 return redirect(payment_record.authorization_url)
         except ValueError as error:
             flash(str(error), 'error')
-    return render_template('move_request/engine.html', stage='payment', stages=STAGES, booking=booking)
+    return render_template(
+        'move_request/engine.html', stage='payment',
+        stages=service_stages(booking.primary_service, booking), booking=booking,
+        service_workflow=get_service_workflow(booking), service_type=booking.primary_service,
+    )
 
 
 @booking_bp.route('/payment/callback')
@@ -1435,6 +1416,8 @@ def stripe_payment_webhook():
 @login_required
 def booking_payment(booking_id):
     booking = Booking.query.filter_by(id=booking_id, customer_id=current_user.id).first_or_404()
+    if not current_user.can_use_service(booking.primary_service):
+        abort(403)
     if not booking.booking_request_id:
         if request.method == 'POST':
             flash('Online payment is only available for requests with a verified quote. Contact operations for this historical booking.', 'error')
@@ -1449,7 +1432,7 @@ def get_booking_request(request_id):
     booking = _get_request(request_id)
     return jsonify({
         'booking_request_id': booking.booking_request_id, 'state': booking.workflow_state,
-        'quote_status': booking.quote_status, 'current_stage': _next_stage(booking),
+        'quote_status': booking.quote_status, 'current_stage': next_booking_stage(booking),
         'pickup': {'address': booking.pickup_formatted_address or booking.pickup_address, 'latitude': booking.pickup_latitude, 'longitude': booking.pickup_longitude},
         'destination': {'address': booking.destination_formatted_address or booking.destination_address, 'latitude': booking.destination_latitude, 'longitude': booking.destination_longitude},
         'inventory': [{'name': item.display_name, 'quantity': item.quantity, 'size': item.size, 'fragile': item.fragile, 'large': item.large, 'special_handling': item.special_handling} for item in booking.inventory],
@@ -1463,6 +1446,9 @@ def api_suggest_booking_details(request_id):
     booking = _get_request(request_id)
     if booking.customer_id != current_user.id:
         abort(404)
+    locked_response = _reject_locked_booking_api_edit(booking)
+    if locked_response:
+        return locked_response
     if booking.workflow_state not in {'LOCATION_COMPLETED', 'PROPERTY_COMPLETED'}:
         return jsonify({'success': False, 'error': 'AI suggestions are only available before inventory confirmation.'}), 409
     payload = request.get_json(silent=True) or {}

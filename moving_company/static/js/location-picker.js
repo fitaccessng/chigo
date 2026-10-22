@@ -29,6 +29,7 @@
       placeId: `${kind}_place_id`,
       provider: `${kind}_provider`,
       rawId: `${kind}_provider_raw_id`,
+      postalCode: `${kind}_postal_code`,
     };
   }
 
@@ -55,6 +56,7 @@
       area: result.area || address.suburb || address.neighbourhood || address.city_district || address.quarter || '',
       city: result.city || address.city || address.town || address.village || 'Abuja',
       state: result.state || address.state || address.state_district || 'Federal Capital Territory',
+      postal_code: result.postal_code || address.postcode || '',
       original_query: result.original_query || originalQuery || '',
       normalized_query: result.normalized_query || originalQuery || '',
     };
@@ -72,6 +74,7 @@
     setValue(ids.placeId, selection.provider_place_id);
     setValue(ids.provider, selection.provider);
     setValue(ids.rawId, selection.provider_place_id);
+    setValue(ids.postalCode, selection.postal_code);
   }
 
   function clearLocation(kind) {
@@ -176,7 +179,7 @@
     deduped.slice(0, 8).forEach((item, index) => {
       const address = item.address || {};
       const area = item.area || address.suburb || address.neighbourhood || address.city_district || '';
-      const cityLine = [item.city || address.city || address.town || 'Abuja', item.state || address.state || 'FCT'].filter(Boolean).join(', ');
+      const cityLine = [item.city || address.city || address.town || 'Abuja', item.state || address.state || 'FCT', item.postal_code ? `Postal code ${item.postal_code}` : ''].filter(Boolean).join(', ');
       const option = document.createElement('button');
       option.type = 'button';
       option.className = [
@@ -228,6 +231,7 @@
     attachClearButton(kind, input);
     let requestId = 0;
     let timeoutId = null;
+    let controller = null;
     let results = [];
     let activeIndex = -1;
 
@@ -239,6 +243,8 @@
     input.addEventListener('input', function () {
       const query = this.value.trim();
       if (timeoutId) clearTimeout(timeoutId);
+      if (controller) controller.abort();
+      controller = null;
       requestId += 1;
       results = [];
       activeIndex = -1;
@@ -255,7 +261,8 @@
       dropdown.classList.remove('hidden');
 
       timeoutId = setTimeout(() => {
-        fetch(`/api/locations/autocomplete?q=${encodeURIComponent(query)}`)
+        controller = new AbortController();
+        fetch(`/api/locations/autocomplete?q=${encodeURIComponent(query)}`, { signal: controller.signal })
           .then((response) => response.json())
           .then((payload) => {
             if (currentRequest !== requestId) return;
@@ -268,7 +275,7 @@
             dropdown.innerHTML = '<div class="px-4 py-3 text-[11px] text-slate-500">Unable to search right now. Please try again.</div>';
             dropdown.classList.remove('hidden');
           });
-      }, 300);
+      }, 200);
     });
 
     input.addEventListener('keydown', function (event) {

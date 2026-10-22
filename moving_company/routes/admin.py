@@ -86,6 +86,10 @@ ROLE_PERMISSIONS = {
     'content_marketing_manager': frozenset({'dashboard', 'services', 'promotions'}),
 }
 
+MANAGEABLE_SERVICES = frozenset({
+    'residential', 'commercial', 'packing', 'storage', 'logistics', 'cleaning', 'support', 'home_decor',
+})
+
 
 def has_admin_permission(role, permission):
     permissions = ROLE_PERMISSIONS.get(role, frozenset())
@@ -115,7 +119,7 @@ def login():
     form = LoginForm()
     if form.validate_on_submit():
         user = User.query.filter_by(email=form.email.data.strip().lower()).first()
-        if user and has_admin_permission(user.role, 'dashboard') and user.check_password(form.password.data):
+        if user and user.is_active and has_admin_permission(user.role, 'dashboard') and user.check_password(form.password.data):
             login_user(user)
             return redirect(url_for('admin.dashboard'))
         flash('Invalid admin email or password.', 'error')
@@ -290,6 +294,9 @@ def dashboard():
     tomorrow = today + timedelta(days=1)
     start_of_day = datetime.combine(today, time.min)
     start_of_tomorrow = datetime.combine(tomorrow, time.min)
+    utc_today = datetime.utcnow().date()
+    utc_start_of_day = datetime.combine(utc_today, time.min)
+    utc_start_of_tomorrow = datetime.combine(utc_today + timedelta(days=1), time.min)
     active_statuses = ('In Progress', 'Loading', 'In Transit', 'Unloading')
     bookings = Booking.query.options(
         joinedload(Booking.customer),
@@ -332,8 +339,8 @@ def dashboard():
             break
     verified_revenue_today = db.session.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
         Payment.status.in_(('Successful', 'Paid')),
-        Payment.created_at >= start_of_day,
-        Payment.created_at < start_of_tomorrow,
+        Payment.created_at >= utc_start_of_day,
+        Payment.created_at < utc_start_of_tomorrow,
     ).scalar()
     payments_by_booking = db.session.query(
         Payment.booking_id.label('booking_id'), func.sum(Payment.amount).label('paid'),
@@ -364,6 +371,14 @@ def dashboard():
             DispatchRequest.status.in_(['PENDING_DISPATCH', 'REASSIGNMENT_REQUIRED', 'MANUAL_REVIEW'])
         ).count(),
         'active_dispatch_offers': DispatchOffer.query.filter_by(status='OFFERED').count(),
+        'total_customers': User.query.filter_by(role='customer').count(),
+        'new_customers_today': User.query.filter(
+            User.role == 'customer', User.created_at >= start_of_day, User.created_at < start_of_tomorrow,
+        ).count(),
+        'active_customers': User.query.filter_by(role='customer', is_active=True).count(),
+        'restricted_customers': User.query.filter(
+            User.role == 'customer', User.account_status.in_(('disabled', 'banned', 'removed')),
+        ).count(),
     }
     return render_template(
         'admin/dashboard.html', bookings=bookings, metrics=metrics,
@@ -372,6 +387,81 @@ def dashboard():
         vehicle_status_counts=vehicle_status_counts, mover_status_counts=mover_status_counts,
         human_requests=human_requests,
     )
+
+
+@admin_bp.route('/users')
+@login_required
+@admin_required('customers')
+def users():
+    query = User.query.filter_by(role='customer')
+    search = request.args.get('q', '').strip()
+    if search:
+        pattern = f'%{search}%'
+        query = query.filter(or_(
+            User.first_name.ilike(pattern), User.last_name.ilike(pattern),
+            User.email.ilike(pattern), User.phone.ilike(pattern),
+        ))
+    status = request.args.get('status', '').strip()
+    if status in {'active', 'disabled', 'banned', 'removed'}:
+        query = query.filter(User.account_status == status)
+    if request.args.get('created') == 'today':
+        today = date.today()
+        query = query.filter(
+            User.created_at >= datetime.combine(today, time.min),
+            User.created_at < datetime.combine(today + timedelta(days=1), time.min),
+        )
+    page = max(request.args.get('page', 1, type=int), 1)
+    pagination = query.options(selectinload(User.bookings)).order_by(User.created_at.desc()).paginate(
+        page=page, per_page=50, error_out=False,
+    )
+    filters = request.args.to_dict()
+    filters.pop('page', None)
+    return render_template('admin/users.html', users=pagination.items, pagination=pagination,
+                           filters=filters, manageable_services=sorted(MANAGEABLE_SERVICES))
+
+
+@admin_bp.route('/users/<int:user_id>/account', methods=['POST'])
+@login_required
+@admin_required('customers')
+def update_user_account(user_id):
+    user = db.get_or_404(User, user_id)
+    if user.role != 'customer':
+        abort(403)
+    action = request.form.get('action', '')
+    states = {
+        'activate': ('active', True),
+        'disable': ('disabled', False),
+        'ban': ('banned', False),
+        'remove': ('removed', False),
+    }
+    if action not in states:
+        abort(400)
+    before = {'account_status': user.account_status, 'is_active': user.is_active}
+    user.account_status, user.is_active = states[action]
+    write_admin_audit('user.account_status_changed', 'user', user.id, before=before, after={
+        'account_status': user.account_status, 'is_active': user.is_active,
+    })
+    db.session.commit()
+    flash(f'{user.full_name}\'s account is now {user.account_status}.', 'success')
+    return redirect(url_for('admin.users', **request.args))
+
+
+@admin_bp.route('/users/<int:user_id>/services', methods=['POST'])
+@login_required
+@admin_required('customers')
+def update_user_services(user_id):
+    user = db.get_or_404(User, user_id)
+    if user.role != 'customer':
+        abort(403)
+    disabled_services = sorted(set(request.form.getlist('disabled_services')) & MANAGEABLE_SERVICES)
+    before = list(user.disabled_services or [])
+    user.disabled_services = disabled_services
+    write_admin_audit('user.service_access_changed', 'user', user.id, before={'disabled_services': before}, after={
+        'disabled_services': disabled_services,
+    })
+    db.session.commit()
+    flash(f'Service access updated for {user.full_name}.', 'success')
+    return redirect(url_for('admin.users', **request.args))
 
 
 @admin_bp.route('/dispatch')
@@ -889,6 +979,12 @@ def serve_booking_attachment(booking_id, filename):
 @admin_required('quotes')
 def override_booking(booking_id):
     booking = db.get_or_404(Booking, booking_id)
+    if booking.payment_status in {'Paid', 'Deposit Paid'} or booking.status in {
+        'Confirmed', 'Assigned', 'In Progress', 'En Route', 'Arrived', 'Loading',
+        'In Transit', 'Unloading', 'Completed',
+    }:
+        flash('Paid or operational bookings cannot be repriced or have their vehicle recommendation changed.', 'error')
+        return redirect(url_for('admin.booking_detail', booking_id=booking.id))
     before = {
         'total': booking.manually_overridden_total if booking.manually_overridden_total is not None else booking.estimated_total,
         'recommended_vehicle_type_id': booking.recommended_vehicle_type_id,

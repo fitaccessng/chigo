@@ -159,9 +159,9 @@ def _resolve_location(data):
         raise ValueError('Home Décor requests are currently accepted only within Chigo’s verified FCT service area.')
     return {
         'pickup_address': address[:255],
-        'pickup_city': str(result.get('city') or data.get('location_city') or 'Abuja')[:100],
-        'pickup_state': str(result.get('state') or data.get('location_state') or 'Federal Capital Territory')[:100],
-        'pickup_country': str(result.get('country') or data.get('location_country') or 'Nigeria')[:100],
+        'pickup_city': str(result.get('city') or data.get('location_city') or '').strip()[:100] or None,
+        'pickup_state': str(result.get('state') or data.get('location_state') or '').strip()[:100] or None,
+        'pickup_country': str(result.get('country') or data.get('location_country') or '').strip()[:100] or None,
         'pickup_area': result.get('area') or data.get('location_area'),
         'pickup_area_council': result.get('area_council') or data.get('location_area_council'),
         'pickup_district': result.get('district') or data.get('location_district'),
@@ -202,6 +202,9 @@ def _create_draft():
 @home_decor_bp.route('/home-decor', methods=['GET'])
 @login_required
 def start():
+    if not current_user.can_use_service('home_decor'):
+        flash('This service is not available for your account. Contact support for help.', 'error')
+        return redirect(url_for('customer.dashboard'))
     return redirect(url_for('home_decor.step', request_id=_create_draft().id, step=1))
 
 

@@ -1,0 +1,158 @@
+{
+  "coordinate_counts": {
+    "manual_review_council_mismatch": 4,
+    "must_remain_unknown_unless_trusted_source_match": 961,
+    "trusted_coordinate_boundary_match_requires_source_review": 46
+  },
+  "database": {
+    "backend": "sqlite",
+    "backup_snapshot": {
+      "local_places_active": 50,
+      "local_places_total": 57,
+      "matches_live_local_db_location_count": false,
+      "matches_live_local_db_revision": true,
+      "migration_revision": "20261006_upgrade_booking_location_schema",
+      "path": "/Users/macbookpro/Documents/chigo/data/geodata/fct-directory-cache/backups/moving_company-20261020T143945Z.sqlite3",
+      "reason_recovery_unverified": "No isolated restore was performed; file integrity is not proof of recoverability.",
+      "recovery_verified": false,
+      "sha256": "5d2cc8532cac1f641635b4a79ef4f2d0a268b7ee4137dae0a477bd96aa23adcb",
+      "size_bytes": 782336,
+      "sqlite_quick_check": [
+        "ok"
+      ]
+    },
+    "path": "/Users/macbookpro/Documents/chigo/moving_company.db"
+  },
+  "duplicate_groups": 164,
+  "environment_gate": {
+    "backup_recoverability_verified": false,
+    "database_mutations_performed": false,
+    "staging_identified": false
+  },
+  "generated_at": "2026-10-22T04:29:11.700178+00:00",
+  "migration_graph": {
+    "head_revisions": [
+      "20261022_fct_location_directory"
+    ],
+    "linear_single_head": true,
+    "missing_parent_revisions": [],
+    "parse_or_duplicate_errors": [],
+    "revision_count": 22,
+    "revisions": [
+      {
+        "file": "20261006_add_postgis_location_tables.py",
+        "parent": "20261006_upgrade_booking_location_schema",
+        "revision": "20261006_add_postgis_location_tables"
+      },
+      {
+        "file": "20261006_baseline_chigo_schema.py",
+        "parent": null,
+        "revision": "20261006_baseline_chigo_schema"
+      },
+      {
+        "file": "20261006_expand_location_resolution.py",
+        "parent": "20261006_add_postgis_location_tables",
+        "revision": "20261006_expand_location_resolution"
+      },
+      {
+        "file": "20261006_upgrade_booking_location_schema.py",
+        "parent": "20261006_baseline_chigo_schema",
+        "revision": "20261006_upgrade_booking_location_schema"
+      },
+      {
+        "file": "20261007_add_demo_fleet_metadata.py",
+        "parent": "20261006_expand_location_resolution",
+        "revision": "20261007_add_demo_fleet_metadata"
+      },
+      {
+        "file": "20261008_add_attachment_media.py",
+        "parent": "20261008_add_service_intent",
+        "revision": "20261008_add_attachment_media"
+      },
+      {
+        "file": "20261008_add_booking_route_metadata.py",
+        "parent": "20261008_add_location_learning_metadata",
+        "revision": "20261008_add_booking_route_metadata"
+      },
+      {
+        "file": "20261008_add_inventory_catalogue.py",
+        "parent": "20261008_add_attachment_media",
+        "revision": "20261008_add_inventory_catalogue"
+      },
+      {
+        "file": "20261008_add_location_learning_metadata.py",
+        "parent": "20261008_add_inventory_catalogue",
+        "revision": "20261008_add_location_learning_metadata"
+      },
+      {
+        "file": "20261008_add_service_intent.py",
+        "parent": "20261007_add_demo_fleet_metadata",
+        "revision": "20261008_add_service_intent"
+      },
+      {
+        "file": "20261008_add_support_chat.py",
+        "parent": "20261008_add_booking_route_metadata",
+        "revision": "20261008_add_support_chat"
+      },
+      {
+        "file": "20261009_add_oauth_identities.py",
+        "parent": "20261008_add_support_chat",
+        "revision": "20261009_add_oauth_identities"
+      },
+      {
+        "file": "20261010_add_customer_referrals.py",
+        "parent": "20261009_add_oauth_identities",
+        "revision": "20261010_customer_referrals"
+      },
+      {
+        "file": "20261011_add_service_pricing_approval.py",
+        "parent": "20261011_service_aware_locations",
+        "revision": "20261011_service_pricing_approval"
+      },
+      {
+        "file": "20261011_service_aware_locations.py",
+        "parent": "20261010_customer_referrals",
+        "revision": "20261011_service_aware_locations"
+      },
+      {
+        "file": "20261012_home_decor_requests.py",
+        "parent": "20261011_service_pricing_approval",
+        "revision": "20261012_home_decor_requests"
+      },
+      {
+        "file": "20261016_booking_cancellation_damage_reporting.py",
+        "parent": "20261012_home_decor_requests",
+        "revision": "20261016_booking_cancel_damage"
+      },
+      {
+        "file": "20261018_dispatch_reservations.py",
+        "parent": "20261016_booking_cancel_damage",
+        "revision": "20261018_dispatch_reservations"
+      },
+      {
+        "file": "20261019_booking_event_idempotency.py",
+        "parent": "20261018_dispatch_reservations",
+        "revision": "20261019_booking_event_idempotency"
+      },
+      {
+        "file": "20261020_customer_account_controls.py",
+        "parent": "20261019_booking_event_idempotency",
+        "revision": "20261020_customer_controls"
+      },
+      {
+        "file": "20261021_optional_booking_countries.py",
+        "parent": "20261020_customer_controls",
+        "revision": "20261021_optional_booking_countries"
+      },
+      {
+        "file": "20261022_fct_location_directory.py",
+        "parent": "20261021_optional_booking_countries",
+        "revision": "20261022_fct_location_directory"
+      }
+    ],
+    "root_revisions": [
+      "20261006_baseline_chigo_schema"
+    ]
+  },
+  "source_count": 7
+}

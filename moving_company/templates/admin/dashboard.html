@@ -18,6 +18,10 @@
     ('Available Vehicles', metrics.available_vehicles, url_for('admin.trucks', status='Available'), 'Current fleet availability'),
     ('Dispatch Attention', metrics.dispatch_attention, url_for('admin.dispatch_queue', status='MANUAL_REVIEW'), 'Unassigned or blocked dispatch requests'),
     ('Active Partner Offers', metrics.active_dispatch_offers, url_for('admin.dispatch_queue', status='OFFERED'), 'Offers awaiting partner response'),
+    ('Registered Users', metrics.total_customers, url_for('admin.users'), 'All customer accounts'),
+    ('New Users Today', metrics.new_customers_today, url_for('admin.users', created='today'), 'Customer accounts created today'),
+    ('Active Users', metrics.active_customers, url_for('admin.users', status='active'), 'Customers able to sign in'),
+    ('Restricted Users', metrics.restricted_customers, url_for('admin.users'), 'Disabled, banned, or removed accounts'),
   ] %}
   {% for label, value, href, detail in cards %}<a href="{{ href }}" class="group min-h-28 bg-white p-5 transition hover:bg-emerald-50/50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-emerald-700"><span class="flex items-start justify-between gap-3"><span class="text-sm font-semibold text-stone-600">{{ label }}</span><span class="text-stone-400 transition group-hover:translate-x-0.5 group-hover:text-emerald-800" aria-hidden="true">↗</span></span><span class="mt-3 block text-2xl font-black tabular-nums text-stone-950">{{ value }}</span><span class="mt-1 block text-xs text-stone-500">{{ detail }}</span></a>{% endfor %}
 </section>

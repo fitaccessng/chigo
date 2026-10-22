@@ -4,7 +4,7 @@ import pytest
 
 from moving_company import create_app
 from moving_company.extensions import db
-from moving_company.models import Booking, BookingEvent, ServicePricing, SupportConversation, SupportRequest, User
+from moving_company.models import Booking, BookingEvent, ServicePricing, SupportConversation, SupportRequest, User, VehicleType
 from moving_company.routes.booking_engine import service_stages
 from moving_company.services.booking_engine_service import (
     calculate_quote,
@@ -17,6 +17,7 @@ from moving_company.services.booking_engine_service import (
     validate_service_bundle,
     vehicle_options,
 )
+from moving_company.services.service_workflow import booking_stage_is_unlocked, next_booking_stage
 from moving_company.services.service_workflow import (
     ADDON_QUESTION_SCHEMAS,
     SERVICE_QUESTION_SCHEMAS,
@@ -93,6 +94,11 @@ def test_service_intent_is_persisted_and_validated(app):
                 },
                 service_type='unknown',
             )
+
+
+def test_unknown_service_has_no_booking_stage_fallback():
+    with pytest.raises(ValueError, match='Unsupported service type'):
+        service_stages('not-a-service')
 
 
 @pytest.mark.parametrize('service_type', ['residential', 'commercial', 'packing', 'storage', 'logistics'])
@@ -276,7 +282,49 @@ def test_packing_payment_step_unlocks_only_after_quote_acceptance(app):
         assert service_stages('packing', booking)[-1] == 'payment'
 
 
-@pytest.mark.parametrize('service_type', ['cleaning', 'storage', 'logistics'])
+@pytest.mark.parametrize(
+    ('service_type', 'workflow_state', 'expected_next', 'skipped_stage'),
+    [
+        ('cleaning', 'INVENTORY_COMPLETED', 'schedule', 'services'),
+        ('logistics', 'LOCATION_COMPLETED', 'inventory', 'property'),
+        ('support', 'INVENTORY_COMPLETED', 'quote', 'services'),
+    ],
+)
+def test_service_workflow_uses_applicable_stages_for_progress_and_locks(
+    app, service_type, workflow_state, expected_next, skipped_stage,
+):
+    with app.app_context():
+        booking = create_booking_request(
+            location={
+                'pickup_address': 'A', 'pickup_city': 'Abuja', 'pickup_state': 'FCT',
+                'destination_address': 'B', 'destination_city': 'Abuja', 'destination_state': 'FCT',
+            },
+            service_type=service_type,
+        )
+        booking.workflow_state = workflow_state
+        assert next_booking_stage(booking) == expected_next
+        assert booking_stage_is_unlocked(booking, expected_next)
+        assert not booking_stage_is_unlocked(booking, skipped_stage)
+
+
+@pytest.mark.parametrize(
+    ('service_type', 'expected_stages'),
+    [
+        ('residential', ('location', 'property', 'inventory', 'services', 'schedule', 'quote', 'payment', 'review')),
+        ('commercial', ('location', 'property', 'inventory', 'services', 'schedule', 'quote', 'payment', 'review')),
+        ('cleaning', ('location', 'property', 'inventory', 'schedule', 'quote')),
+        ('packing', ('location', 'property', 'inventory', 'services', 'schedule', 'quote')),
+        ('storage', ('location', 'property', 'inventory', 'services', 'schedule', 'quote')),
+        ('logistics', ('location', 'inventory', 'services', 'schedule', 'quote')),
+        ('support', ('location', 'property', 'inventory', 'quote')),
+        ('home_decor', ('property', 'inventory', 'services', 'schedule', 'quote')),
+    ],
+)
+def test_every_supported_service_uses_one_applicable_stage_sequence(service_type, expected_stages):
+    assert service_stages(service_type) == expected_stages
+
+
+@pytest.mark.parametrize('service_type', ['cleaning', 'packing', 'storage', 'logistics'])
 def test_quote_required_services_unlock_payment_only_after_quote_acceptance(app, service_type):
     with app.app_context():
         booking = create_booking_request(
@@ -534,6 +582,77 @@ def test_logistics_vehicle_recommendation_uses_shipment_measurements(app):
         assert booking.estimated_weight_kg == 900
 
 
+def test_logistics_schedule_exposes_server_validated_vehicle_choice(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    login_customer(app, client)
+    request_id = make_booking(app, 'logistics')
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        booking.workflow_state = 'SERVICES_COMPLETED'
+        booking.workflow_data = {
+            **booking.workflow_data,
+            'inventory_confirmed': True,
+            'inventory_answers': {
+                'delivery_urgency': 'scheduled', 'sender_name': 'Sender', 'sender_phone': '08000000001',
+                'recipient_name': 'Recipient', 'recipient_phone': '08000000002',
+                'shipment_type': 'Equipment', 'shipment_quantity': 2, 'shipment_weight_kg': 400,
+                'shipment_length_cm': 100, 'shipment_width_cm': 50, 'shipment_height_cm': 50,
+                'shipment_ready': 'yes', 'shipment_fragile': 'no', 'loading_assistance': 'yes',
+                'shipment_special_equipment': 'no',
+            },
+        }
+        db.session.commit()
+    with client.session_transaction() as session:
+        session['active_booking_request_id'] = request_id
+
+    page = client.get(f'/booking/{request_id}/schedule')
+    assert page.status_code == 200
+    assert b'Select suitable transport' in page.data
+    assert b'name="vehicle_type_id"' in page.data
+    assert b'does not reserve a vehicle or confirm availability' in page.data
+
+
+def test_logistics_schedule_rejects_vehicle_selection_without_capacity_data(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    login_customer(app, client)
+    request_id = make_booking(app, 'logistics')
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        booking.workflow_state = 'SERVICES_COMPLETED'
+        booking.workflow_data = {
+            **booking.workflow_data,
+            'inventory_confirmed': True,
+            'inventory_answers': {
+                'delivery_urgency': 'scheduled', 'sender_name': 'Sender', 'sender_phone': '08000000001',
+                'recipient_name': 'Recipient', 'recipient_phone': '08000000002',
+                'shipment_type': 'Equipment', 'shipment_quantity': 2, 'shipment_weight_kg': 400,
+                'shipment_length_cm': 100, 'shipment_width_cm': 50, 'shipment_height_cm': 50,
+                'shipment_ready': 'yes', 'shipment_fragile': 'no', 'loading_assistance': 'yes',
+                'shipment_special_equipment': 'no',
+            },
+        }
+        vehicle = VehicleType.query.filter_by(is_active=True).first()
+        vehicle_id = vehicle.id
+        vehicle.capacity_m3 = 0
+        vehicle.max_payload_kg = 0
+        db.session.commit()
+    with client.session_transaction() as session:
+        session['active_booking_request_id'] = request_id
+
+    response = client.post(f'/booking/{request_id}/schedule', data={
+        'move_date': (date.today() + timedelta(days=3)).isoformat(),
+        'preferred_time': 'Morning', 'vehicle_type_id': str(vehicle_id),
+    })
+    assert response.status_code == 200
+    assert b'missing verified capacity data' in response.data
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        assert booking.workflow_state == 'SERVICES_COMPLETED'
+        assert booking.workflow_data.get('vehicle') is None
+
+
 def test_home_cleaning_details_survive_to_quote_required_review(app):
     app.config['WTF_CSRF_ENABLED'] = False
     client = app.test_client()
@@ -594,6 +713,43 @@ def test_home_cleaning_details_survive_to_quote_required_review(app):
         assert BookingEvent.query.filter_by(booking_id=booking.id, action='inventory.confirmed').count() == 1
         assert booking.workflow_data['property']['service_answers']['cleaning_type'] == 'deep'
         assert booking.workflow_data['property']['service_answers']['cleaning_areas'] == ['kitchen', 'bathrooms']
+
+
+def test_cleaning_inventory_conditions_use_persisted_property_category(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    login_customer(app, client)
+    client.post('/booking/start/cleaning', data={'cleaning_subtype': 'home'})
+    location = client.post('/booking/location/cleaning', data={
+        'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT',
+    })
+    request_id = location.headers['Location'].split('/')[2]
+    with client.session_transaction() as session:
+        session['active_booking_request_id'] = request_id
+
+    property_page = client.post(f'/booking/{request_id}/property', data={
+        'service_morph_cleaning_category': 'legacy', 'service_cleaning_subtype': 'home',
+        'service_cleaning_property_type': 'flat',
+        'service_cleaning_bedrooms': '2', 'service_cleaning_bathrooms': '1',
+        'service_cleaning_floors': '1', 'service_cleaning_occupied': 'no',
+        'service_cleaning_type': 'deep', 'service_cleaning_areas': ['kitchen'],
+        'service_cleaning_frequency': 'one-time',
+    })
+    assert property_page.status_code == 302
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        replace_inventory(booking, [{'name': 'Bathroom cabinet', 'quantity': 1}])
+
+    response = client.get(f'/booking/{request_id}/inventory')
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        assert booking.workflow_data['property']['service_answers'].get('morph_cleaning_category') == 'legacy'
+    assert 'data-condition-key="inventory_morph_cleaning_category" data-condition-value="legacy" data-condition-answer="legacy">' in html, repr((response.request.path, html[html.find('<h1'):html.find('<h1') + 300], html[-1200:]))
+    field = html.split('<input type="radio" name="inventory_cleaning_heavy_buildup" value="no"', 1)[1].split('>', 1)[0]
+    assert 'required' in field
+    assert 'disabled' not in field
 
 
 def test_packing_inventory_save_and_continue_persists_confirmation_flag(app):
@@ -730,6 +886,8 @@ def test_support_triage_creates_linked_human_request_without_location(app, monke
         support_request = support_requests[0]
         assert len(support_requests) == 1
         assert booking.quote_status == 'Quote Required'
+        assert booking.workflow_data['inventory_confirmed'] is True
+        assert BookingEvent.query.filter_by(booking_id=booking.id, action='inventory.confirmed').count() == 1
         assert booking.pickup_address is None and booking.destination_address is None
         assert support_request.status == 'WAITING_FOR_AGENT'
         assert 'Urgency: today' in support_request.reason
@@ -821,6 +979,49 @@ def test_property_stage_requires_and_persists_service_answers(app):
     with app.app_context():
         booking = Booking.query.filter_by(booking_request_id=request_id).one()
         assert booking.workflow_data['inventory_answers'] == {'heavy_or_oversized': 'no'}
+
+
+def test_packing_conditional_answers_reload_and_clear_after_backward_edit(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    login_customer(app, client)
+    request_id = make_booking(app, 'packing')
+    with client.session_transaction() as session:
+        session['active_booking_request_id'] = request_id
+
+    selected_rooms = {
+        'service_packing_for': 'home',
+        'service_packing_scope': 'selected-rooms',
+        'service_packing_rooms': '2',
+        'service_packing_room_list': 'Kitchen and bedroom',
+        'service_packing_already_packed': 'some',
+        'service_packing_materials_needed': 'no',
+        'service_packing_materials_available': 'yes',
+        'service_packing_service_level': 'full-service',
+        'service_unpacking_required': 'no',
+        'service_packing_dismantling': 'no',
+        'service_packing_reassembly': 'no',
+    }
+    saved = client.post(f'/booking/{request_id}/property', data=selected_rooms)
+    assert saved.status_code == 302
+    reloaded = client.get(f'/booking/{request_id}/property')
+    assert reloaded.status_code == 200
+    assert b'type="radio" name="service_packing_scope" value="selected-rooms" checked' in reloaded.data
+    assert b'Kitchen and bedroom' in reloaded.data
+
+    changed = client.post(f'/booking/{request_id}/property', data={
+        **selected_rooms,
+        'service_packing_scope': 'entire-property',
+    })
+    assert changed.status_code == 302
+    with app.app_context():
+        booking = Booking.query.filter_by(booking_request_id=request_id).one()
+        answers = booking.workflow_data['property']['service_answers']
+        assert answers['packing_scope'] == 'entire-property'
+        assert 'packing_rooms' not in answers
+        assert 'packing_room_list' not in answers
+        assert answers['packing_for'] == 'home'
+        assert answers['packing_already_packed'] == 'some'
 
 
 def test_primary_service_intent_is_immutable_for_versioned_booking(app):

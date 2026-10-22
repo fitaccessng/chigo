@@ -4,6 +4,17 @@ from collections.abc import Mapping
 from typing import Any
 
 SERVICE_TYPES = frozenset({'cleaning', 'residential', 'commercial', 'packing', 'storage', 'logistics', 'support', 'home_decor'})
+BOOKING_STAGE_ORDER = ('location', 'property', 'inventory', 'services', 'schedule', 'quote', 'payment', 'review')
+STAGE_STATE_BY_STAGE = {
+    'location': 'LOCATION_COMPLETED', 'property': 'PROPERTY_COMPLETED',
+    'inventory': 'INVENTORY_COMPLETED', 'services': 'SERVICES_COMPLETED',
+    'schedule': 'SCHEDULE_COMPLETED', 'quote': 'QUOTE_READY',
+}
+COMPLETED_STAGE_BY_STATE = {state: stage for stage, state in STAGE_STATE_BY_STAGE.items()}
+COMPLETED_STAGE_BY_STATE.update({
+    'QUOTE_ACCEPTED': 'quote', 'PAYMENT_PENDING': 'payment', 'CONFIRMED': 'payment',
+    'IN_PROGRESS': 'payment', 'COMPLETED': 'review', 'REVIEW_PENDING': 'review', 'REVIEWED': 'review',
+})
 QUESTION_SCHEMA_VERSION = 4
 LEGACY_PACKING_SCHEMA_CUTOFF = 3
 LEGACY_PACKING_QUESTION_KEYS = {
@@ -29,7 +40,8 @@ SERVICE_WORKFLOWS = {
     'cleaning': {
         'label': 'Cleaning',
         'description': 'Choose Move-Clean, fumigation, upholstery or appliance care and tell us about the relevant property or items.',
-        'steps': ('location', 'property', 'inventory', 'services', 'schedule', 'quote', 'payment', 'review'),
+        'steps': BOOKING_STAGE_ORDER,
+        'applicable_steps': ('location', 'property', 'inventory', 'schedule', 'quote'),
         'questions': {'property': ('cleaning_subtype', 'cleaning_type', 'cleaning_areas', 'cleaning_frequency'),
                       'inventory': ('cleaning_items', 'cleaning_instructions')},
     },
@@ -54,7 +66,8 @@ SERVICE_WORKFLOWS = {
     'packing': {
         'label': 'Packing Service',
         'description': 'Tell us what needs packing so we can recommend the right packing service.',
-        'steps': ('location', 'property', 'inventory', 'services', 'schedule', 'quote', 'payment', 'review'),
+        'steps': BOOKING_STAGE_ORDER,
+        'applicable_steps': ('location', 'property', 'inventory', 'services', 'schedule', 'quote'),
         'questions': {
             'property': ('packing_scope', 'rooms', 'box_count', 'fragile_items', 'materials_provided'),
             'inventory': ('packing_items', 'fragile_items', 'special_handling'),
@@ -63,7 +76,8 @@ SERVICE_WORKFLOWS = {
     'storage': {
         'label': 'Storage',
         'description': 'Tell us what you need to store and how long you need storage.',
-        'steps': ('location', 'property', 'inventory', 'services', 'schedule', 'quote', 'payment', 'review'),
+        'steps': BOOKING_STAGE_ORDER,
+        'applicable_steps': ('location', 'property', 'inventory', 'services', 'schedule', 'quote'),
         'questions': {
             'property': ('storage_duration', 'access_frequency', 'pickup_method', 'delivery_method'),
             'inventory': ('storage_items', 'storage_duration', 'access_frequency', 'pickup_method', 'delivery_method'),
@@ -81,7 +95,8 @@ SERVICE_WORKFLOWS = {
     'support': {
         'label': '24/7 Support',
         'description': 'Tell us what you need help with. An operations team member will confirm availability.',
-        'steps': ('location', 'property', 'inventory', 'services', 'schedule', 'quote', 'payment', 'review'),
+        'steps': BOOKING_STAGE_ORDER,
+        'applicable_steps': ('location', 'property', 'inventory', 'quote'),
         'questions': {'property': ('support_category', 'support_urgency', 'support_description', 'onsite_required'),
                       'inventory': ('booking_reference', 'support_contact_preference')},
     },
@@ -92,6 +107,60 @@ SERVICE_WORKFLOWS = {
         'questions': {'property': ('home_decor_request',), 'inventory': ('home_decor_attachments',)},
     },
 }
+
+# Only quote-backed standalone services add a payment step after operations
+# confirms the quote. Residential and commercial retain their established
+# complete workflow declared above.
+PAYMENT_AFTER_QUOTE_SERVICES = frozenset({'cleaning', 'packing', 'storage', 'logistics'})
+PAYMENT_ELIGIBLE_STATES = frozenset({'QUOTE_ACCEPTED', 'PAYMENT_PENDING', 'CONFIRMED'})
+
+
+def booking_stages_for(service_type: str, booking: Mapping[str, Any] | Any | None = None) -> tuple[str, ...]:
+    """Return the single authoritative, applicable stage sequence."""
+    normalized = normalize_service_type(service_type)
+    workflow = SERVICE_WORKFLOWS[normalized]
+    stages = tuple(workflow.get('applicable_steps', workflow['steps']))
+    workflow_state = _booking_value(booking, 'workflow_state') if booking is not None else None
+    if (normalized in PAYMENT_AFTER_QUOTE_SERVICES
+            and workflow_state in PAYMENT_ELIGIBLE_STATES):
+        return (*stages, 'payment')
+    return stages
+
+
+def next_booking_stage(booking: Mapping[str, Any] | Any) -> str:
+    """Return the next applicable stage from persisted workflow state."""
+    service_type = normalize_service_type(_booking_value(booking, 'primary_service') or 'residential')
+    stages = booking_stages_for(service_type, booking)
+    state = _booking_value(booking, 'workflow_state')
+    if state in {'QUOTE_ACCEPTED', 'PAYMENT_PENDING', 'CONFIRMED', 'IN_PROGRESS'} and 'payment' in stages:
+        return 'payment'
+    completed = COMPLETED_STAGE_BY_STATE.get(state)
+    if completed in stages:
+        index = stages.index(completed)
+        return stages[index + 1] if index + 1 < len(stages) else completed
+    if completed in BOOKING_STAGE_ORDER:
+        completed_index = BOOKING_STAGE_ORDER.index(completed)
+        return next((stage for stage in stages if BOOKING_STAGE_ORDER.index(stage) > completed_index), stages[-1])
+    return stages[1] if len(stages) > 1 else stages[0]
+
+
+def booking_stage_is_unlocked(booking: Mapping[str, Any] | Any, stage: str) -> bool:
+    """Allow completed stages and the one next stage in the applicable flow."""
+    service_type = normalize_service_type(_booking_value(booking, 'primary_service') or 'residential')
+    stages = booking_stages_for(service_type, booking)
+    if stage not in stages:
+        return False
+    state = _booking_value(booking, 'workflow_state')
+    if state in {'QUOTE_ACCEPTED', 'PAYMENT_PENDING', 'CONFIRMED', 'IN_PROGRESS'} and stage == 'payment':
+        return True
+    completed = COMPLETED_STAGE_BY_STATE.get(state)
+    if completed not in stages:
+        # A legacy transition may record an omitted generic stage (for
+        # example cleaning records SERVICES_COMPLETED before scheduling).
+        # Keep every preceding applicable stage editable and unlock the next
+        # applicable one; do not strand the customer on a redirect loop.
+        return stages.index(stage) <= stages.index(next_booking_stage(booking))
+    return stages.index(stage) <= min(stages.index(completed) + 1, len(stages) - 1)
 
 SERVICE_RECOMMENDATIONS = {
     'cleaning': (),
@@ -749,6 +818,8 @@ def get_service_workflow(booking: Mapping[str, Any] | Any) -> dict[str, Any]:
         'service_type': service_type,
         'label': workflow['label'],
         'description': workflow['description'],
+        # ``steps`` remains the complete public workflow metadata for
+        # compatibility. Route navigation uses ``booking_stages_for``.
         'steps': workflow['steps'],
         'questions': questions,
     }

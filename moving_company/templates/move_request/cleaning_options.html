@@ -1,7 +1,8 @@
 {% extends 'dashboard_base.html' %}
 {% block title %}Choose a cleaning service | Chigo Relocations{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/booking.css') }}">{% endblock %}
 {% block content %}
-<main class="mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-12">
+<main class="booking-experience mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-12">
   <a href="{{ url_for('public.services') }}" class="mb-7 inline-flex min-h-10 items-center gap-2 text-sm font-semibold text-stone-600 transition hover:text-brand-800 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2" aria-label="Back to services">
     <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 18l-6-6 6-6M9 12h12"/></svg>
     <span>Back to services</span>

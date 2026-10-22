@@ -12,6 +12,10 @@ support_bp = Blueprint('support_chat', __name__)
 @login_required
 def create_support_conversation():
     payload = request.get_json(silent=True) or {}
+    # A support conversation without a supplied service type is still the
+    # support service, so its restriction must be enforced too.
+    if not current_user.can_use_service(payload.get('service_type') or 'support'):
+        return jsonify({'success': False, 'error': 'This service is not available for your account.'}), 403
     booking_id = payload.get('booking_id')
     if booking_id not in (None, ''):
         try:

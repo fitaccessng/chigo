@@ -26,4 +26,4 @@ if __name__ == '__main__':
     os.environ['CHIGO_PORT'] = str(port)
     if port != requested_port:
         print(f'Port {requested_port} is occupied; starting Chigo on port {port}.')
-    app.run(debug=True, host='0.0.0.0', port=5050)
+    app.run(debug=True, host='0.0.0.0', port=5001)

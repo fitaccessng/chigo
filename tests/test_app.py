@@ -128,12 +128,119 @@ def test_geodata_ingestion_detects_fct_from_boundary_geometry(tmp_path):
 
 
 def test_geodata_ingestion_maps_real_geoboundaries_council_labels():
-    from moving_company.services.postgis_ingestion import COUNCILS, _classify_osm
+    from moving_company.services.postgis_ingestion import (
+        COUNCILS, _classify_osm, _geonames_feature_type,
+    )
 
     assert COUNCILS['municipal area council'] == 'Abuja Municipal Area Council'
     assert _classify_osm({'amenity': 'hospital'}) == 'hospital'
     assert _classify_osm({'highway': 'residential'}) == 'street'
     assert _classify_osm({'place': 'village'}) == 'village'
+    assert _geonames_feature_type('P', 'PPL') == 'settlement'
+    assert _geonames_feature_type('P', 'PPLC') == 'city'
+    assert _geonames_feature_type('A', 'ADM2') == 'administrative_area'
+
+
+def test_geonames_parser_uses_feature_class_and_area_council_parent(tmp_path):
+    import zipfile
+    from shapely.geometry import Polygon
+    from moving_company.services.postgis_ingestion import _read_geonames
+
+    fields = [
+        '123', 'Example Settlement', 'Example', 'Example name', '9.0', '7.0',
+        'P', 'PPL', 'NG', '', 'FC', 'District code', '03', '04',
+        '1000', '', '', 'Africa/Lagos', '20261020',
+    ]
+    archive_path = tmp_path / 'NG.zip'
+    with zipfile.ZipFile(archive_path, 'w') as archive:
+        archive.writestr('NG.txt', '\t'.join(fields) + '\n')
+
+    boundary = Polygon([(6.5, 8.5), (7.5, 8.5), (7.5, 9.5), (6.5, 9.5)])
+    records, processed = _read_geonames(
+        archive_path, boundary, {'Kuje Area Council': boundary},
+    )
+
+    assert processed == 1
+    assert len(records) == 1
+    assert records[0]['place_type'] == 'settlement'
+    assert records[0]['area_council'] == 'Kuje Area Council'
+    assert records[0]['parent_name'] == 'Kuje Area Council'
+    assert records[0]['aliases'] == ['Example', 'Example name']
+
+
+def test_wof_parser_clips_fct_and_preserves_source_provenance(tmp_path):
+    import json
+    from shapely.geometry import Polygon
+    from moving_company.services.postgis_ingestion import _read_wof
+
+    fct = Polygon([(6.5, 8.5), (7.5, 8.5), (7.5, 9.5), (6.5, 9.5)])
+    council = Polygon([(6.7, 8.7), (7.3, 8.7), (7.3, 9.3), (6.7, 9.3)])
+    feature_collection = {
+        'type': 'FeatureCollection',
+        'features': [{
+            'type': 'Feature',
+            'id': 12345,
+            'properties': {
+                'wof:id': 12345, 'wof:parent_id': 67890,
+                'wof:placetype': 'locality', 'name': 'Sample Locality',
+                'name:eng_x_preferred': 'Sample Locality Alternate',
+                'src:geom': 'naturalearth',
+            },
+            'geometry': {
+                'type': 'Polygon',
+                'coordinates': [[[6.9, 8.9], [7.1, 8.9], [7.1, 9.1], [6.9, 9.1], [6.9, 8.9]]],
+            },
+        }, {
+            'type': 'Feature',
+            'id': 54321,
+            'properties': {'wof:id': 54321, 'name': 'Outside FCT', 'wof:placetype': 'locality'},
+            'geometry': {'type': 'Point', 'coordinates': [8.0, 10.0]},
+        }],
+    }
+    source_path = tmp_path / 'sample.geojson'
+    source_path.write_text(json.dumps(feature_collection))
+
+    records, files_processed = _read_wof(
+        source_path, fct, {'Kuje Area Council': council},
+    )
+
+    assert files_processed == 1
+    assert len(records) == 1
+    assert records[0]['name'] == 'Sample Locality'
+    assert records[0]['area_council'] == 'Kuje Area Council'
+    assert records[0]['parent_source_id'] == '67890'
+    assert records[0]['coordinate_precision'] == 'administrative_area'
+    assert records[0]['aliases'] == ['Sample Locality Alternate']
+    assert records[0]['source_attributes']['src:geom'] == 'naturalearth'
+    assert 'whosonfirst.org/docs/licenses' in records[0]['source_attribution']
+
+
+def test_geodata_coverage_summary_reports_sources_and_data_quality():
+    from moving_company.services.postgis_ingestion import _coverage_summary
+
+    report = _coverage_summary([
+        {
+            'name': 'Sample Place', 'place_type': 'settlement', 'source': 'sample-source',
+            'source_id': 'sample:1', 'area_council': 'Kuje Area Council',
+            'latitude': 9.0, 'longitude': 7.0, 'parent_name': 'Kuje',
+        },
+        {
+            'name': '', 'place_type': 'poi', 'source': 'sample-source',
+            'source_id': 'sample:1', 'area_council': None,
+            'latitude': 999, 'longitude': 7.0,
+        },
+    ])
+
+    source = report['sample-source']
+    assert source['records'] == 2
+    assert source['with_coordinates'] == 1
+    assert source['with_parent_relationship'] == 1
+    assert source['missing_name'] == 1
+    assert source['invalid_coordinates'] == 1
+    assert source['duplicate_source_identifiers'] == 1
+    assert source['by_feature_type'] == {'settlement': 1, 'poi': 1}
+    assert source['by_area_council']['Kuje Area Council'] == 1
+    assert len(source['by_area_council']) == 6
 
 
 def test_osm_handler_clips_named_records_and_counts_source_types(tmp_path):
@@ -205,6 +312,9 @@ def test_boundary_ingestion_dry_run_reports_polygons_without_database(monkeypatc
     assert report['boundary_records'] == 2
     assert report['area_councils_resolved'] == 1
     assert report['canonical_locations'] == 0
+    assert report['candidate_counts_by_area_council'] == {
+        council: 0 for council in postgis_ingestion.AREA_COUNCILS
+    }
 
 
 def test_geodata_download_resumes_after_interrupted_response(tmp_path):
@@ -256,6 +366,67 @@ def test_app_factory_creates_app():
     assert app.config['TESTING'] is True
 
 
+def test_sqlite_legacy_booking_events_adds_idempotency_key_without_losing_rows(app):
+    from moving_company import upgrade_booking_schema
+
+    with app.app_context():
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql('DROP TABLE booking_events')
+            connection.exec_driver_sql(
+                'CREATE TABLE booking_events ('
+                'id INTEGER PRIMARY KEY, booking_id INTEGER NOT NULL, user_id INTEGER, '
+                'action VARCHAR(120) NOT NULL, previous_value JSON, new_value JSON, '
+                'created_at DATETIME NOT NULL)'
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO booking_events "
+                "(id, booking_id, action, previous_value, new_value, created_at) "
+                "VALUES (1, 1, 'location.completed', 'null', '{}', CURRENT_TIMESTAMP)"
+            )
+
+        upgrade_booking_schema()
+
+        with db.engine.begin() as connection:
+            columns = {column['name'] for column in db.inspect(connection).get_columns('booking_events')}
+            assert 'idempotency_key' in columns
+            events = connection.exec_driver_sql(
+                'SELECT action, idempotency_key FROM booking_events'
+            ).all()
+            indexes = connection.exec_driver_sql('PRAGMA index_list(booking_events)').all()
+
+        assert events == [('location.completed', None)]
+        assert any(index[1] == 'uq_booking_events_idempotency_key' and index[2] for index in indexes)
+
+
+def test_sqlite_legacy_booking_assignments_add_partner_columns_without_losing_rows(app):
+    from moving_company import upgrade_booking_schema
+
+    with app.app_context():
+        with db.engine.begin() as connection:
+            connection.exec_driver_sql('DROP TABLE booking_assignments')
+            connection.exec_driver_sql(
+                'CREATE TABLE booking_assignments ('
+                'id INTEGER PRIMARY KEY, booking_id INTEGER NOT NULL, truck_id INTEGER, '
+                'driver_name VARCHAR(120), mover_1 VARCHAR(120), mover_2 VARCHAR(120), '
+                'mover_3 VARCHAR(120), mover_4 VARCHAR(120), cleaner VARCHAR(120), conflict_message TEXT)'
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO booking_assignments (id, booking_id, driver_name) "
+                "VALUES (1, 6, 'Legacy driver')"
+            )
+
+        upgrade_booking_schema()
+
+        with db.engine.begin() as connection:
+            columns = {column['name'] for column in db.inspect(connection).get_columns('booking_assignments')}
+            assignments = connection.exec_driver_sql(
+                'SELECT driver_name, partner_id, partner_vehicle_id FROM booking_assignments'
+            ).all()
+
+        assert {'partner_id', 'partner_vehicle_id'} <= columns
+        assert assignments == [('Legacy driver', None, None)]
+
+
 def test_public_home_uses_responsive_chigo_logo_without_brand_intro():
     app = create_app(testing=True)
     client = app.test_client()
@@ -281,11 +452,15 @@ def test_postgres_config_disables_automatic_schema_creation(monkeypatch):
     assert app.config['AUTO_CREATE_SCHEMA'] is False
 
 
-def test_production_config_rejects_default_or_short_secret_key(monkeypatch):
+@pytest.mark.parametrize('weak_secret', ['dev-secret-key', 'x' * 40])
+def test_production_config_rejects_default_or_low_entropy_secret_key(monkeypatch, weak_secret):
     from moving_company.config import Config
 
     monkeypatch.setattr(Config, 'APP_ENV', 'production')
-    monkeypatch.setattr(Config, 'SECRET_KEY', 'dev-secret-key')
+    monkeypatch.setattr(Config, 'SECRET_KEY', weak_secret)
+    monkeypatch.setattr(Config, 'SQLALCHEMY_DATABASE_URI', 'sqlite:///:memory:')
+    monkeypatch.setattr(Config, 'AUTO_CREATE_SCHEMA', False)
+    monkeypatch.setenv('FLASK_SKIP_DB_PREFLIGHT', '1')
     with pytest.raises(RuntimeError, match='SECRET_KEY'):
         create_app(testing=False)
 
@@ -294,6 +469,17 @@ def test_production_seed_does_not_create_default_admin(app, monkeypatch):
     from moving_company import seed_defaults
 
     monkeypatch.setitem(app.config, 'APP_ENV', 'production')
+    with app.app_context():
+        User.query.filter_by(email='admin@chigo.com').delete()
+        db.session.commit()
+        seed_defaults()
+        assert User.query.filter_by(email='admin@chigo.com').first() is None
+
+
+def test_staging_seed_does_not_create_default_admin(app, monkeypatch):
+    from moving_company import seed_defaults
+
+    monkeypatch.setitem(app.config, 'APP_ENV', 'staging')
     with app.app_context():
         User.query.filter_by(email='admin@chigo.com').delete()
         db.session.commit()
@@ -355,6 +541,158 @@ def test_autocomplete_endpoint_returns_search_results_without_crashing():
     payload = response.get_json()
     assert payload['success'] is True
     assert isinstance(payload['results'], list)
+
+
+def test_autocomplete_reports_database_failure_without_provider_fallback(monkeypatch):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    app = create_app(testing=True)
+    calls = []
+    monkeypatch.setattr(location_service, '_search_postgis_locations', lambda *args, **kwargs: (_ for _ in ()).throw(SQLAlchemyError('db failure')))
+    monkeypatch.setattr(location_service, '_search_local_abuja_places', lambda *args, **kwargs: calls.append('local') or [])
+    monkeypatch.setattr(location_service, '_photon_request', lambda *args, **kwargs: calls.append('provider') or {'hits': []})
+
+    response = app.test_client().get('/api/locations/autocomplete?q=Gwarinpa')
+
+    assert response.status_code == 503
+    assert response.get_json() == {
+        'success': False,
+        'error': 'Location search is temporarily unavailable. Please retry.',
+    }
+    assert calls == []
+
+
+def test_autocomplete_reports_provider_timeout_separately_from_no_matches(monkeypatch):
+    app = create_app(testing=True)
+    location_service.clear_location_search_cache()
+    monkeypatch.setattr(location_service, '_search_postgis_locations', lambda *args, **kwargs: [])
+    monkeypatch.setattr(location_service, '_search_local_abuja_places', lambda *args, **kwargs: [])
+    monkeypatch.setattr(location_service, '_photon_request', lambda *args, **kwargs: (_ for _ in ()).throw(
+        location_service.LocationSearchUnavailable('provider')
+    ))
+
+    response = app.test_client().get('/api/locations/autocomplete?q=Unlisted%20Place')
+
+    assert response.status_code == 503
+    assert response.get_json()['success'] is False
+
+
+def test_postgis_search_wraps_database_errors(monkeypatch):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    app = create_app(testing=True)
+    with app.app_context():
+        monkeypatch.setattr(db.engine.dialect, 'name', 'postgresql')
+        monkeypatch.setattr(db.session, 'execute', lambda *_args, **_kwargs: (_ for _ in ()).throw(SQLAlchemyError('db failure')))
+
+        with pytest.raises(location_service.LocationSearchUnavailable) as error:
+            location_service._search_postgis_locations('Gwarinpa')
+
+    assert error.value.kind == 'database'
+
+
+def test_json_provider_timeout_is_explicit_for_search(monkeypatch):
+    def timeout(*_args, **_kwargs):
+        raise TimeoutError('provider timeout')
+
+    monkeypatch.setattr(location_service.urllib.request, 'urlopen', timeout)
+    monkeypatch.setattr(location_service, '_get_config_value', lambda name: None)
+
+    with pytest.raises(location_service.LocationSearchUnavailable) as error:
+        location_service._photon_request('/api/', {'q': 'Gwarinpa'}, timeout=2.5)
+
+    assert error.value.kind == 'provider'
+
+
+def test_autocomplete_validates_bounds_and_forwards_location_filters(monkeypatch):
+    app = create_app(testing=True)
+    calls = []
+    from moving_company.routes import locations as locations_route
+    monkeypatch.setattr(locations_route, 'search_places', lambda *args, **kwargs: calls.append((args, kwargs)) or [])
+    client = app.test_client()
+
+    invalid_query = client.get('/api/locations/autocomplete?q=' + ('x' * 161))
+    invalid_limit = client.get('/api/locations/autocomplete?q=kuje&limit=11')
+    invalid_coordinates = client.get('/api/locations/autocomplete?q=kuje&lat=9.0')
+    invalid_council = client.get('/api/locations/autocomplete?q=kuje&area_council=Plateau')
+    response = client.get(
+        '/api/locations/autocomplete?q=kuje&limit=4&area_council=Kuje%20Area%20Council&lat=8.9&lon=7.2'
+    )
+
+    assert invalid_query.status_code == 400
+    assert invalid_limit.status_code == 400
+    assert invalid_coordinates.status_code == 400
+    assert invalid_council.status_code == 400
+    assert response.status_code == 200
+    assert calls[0][0] == ('kuje',)
+    assert calls[0][1] == {
+        'limit': 4, 'area_council': 'Kuje Area Council', 'latitude': 8.9, 'longitude': 7.2,
+    }
+
+
+def test_area_council_aliases_are_canonicalized_for_search():
+    assert location_service.canonical_area_council('AMAC') == 'abuja municipal area council'
+    assert location_service.canonical_area_council('Bwari') == 'bwari area council'
+    assert location_service.canonical_area_council('Plateau') is None
+
+
+def test_autocomplete_adds_stable_contract_without_removing_legacy_fields(monkeypatch):
+    app = create_app(testing=True)
+    from moving_company.routes import locations as locations_route
+    monkeypatch.setattr(locations_route, 'search_places', lambda *args, **kwargs: [{
+        'id': 17, 'name': 'Example Settlement', 'formatted_address': 'Example Settlement, Kuje',
+        'location_type': 'settlement', 'latitude': None, 'longitude': None,
+        'area_council': 'Kuje Area Council', 'district': 'Kuje', 'city': '',
+        'state': '', 'country': '', 'postal_code': '903101', 'source': 'fct-directory',
+        'verification_status': 'source_listed', 'provider': 'local-reference',
+        'match_score': 1234, 'provider_payload': {'internal': 'must not be exposed'},
+    }])
+
+    payload = app.test_client().get('/api/locations/autocomplete?q=Example').get_json()
+    result = payload['results'][0]
+
+    assert result['id'] == 17
+    assert result['location_type'] == 'settlement'
+    assert result['feature_type'] == 'settlement'
+    assert result['state_or_territory'] is None
+    assert result['parent_name'] == 'Kuje'
+    assert result['address_components']['postal_code'] == '903101'
+    assert result['precision'] == 'unknown'
+    assert result['source_summary'] == 'fct-directory'
+    assert result['verified'] is False
+    assert result['requires_confirmation'] is True
+    assert result['source'] == 'fct-directory'
+    assert result['provider'] == 'local-reference'
+    assert 'match_score' not in result
+    assert 'provider_payload' not in result
+
+
+def test_local_autocomplete_filters_council_and_biases_nearby_results():
+    app = create_app(testing=True)
+    location_service.clear_location_search_cache()
+    with app.app_context():
+        near = LocalPlace(
+            name='Beacon Test Location', normalized_name='beacon test location',
+            place_type='settlement', area_council='Abaji Area Council',
+            latitude=8.5, longitude=6.95, active=True,
+        )
+        far = LocalPlace(
+            name='Beacon Test Location', normalized_name='beacon test location',
+            place_type='settlement', area_council='Bwari Area Council',
+            latitude=9.4, longitude=7.5, active=True,
+        )
+        db.session.add_all([near, far])
+        db.session.commit()
+
+        filtered = location_service.search_places(
+            'Beacon Test Location', area_council='Bwari Area Council', limit=5,
+        )
+        nearby = location_service.search_places(
+            'Beacon Test Location', latitude=8.51, longitude=6.96, limit=5,
+        )
+
+    assert [result['area_council'] for result in filtered] == ['Bwari Area Council']
+    assert nearby[0]['area_council'] == 'Abaji Area Council'
 
 
 def test_autocomplete_falls_back_to_photon_for_unseeded_abuja_streets(monkeypatch):
@@ -455,11 +793,11 @@ def test_location_save_resolves_local_references_and_allows_pending_route(monkey
     response = client.post('/booking/location', data={
         'pickup_address': 'Gwarinpa', 'pickup_city': 'Abuja', 'pickup_state': 'Federal Capital Territory',
         'pickup_formatted_address': 'Gwarinpa, Abuja, FCT', 'pickup_latitude': '9.7', 'pickup_longitude': '7.7',
-        'pickup_place_id': f'local-{pickup_id}', 'pickup_provider': 'local-reference',
+        'pickup_place_id': f'local-{pickup_id}', 'pickup_provider': 'local-reference', 'pickup_postal_code': '900108',
         'pickup_original_input': 'gwar',
         'destination_address': 'Wuse', 'destination_city': 'Abuja', 'destination_state': 'Federal Capital Territory',
         'destination_formatted_address': 'Wuse, Abuja, FCT', 'destination_latitude': '8.3', 'destination_longitude': '6.8',
-        'destination_place_id': f'local-{destination_id}', 'destination_provider': 'local-reference',
+        'destination_place_id': f'local-{destination_id}', 'destination_provider': 'local-reference', 'destination_postal_code': '900282',
         'destination_original_input': 'wuse 2',
     })
     assert response.status_code == 302
@@ -471,6 +809,8 @@ def test_location_save_resolves_local_references_and_allows_pending_route(monkey
         assert (booking.destination_latitude, booking.destination_longitude) == expected_destination
         assert booking.pickup_local_place.name == 'Gwarinpa'
         assert booking.destination_local_place.name == 'Wuse'
+        assert booking.pickup_postal_code == '900108'
+        assert booking.destination_postal_code == '900282'
         assert booking.pickup_area_council == 'Abuja Municipal Area Council'
         assert booking.pickup_original_input == 'gwar'
         assert booking.destination_original_input == 'wuse 2'
@@ -480,7 +820,7 @@ def test_location_save_resolves_local_references_and_allows_pending_route(monkey
         assert booking.route_status == 'CALCULATED'
 
 
-def test_unresolved_fct_address_is_saved_and_does_not_block_booking(monkeypatch):
+def test_unresolved_moving_addresses_require_customer_city_and_state(monkeypatch):
     import moving_company.routes.booking_engine as booking_routes
 
     app = create_app(testing=True)
@@ -496,14 +836,10 @@ def test_unresolved_fct_address_is_saved_and_does_not_block_booking(monkeypatch)
         'submit': 'Continue',
     })
 
-    assert response.status_code == 302
+    assert response.status_code == 200
+    assert b'Confirm the city and state for each location' in response.data
     with app.app_context():
-        booking = Booking.query.one()
-        assert booking.pickup_original_input == 'No. 14 Example Street, New Estate, Abuja'
-        assert booking.destination_original_input == 'House 2, Sample Close, Gwagwalada'
-        assert booking.pickup_city == 'Abuja'
-        assert booking.pickup_state == 'Federal Capital Territory'
-        assert booking.route_status == 'PENDING'
+        assert Booking.query.count() == 0
 
 
 def test_admin_can_import_hierarchical_fct_locations_but_customers_cannot():
@@ -603,6 +939,27 @@ def test_booking_back_button_uses_previous_valid_route():
     assert location_response.status_code == 200
     assert b'href="/customer/dashboard"' in location_response.data
     assert b'Previous: Dashboard' in location_response.data
+
+
+def test_booking_location_ui_does_not_invent_missing_location_details_or_storage_answers():
+    app = create_app(testing=True)
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    with app.app_context():
+        user = User(first_name='Location', last_name='Customer', email='location-ui@example.com', phone='')
+        user.set_password('password123')
+        db.session.add(user)
+        db.session.commit()
+        user_id = user.id
+    with client.session_transaction() as session:
+        session['_user_id'] = str(user_id)
+        session['_fresh'] = True
+    response = client.get('/booking/location/storage')
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "result.city || 'Abuja'" not in html
+    assert "result.state || 'Federal Capital Territory'" not in html
+    assert "answers.get(field.key, 'no')" not in html
 
     with app.app_context():
         booking = create_booking_request(location={
@@ -969,6 +1326,75 @@ def test_dashboard_uses_live_booking_payment_and_resource_data():
     active_results = client.get('/admin/bookings?status=In%20Progress')
     assert b'METRIC-TODAY' in active_results.data
     assert b'METRIC-UPCOMING' not in active_results.data
+
+
+def test_admin_can_manage_customer_access_services_and_location(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    with app.app_context():
+        admin_id = User.query.filter_by(email='admin@chigo.com').one().id
+        customer = User(first_name='Ada', last_name='Customer', email='ada-controls@example.com', phone='+2348000000000')
+        customer.set_password('password123')
+        db.session.add(customer)
+        db.session.flush()
+        customer_id = customer.id
+        db.session.add(Booking(
+            booking_number='USER-LOCATION', customer_id=customer_id, status='Confirmed',
+            primary_service='cleaning', pickup_address='12 Garki Road', pickup_city='Abuja', pickup_state='FCT',
+            destination_address='', destination_city='', destination_state='',
+        ))
+        db.session.commit()
+
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session['_user_id'] = str(admin_id)
+        session['_fresh'] = True
+    listing = client.get('/admin/users')
+    assert listing.status_code == 200
+    assert b'ada-controls@example.com' in listing.data
+    assert b'12 Garki Road' in listing.data
+    disabled = client.post(f'/admin/users/{customer_id}/account', data={'action': 'disable'}, follow_redirects=True)
+    assert disabled.status_code == 200
+    updated_services = client.post(f'/admin/users/{customer_id}/services', data={'disabled_services': ['cleaning']})
+    assert updated_services.status_code == 302
+    with app.app_context():
+        customer = db.session.get(User, customer_id)
+        assert customer.is_active is False
+        assert customer.account_status == 'disabled'
+        assert customer.disabled_services == ['cleaning']
+        assert AuditLog.query.filter_by(entity='user', entity_id=str(customer_id)).count() == 2
+
+    customer_client = app.test_client()
+    response = customer_client.post('/auth/login', data={
+        'email': 'ada-controls@example.com', 'password': 'password123',
+    })
+    assert response.status_code == 200
+    assert b'Invalid email or password.' in response.data
+
+
+def test_service_restriction_blocks_existing_booking_urls_and_support_api(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    with app.app_context():
+        customer = User(first_name='Restricted', last_name='Customer', email='restricted-service@example.com', phone='')
+        customer.set_password('password123')
+        customer.disabled_services = ['cleaning', 'support']
+        db.session.add(customer)
+        db.session.flush()
+        db.session.add(Booking(
+            booking_number='RESTRICTED-SERVICE', booking_request_id='BR-RESTRICTED-SERVICE',
+            customer_id=customer.id, primary_service='cleaning', status='Draft',
+        ))
+        db.session.commit()
+        customer_id = customer.id
+
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session['_user_id'] = str(customer_id)
+        session['_fresh'] = True
+    assert client.get('/api/bookings/BR-RESTRICTED-SERVICE').status_code == 403
+    assert client.get('/booking/resume/BR-RESTRICTED-SERVICE').status_code == 403
+    response = client.post('/support/chat/conversations', json={})
+    assert response.status_code == 403
+    assert response.get_json()['success'] is False
 
 
 def test_admin_can_add_truck_partner_and_mover():

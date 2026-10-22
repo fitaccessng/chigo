@@ -1,0 +1,539 @@
+{
+  "active_location_counts_by_canonical_area_council": {
+    "Abaji Area Council": 102,
+    "Abuja Municipal Area Council": 231,
+    "Bwari Area Council": 76,
+    "Gwagwalada Area Council": 296,
+    "Kuje Area Council": 159,
+    "Kwali Area Council": 147
+  },
+  "active_location_counts_by_type": {
+    "DISTRICT": 2,
+    "LANDMARK": 1,
+    "airport": 1,
+    "area_council": 6,
+    "commercial": 1,
+    "district": 45,
+    "estate": 5,
+    "hospital": 2,
+    "hotel": 2,
+    "landmark": 1,
+    "neighborhood": 1,
+    "post_office": 23,
+    "road": 4,
+    "settlement": 875,
+    "shopping_centre": 1,
+    "street": 40,
+    "university": 1
+  },
+  "active_source_type_counts": [
+    {
+      "count": 2,
+      "feature_type": "DISTRICT",
+      "source": "[unknown]"
+    },
+    {
+      "count": 1,
+      "feature_type": "LANDMARK",
+      "source": "[unknown]"
+    },
+    {
+      "count": 1,
+      "feature_type": "airport",
+      "source": "chigo-curated"
+    },
+    {
+      "count": 6,
+      "feature_type": "area_council",
+      "source": "chigo-curated"
+    },
+    {
+      "count": 1,
+      "feature_type": "commercial",
+      "source": "chigo-curated"
+    },
+    {
+      "count": 22,
+      "feature_type": "district",
+      "source": "chigo-curated"
+    },
+    {
+      "count": 5,
+      "feature_type": "estate",
+      "source": "chigo-curated"
+    },
+    {
+      "count": 2,
+      "feature_type": "hospital",
+      "source": "chigo-curated"
+    },
+    {
+      "count": 2,
+      "feature_type": "hotel",
+      "source": "chigo-curated"
+    },
+    {
+      "count": 1,
+      "feature_type": "landmark",
+      "source": "chigo-curated"
+    },
+    {
+      "count": 1,
+      "feature_type": "neighborhood",
+      "source": "chigo-curated"
+    },
+    {
+      "count": 4,
+      "feature_type": "road",
+      "source": "chigo-curated"
+    },
+    {
+      "count": 1,
+      "feature_type": "shopping_centre",
+      "source": "chigo-curated"
+    },
+    {
+      "count": 1,
+      "feature_type": "university",
+      "source": "chigo-curated"
+    },
+    {
+      "count": 23,
+      "feature_type": "district",
+      "source": "directory-parent-reference"
+    },
+    {
+      "count": 706,
+      "feature_type": "settlement",
+      "source": "wikipedia-fct-postal"
+    },
+    {
+      "count": 23,
+      "feature_type": "post_office",
+      "source": "zipcode.com.ng"
+    },
+    {
+      "count": 169,
+      "feature_type": "settlement",
+      "source": "zipcode.com.ng"
+    },
+    {
+      "count": 40,
+      "feature_type": "street",
+      "source": "zipcode.com.ng"
+    }
+  ],
+  "columns": [
+    {
+      "default": null,
+      "name": "active",
+      "notnull": 0,
+      "pk": 0,
+      "type": "BOOLEAN"
+    },
+    {
+      "default": null,
+      "name": "address",
+      "notnull": 0,
+      "pk": 0,
+      "type": "TEXT"
+    },
+    {
+      "default": null,
+      "name": "aliases",
+      "notnull": 0,
+      "pk": 0,
+      "type": "TEXT"
+    },
+    {
+      "default": null,
+      "name": "area",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(120)"
+    },
+    {
+      "default": null,
+      "name": "area_council",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(80)"
+    },
+    {
+      "default": null,
+      "name": "booking_count",
+      "notnull": 1,
+      "pk": 0,
+      "type": "INTEGER"
+    },
+    {
+      "default": null,
+      "name": "city",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(100)"
+    },
+    {
+      "default": null,
+      "name": "confidence",
+      "notnull": 0,
+      "pk": 0,
+      "type": "FLOAT"
+    },
+    {
+      "default": null,
+      "name": "coordinate_precision",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(30)"
+    },
+    {
+      "default": null,
+      "name": "country",
+      "notnull": 1,
+      "pk": 0,
+      "type": "VARCHAR(100)"
+    },
+    {
+      "default": null,
+      "name": "created_at",
+      "notnull": 0,
+      "pk": 0,
+      "type": "DATETIME"
+    },
+    {
+      "default": null,
+      "name": "district",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(120)"
+    },
+    {
+      "default": null,
+      "name": "id",
+      "notnull": 1,
+      "pk": 1,
+      "type": "INTEGER"
+    },
+    {
+      "default": null,
+      "name": "landmark",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(180)"
+    },
+    {
+      "default": null,
+      "name": "last_used_at",
+      "notnull": 0,
+      "pk": 0,
+      "type": "DATETIME"
+    },
+    {
+      "default": null,
+      "name": "latitude",
+      "notnull": 0,
+      "pk": 0,
+      "type": "FLOAT"
+    },
+    {
+      "default": null,
+      "name": "lga",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(80)"
+    },
+    {
+      "default": null,
+      "name": "location_type",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(60)"
+    },
+    {
+      "default": null,
+      "name": "longitude",
+      "notnull": 0,
+      "pk": 0,
+      "type": "FLOAT"
+    },
+    {
+      "default": null,
+      "name": "name",
+      "notnull": 1,
+      "pk": 0,
+      "type": "VARCHAR(160)"
+    },
+    {
+      "default": null,
+      "name": "neighborhood",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(120)"
+    },
+    {
+      "default": null,
+      "name": "normalized_name",
+      "notnull": 1,
+      "pk": 0,
+      "type": "VARCHAR(160)"
+    },
+    {
+      "default": null,
+      "name": "parent_id",
+      "notnull": 0,
+      "pk": 0,
+      "type": "INTEGER"
+    },
+    {
+      "default": null,
+      "name": "place_type",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(60)"
+    },
+    {
+      "default": null,
+      "name": "popularity_score",
+      "notnull": 1,
+      "pk": 0,
+      "type": "FLOAT"
+    },
+    {
+      "default": null,
+      "name": "postal_code",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(20)"
+    },
+    {
+      "default": null,
+      "name": "precision_level",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(30)"
+    },
+    {
+      "default": null,
+      "name": "provider",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(50)"
+    },
+    {
+      "default": null,
+      "name": "provider_place_id",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(255)"
+    },
+    {
+      "default": null,
+      "name": "raw_source_name",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(180)"
+    },
+    {
+      "default": null,
+      "name": "search_count",
+      "notnull": 1,
+      "pk": 0,
+      "type": "INTEGER"
+    },
+    {
+      "default": null,
+      "name": "search_keywords",
+      "notnull": 0,
+      "pk": 0,
+      "type": "TEXT"
+    },
+    {
+      "default": null,
+      "name": "selection_count",
+      "notnull": 1,
+      "pk": 0,
+      "type": "INTEGER"
+    },
+    {
+      "default": null,
+      "name": "source_identifier",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(255)"
+    },
+    {
+      "default": "'{}'",
+      "name": "source_metadata",
+      "notnull": 1,
+      "pk": 0,
+      "type": "JSON"
+    },
+    {
+      "default": null,
+      "name": "source_name",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(120)"
+    },
+    {
+      "default": null,
+      "name": "source_url",
+      "notnull": 0,
+      "pk": 0,
+      "type": "VARCHAR(500)"
+    },
+    {
+      "default": null,
+      "name": "state",
+      "notnull": 1,
+      "pk": 0,
+      "type": "VARCHAR(100)"
+    },
+    {
+      "default": null,
+      "name": "updated_at",
+      "notnull": 0,
+      "pk": 0,
+      "type": "DATETIME"
+    },
+    {
+      "default": "'unverified'",
+      "name": "verification_status",
+      "notnull": 1,
+      "pk": 0,
+      "type": "VARCHAR(30)"
+    },
+    {
+      "default": null,
+      "name": "verified",
+      "notnull": 0,
+      "pk": 0,
+      "type": "BOOLEAN"
+    }
+  ],
+  "database_backend": "sqlite",
+  "database_path": "/Users/macbookpro/Documents/chigo/moving_company.db",
+  "foreign_keys": [
+    {
+      "from": "parent_id",
+      "id": 0,
+      "match": "NONE",
+      "on_delete": "NO ACTION",
+      "on_update": "NO ACTION",
+      "seq": 0,
+      "table": "local_places",
+      "to": "id"
+    }
+  ],
+  "generated_at": "2026-10-22T04:15:29.149642+00:00",
+  "indexes": [
+    {
+      "name": "ix_local_places_source_identifier",
+      "origin": "c",
+      "partial": 0,
+      "seq": 0,
+      "unique": 1
+    },
+    {
+      "name": "ix_local_places_postal_code",
+      "origin": "c",
+      "partial": 0,
+      "seq": 1,
+      "unique": 0
+    },
+    {
+      "name": "ix_local_places_council_normalized_name",
+      "origin": "c",
+      "partial": 0,
+      "seq": 2,
+      "unique": 0
+    },
+    {
+      "name": "ix_local_places_active_normalized_name",
+      "origin": "c",
+      "partial": 0,
+      "seq": 3,
+      "unique": 0
+    },
+    {
+      "name": "ix_local_places_parent_id",
+      "origin": "c",
+      "partial": 0,
+      "seq": 4,
+      "unique": 0
+    },
+    {
+      "name": "ix_local_places_name",
+      "origin": "c",
+      "partial": 0,
+      "seq": 5,
+      "unique": 0
+    },
+    {
+      "name": "ix_local_places_normalized_name",
+      "origin": "c",
+      "partial": 0,
+      "seq": 6,
+      "unique": 0
+    }
+  ],
+  "local_places_total": 1104,
+  "migration_revision": "20261006_upgrade_booking_location_schema",
+  "no_database_writes_performed": true,
+  "quality_counts": {
+    "active_rows": 1011,
+    "coordinate_council_matches_polygon": 17,
+    "coordinate_council_mismatch": 2,
+    "coordinate_no_council_polygon": 31,
+    "inactive_rows": 93,
+    "inside_fct_polygon": 50,
+    "marked_verified": 50,
+    "missing_coordinates": 961
+  },
+  "source_identifier_duplicate_values": 0,
+  "tables": [
+    "ai_usage_counters",
+    "alembic_version",
+    "audit_logs",
+    "booking_assignments",
+    "booking_events",
+    "booking_inventory",
+    "booking_items",
+    "booking_photos",
+    "booking_quote_lines",
+    "bookings",
+    "cleaners",
+    "dispatch_events",
+    "dispatch_offers",
+    "dispatch_requests",
+    "home_decor_attachments",
+    "home_decor_requests",
+    "incident_reports",
+    "inventory_items",
+    "local_places",
+    "movers",
+    "notifications",
+    "oauth_identities",
+    "partner_vehicles",
+    "payments",
+    "referral_attributions",
+    "referral_campaigns",
+    "referral_codes",
+    "referral_rewards",
+    "referrals",
+    "resource_reservations",
+    "reviews",
+    "reward_transactions",
+    "service_pricing",
+    "support_conversations",
+    "support_messages",
+    "support_requests",
+    "teams",
+    "truck_partners",
+    "trucks",
+    "users",
+    "vehicle_images",
+    "vehicle_types"
+  ]
+}

@@ -1,0 +1,2790 @@
+{
+  "excess_rows": 164,
+  "generated_at": "2026-10-22T04:11:45.909928+00:00",
+  "group_count": 164,
+  "groups": [
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Abaji Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "0a5d6ef3839f008efb6d",
+      "human_review_required": true,
+      "normalized_name_sha256": "c66791a319a756449c0b5d5f41034839bc32df716bbf8ab2bb9990d548386e32",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Abaji Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "117ec433ffe4269133bf",
+      "human_review_required": true,
+      "normalized_name_sha256": "ba409ff845f94ac01a38697efd0d9b9c7274a445bb4598ea20e86cd723431fc7",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Abaji Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "162e3409aeee5a814929",
+      "human_review_required": true,
+      "normalized_name_sha256": "ff881cb980bc30ad7a33bb214671c4187da146bb4292f034fb91a44b060f11ab",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Abaji Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "3e161f7938bde6401b10",
+      "human_review_required": true,
+      "normalized_name_sha256": "5cf37de5fdaa86245fabbf3880336d3d79a911d73bb47032deca3197dd8b32de",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Abaji Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "46da9d07e3f1c01882cd",
+      "human_review_required": true,
+      "normalized_name_sha256": "6b07fd6aca6d46518b996b8cd4f9b31c1ac4e0c19958e7eea41ba6f316b85ec9",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Abaji Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "6c0e4070738fb5f58c43",
+      "human_review_required": true,
+      "normalized_name_sha256": "bdbd98e1b9f7fad0caa4cfe311592d2056eef0c298a39be14c805ae4d7b0ec17",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Abaji Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "702e22ba055551d43fbd",
+      "human_review_required": true,
+      "normalized_name_sha256": "ef5202791a13534de0b4e23849f8a1340de8cec5febd7314fbb588be2bcb6b0f",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Abaji Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "9c545b1c919615ad7686",
+      "human_review_required": true,
+      "normalized_name_sha256": "4c98875c0c581d0e0991988e9b200a14f528b0a5e06c1aecdac1fe4860dd1133",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Abaji Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "a12250ad07c7f52909dd",
+      "human_review_required": true,
+      "normalized_name_sha256": "be4c2577317c28c9fe461a4fb93384ae3471fba2aa7524cdbd78cb97fabb0982",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Abaji Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "a69b74d9f9cf9b396f33",
+      "human_review_required": true,
+      "normalized_name_sha256": "ca459169448005941c7f0ba38971f74f75d96386795e6ea0d86d85fb7d75a8d0",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Abaji Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "b515957e8a29d4068f2c",
+      "human_review_required": true,
+      "normalized_name_sha256": "80f0bddfd1304ee55670373dcb7ca9d1e79bddd161c053f9b052145ba690482c",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Abaji Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "f764c5f156426259ff78",
+      "human_review_required": true,
+      "normalized_name_sha256": "24e8e5ffd7b04da8d7ba6dbb25183ea716a93ba36b798c102f423e313b11cb5b",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Abaji Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "fb0e42bbfa8a10692223",
+      "human_review_required": true,
+      "normalized_name_sha256": "9273c5af39bdb36990981ef7fbd1630ec5322ab2962930183fb13208e0fd49bb",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Abaji Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "fd0665de7e343a9068b8",
+      "human_review_required": true,
+      "normalized_name_sha256": "5953b915b1288940f32a88f561343b42e6ffb9e991d21dd1face11cfcb4a197f",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Abuja Municipal Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "517aa8fe66ce6c44c98f",
+      "human_review_required": true,
+      "normalized_name_sha256": "5b26a301a77b31079398d13b3afb626b07ba217c3120a407174421cf8c983f40",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 2
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Bwari Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "a00efcbf3d65ee45ca74",
+      "human_review_required": true,
+      "normalized_name_sha256": "0fce9bbe566c809731d07219e0887e837cf89a02eed4c0f457b1253bff102803",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "zipcode.com.ng": 2
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "00ed027eb433b3c70b49",
+      "human_review_required": true,
+      "normalized_name_sha256": "a37e5175f922d4c99e5ab65b593af8116255f353b0227d7c519e1124e2f83f3f",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "0245132d7e6572764b48",
+      "human_review_required": true,
+      "normalized_name_sha256": "ea8c37b2c9b868b96e5d52a2afb5efd01379ff4705f6aede5d27351c003ec6a0",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "0334f91aee385de88c2d",
+      "human_review_required": true,
+      "normalized_name_sha256": "7526f2e24b8a22fb9cee3a65680d14c575e8f099301ed956f96b708306dcd594",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "062d466fb3e0f87fe635",
+      "human_review_required": true,
+      "normalized_name_sha256": "ea0d4bfb44bb4a987a82454d482ecc113beb26926129c88e0c3f87030529ceaa",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "07014e95c14c99fbab64",
+      "human_review_required": true,
+      "normalized_name_sha256": "ea3655bcde0fcf93fcf6dc86d44d8e6044c6300fac3c6c31c288cba856877b8f",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "07801fac1959b6e74b3c",
+      "human_review_required": true,
+      "normalized_name_sha256": "633a91ba93bb38ab2ebf1d69ce24724b8337f205f180c8f370979f563f460d13",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "07dedb83872483980e87",
+      "human_review_required": true,
+      "normalized_name_sha256": "dbebe1702727e33b39d117dcf0fec47439f33093073befe87fbc8c2b035802fd",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "0ec2c3dfc5d9192a79c5",
+      "human_review_required": true,
+      "normalized_name_sha256": "bc9e62d26f3a1206fd88ba7e548c4225dcce21dc4afcbb5a9726e8d188d08da7",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "1003559a335227fd6c76",
+      "human_review_required": true,
+      "normalized_name_sha256": "f0c3f8f41a897ed5eff9c2f4609011080950b9f739c4f3f15cfbc7b6dd444119",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "10a569674849501d65cd",
+      "human_review_required": true,
+      "normalized_name_sha256": "d95e8b6db55e255cb765c83b0d88156c1c39c0d119675b11af293cd075f67549",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "1115514f2d14ffc19d75",
+      "human_review_required": true,
+      "normalized_name_sha256": "2c2b7ce2893c175291243360578b67f772171b99643ea9addc760c9b32e1abe6",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "11c2dd7dbc93b6cbfd90",
+      "human_review_required": true,
+      "normalized_name_sha256": "636c8b72b30fb76c253b60416ba0b47829d4731114ec0e4d98164d79f2a5adc5",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "1263c28e278f723b80b9",
+      "human_review_required": true,
+      "normalized_name_sha256": "4b3daa82f2e8eca869d769ab0fb9b7481b4cdc59d2a092fa32599f3b2dbb6d9d",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "12e9f2207c872c32531b",
+      "human_review_required": true,
+      "normalized_name_sha256": "0b146b67f1b4ef72be2b6212ed32aadd97c2846a505d7e7d455628ab40109538",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "13cc6c5ee08e90efab4b",
+      "human_review_required": true,
+      "normalized_name_sha256": "56b5253c78106bddfcc721d19d4644a39b35af051d49395b8b0a19410ff511dc",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "148f768ffb3393fc8db7",
+      "human_review_required": true,
+      "normalized_name_sha256": "8968bc5234d1195d97281f9d79e0c282c8b6d063b8360ed96759391e330dfcf4",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "1a5bed3c99b538ef303e",
+      "human_review_required": true,
+      "normalized_name_sha256": "d126efd07c052d8159ae184f06d85674b013a438afed248732369fa247d465fc",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "1b10833784366156edd2",
+      "human_review_required": true,
+      "normalized_name_sha256": "cce6a3d1bb959470af0963d8cd7e944f53ddcf65fc52ce9f978b4a372a66a571",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "1b87640b6e5019acd5ab",
+      "human_review_required": true,
+      "normalized_name_sha256": "34a85a22a02aac4248ea9f7cbad23e14071073b02dc652623e3d7bb86afbd4e3",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "1b966b9dcf2d2eec0ae1",
+      "human_review_required": true,
+      "normalized_name_sha256": "3d933c5019e9e813532f7392e7cc4b01ca65d358d8fdf8b0607209d29d8021ca",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "1bd08e9be0b1b8ed725d",
+      "human_review_required": true,
+      "normalized_name_sha256": "f0ecefaf6e78803e126849a7377c102c5040ae1193ec97bfbcd6d2e6fcac7a6b",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "1be38f1f193ff85ce6ba",
+      "human_review_required": true,
+      "normalized_name_sha256": "eb0a9dc280e071322f662bd6853c5dea0b6cbe24bdbd53bbef139ccb460f420c",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "1dc3e192eca7f935c85a",
+      "human_review_required": true,
+      "normalized_name_sha256": "3a3fc95c40d01f4f274e3110466d3520580bbde6cf844f6cf55e5ceed37eba8d",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "1ddfb06c4ae3b667045b",
+      "human_review_required": true,
+      "normalized_name_sha256": "8edb9be631e2423e4b5377d2e587a862a94cc687c5fbb8368bdfb315371801dc",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "201799ceac1fceb6e170",
+      "human_review_required": true,
+      "normalized_name_sha256": "b7d38a7e8178f788809799f56d8670a2aaddc62211273e02765ce5ebc6804382",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "203387c37b845778f325",
+      "human_review_required": true,
+      "normalized_name_sha256": "854472b4431a3a17f0b7e414f74d3e9476eb5383cddb0bfe7ed12ad311a61292",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "20ae61b2f33c270e9497",
+      "human_review_required": true,
+      "normalized_name_sha256": "6d72f3aa19d1ad0e078f2c1c60c1afbf537098e7073f083fe324070d94ef8fff",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "20b04652af975efd6f19",
+      "human_review_required": true,
+      "normalized_name_sha256": "feccd20ef806cb648cbcd3859c606620a8e022c2a38bccbd3fc897006ba24554",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "21e44717a5a713f9de06",
+      "human_review_required": true,
+      "normalized_name_sha256": "bff9962f5b4c52f5ed49e4743f138833fd9618824776c99c0109123be72ff882",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "22f4881b90ec3841d9da",
+      "human_review_required": true,
+      "normalized_name_sha256": "d6fb6938583657722777249da73efc6f7843ca87dee948130646bce05b3661db",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "25b5d59d83afcb9e478d",
+      "human_review_required": true,
+      "normalized_name_sha256": "7af5b80f4492c6a32a1035421641a792932081a14f60a747502e3ba2f851dc8f",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "277076fd251fc1878ba8",
+      "human_review_required": true,
+      "normalized_name_sha256": "7c563aec1e6a38328aef18a73a793b59fb87144173255ac4de4ea3ed13f2a244",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "2a3f379462c983c4817b",
+      "human_review_required": true,
+      "normalized_name_sha256": "1137c65786af783b1bee8500b914a3e1e63f244c147390a519455ba2a3c64e88",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "2b1cb6149ed1a734e7fc",
+      "human_review_required": true,
+      "normalized_name_sha256": "c780614903fd8891d4d93c07dfa9d490a6104b3261ad3e100c046df8bf30144d",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "2d0a126b310f1901e65a",
+      "human_review_required": true,
+      "normalized_name_sha256": "abd945008164016b21895edd2634b6e05aaddcc6f65d974921ddac5154ba8bef",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "2ef19c0778d4eea60296",
+      "human_review_required": true,
+      "normalized_name_sha256": "30c38ebbaa0d8ee07f853a364248893bb95ad2951cd79a3ad63cae781239fd01",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "305aa9b96058a9d9e337",
+      "human_review_required": true,
+      "normalized_name_sha256": "47c7ef39cfa6b7bd1286d9c83424f322741549e849ad1af19a8416e861434da5",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "32403ebb40716b615fd7",
+      "human_review_required": true,
+      "normalized_name_sha256": "495370d898ec3a9c6151d035d4a59ca2ebe97d911fe10ca4c796f947e0a6ad66",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "36848bb8c57ddf5ddd79",
+      "human_review_required": true,
+      "normalized_name_sha256": "ca96a002df6879ebd460ed6a53ca4473b476a3aa20a27439420335a92cb39a41",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "39db99d6b09cd6abe404",
+      "human_review_required": true,
+      "normalized_name_sha256": "bb6fff18497c498bb9208dfba55f63a76fb304b3fcda9e52b1a744c496833592",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "46b07c3b2ec7ddd0f216",
+      "human_review_required": true,
+      "normalized_name_sha256": "10690dc6f8b3470a389807a97c385fa93f802c70a0ac91aec2963240ce1c2067",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "4a1c1bb77fbbe12c3840",
+      "human_review_required": true,
+      "normalized_name_sha256": "8ca562c4484eb57e925c0e989b2b0e767ff688224978909c89d3b5e59a5d3a83",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "4a2463a4a31e9957caae",
+      "human_review_required": true,
+      "normalized_name_sha256": "1f28394df031bedd65f1c7f2e1ba4311abe522c538ab6e878a633ec625461def",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "4c1e2f74b5572971d5a9",
+      "human_review_required": true,
+      "normalized_name_sha256": "ab41dc3d8a34fe89a34c474e1f73d73643b862edd073989b5eda93d5588a6717",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "4da3e53140d7fa436afa",
+      "human_review_required": true,
+      "normalized_name_sha256": "819fe2142a626d0ac38a27599cefa4919dbe4b97e9018759953cced4bd00c53a",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "501206971a7f47fc9fe1",
+      "human_review_required": true,
+      "normalized_name_sha256": "10ca407fea2adfc4b4d4e8401c3e29f44562aac50d7e5c8f86e6b4339c7f458a",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "51982a7fb02a21281fa5",
+      "human_review_required": true,
+      "normalized_name_sha256": "a326644301fffab64098752d28bb494239615400237a06c4c357426b2a939e66",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "520a52733075010caa68",
+      "human_review_required": true,
+      "normalized_name_sha256": "4fb871714ab5e9ca18a908e143fe02315f0f80638d393e82774c6a4abec35220",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "54d11c030f70fa67434a",
+      "human_review_required": true,
+      "normalized_name_sha256": "60cc64c47880e42d7a383eb347e72d2f4d6df91978b3ea966b16f637b79ef857",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "5529e71714ba59b14caf",
+      "human_review_required": true,
+      "normalized_name_sha256": "d3367f7d80d4fb4cb0973e46916ed7459f5c5a878c5d1c645e25c82026450d61",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "58382dbd500485bf36a6",
+      "human_review_required": true,
+      "normalized_name_sha256": "629325f679bf320e1639c44d41f6b1e0dfc46d1d64569fec3de328b8474397f8",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "5a0032afa9182484bca1",
+      "human_review_required": true,
+      "normalized_name_sha256": "bb577d4d7be0290a3a4922485e24e20a117d46f48b91ec6b6d39f4ca03e0ccf3",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "5cb8e974e1f900fb8604",
+      "human_review_required": true,
+      "normalized_name_sha256": "d8fad9962276ead8fc749db2b68ee8cf2a1ad41e9471192bcba12c4c9e056787",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "5db8a5d42c3b7a12ed44",
+      "human_review_required": true,
+      "normalized_name_sha256": "75db11df577e99d7554a41feb171a13c908c346ed6914274e25b5b2f9ddb9eb7",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "5ee9a26dbbcb562ec9c7",
+      "human_review_required": true,
+      "normalized_name_sha256": "b771aad60ac2cb5fa88c5711f78b241fbe1b9cf0e07e2a180de237897e29e434",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "60f9f3f0709d115116a1",
+      "human_review_required": true,
+      "normalized_name_sha256": "3a6790948f1da50d806e2108997eb0fcb4a36d21448a9f29e05a53a0e1ef22b2",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "62426ec1a259cc73bb40",
+      "human_review_required": true,
+      "normalized_name_sha256": "97e9df3533c42ecb749ab40059fa28596a22b8b434b633063a9b3cb8a885830f",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "62795f26ffa757aa766c",
+      "human_review_required": true,
+      "normalized_name_sha256": "232ed94ac113b7cf66e0bded3875ca8c53688e408c20a42a087c886ed89f5827",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "66c64f838fe9f6a15323",
+      "human_review_required": true,
+      "normalized_name_sha256": "2311c96affa51260713a47b1b26c993cdc61f2966a7ea544832f6a981defb85e",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "672353ccb2f1c1786cae",
+      "human_review_required": true,
+      "normalized_name_sha256": "7132826ea09563161fd3d5eb88c5642fbf98195b858756a9860117ca65908de6",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "675b9bda83a550fceef1",
+      "human_review_required": true,
+      "normalized_name_sha256": "7de134c986118e2bc69ee67e76eeea1d73ab21075311e2a2f6363c85e9080433",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "68a67a02bb7d7e6dfc3e",
+      "human_review_required": true,
+      "normalized_name_sha256": "b10ae286ffb9133f156d8b1e81c227c6f88304aece212d5f3eede05a045819cf",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "6af27596019daa0b859b",
+      "human_review_required": true,
+      "normalized_name_sha256": "7e7700090dc42c7463142a7f8f455d3566d4f6df68974b6e5f28fc307f3263e5",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "6e95d33842d7bc33e196",
+      "human_review_required": true,
+      "normalized_name_sha256": "0b14c028619592fd3a5612d34c4c511ba4d0e67e5d513855fd0b0bd477d294d8",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "7058fea272c25d19b9d7",
+      "human_review_required": true,
+      "normalized_name_sha256": "6b6b218a2b17faa78252dddd285e6b59d148b63b8d042fb9bfa8aeaed598693f",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "768d3e7b9da71dae7691",
+      "human_review_required": true,
+      "normalized_name_sha256": "92033bb044100e45b779db080ac5d1cb7e3a77462936f79336513651777f5d92",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "784da5a5baf8733b88a8",
+      "human_review_required": true,
+      "normalized_name_sha256": "90f5c4a31546b92e726fd540c858c7deab23d8db3e121c47cf43045f4f4af3b2",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "7bf2bb0caecb7acc9891",
+      "human_review_required": true,
+      "normalized_name_sha256": "516e0a78da4676e3c6203d8ef2633b1a7cf178ea77d2e1c7ff71ff1af682e36c",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "7ff9afc2d8e476162910",
+      "human_review_required": true,
+      "normalized_name_sha256": "f0df0e929231b3522004e24e59d6e902f1222d7f53bf3a922898f978770a43d6",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "8046436a10abcc3dc175",
+      "human_review_required": true,
+      "normalized_name_sha256": "448334a2851a777aaeb4ce7711d84fbef1b78325b7d5f8ce45fd3fc366052b69",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "806cf9968d2d61047d72",
+      "human_review_required": true,
+      "normalized_name_sha256": "2def95926b2b2a3a91d43db077ca4a4af389a832916577ac9ab5c871adf101eb",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "81dba63d27e5e32f8c75",
+      "human_review_required": true,
+      "normalized_name_sha256": "4e350d0151ed1e36711e709e983f4219027843c3828cdd92acfa467f4585ac66",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "82a55b10f4cb66d19f50",
+      "human_review_required": true,
+      "normalized_name_sha256": "9639f50060180a4f06857b9cb10ae3aa51e1055123cec5394ef1d12e2c5f7346",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "837b1fb3aac742b7851b",
+      "human_review_required": true,
+      "normalized_name_sha256": "3ae2a8a7447a0cad844b63b29038476b8a85fce575e51bec66c394a2a13f3e6e",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "83922aa28c0ce9bf2ebc",
+      "human_review_required": true,
+      "normalized_name_sha256": "d86955bf821b0a9c5c186dead6e0c262b454508aaa98335629ab892c9d02f695",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "871393c70ae965d5f4e2",
+      "human_review_required": true,
+      "normalized_name_sha256": "fff977d2d60e195a9e1db03ac650374c4bdb3710ceafd990da36a7d66bc93244",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "879ce8ea84510a401b5a",
+      "human_review_required": true,
+      "normalized_name_sha256": "6090dc4fdf745a6f07704efe71694bd6fb1f1bbba555e33277a3502095a95552",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "894c5f1b638980bccc57",
+      "human_review_required": true,
+      "normalized_name_sha256": "a898dc24b09216e5aa75170fccf5a03ad1a13816598fe9cd7716869bd563bc89",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "89784b4806a0dea6b9a9",
+      "human_review_required": true,
+      "normalized_name_sha256": "325c9d9b08f347a114b1a48ff79e3c49ceb408316181265af62640674a642ca6",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "9117fad344af782c4687",
+      "human_review_required": true,
+      "normalized_name_sha256": "a5f54a2eda3aeeb10fb0650bd6b63d520989b42a57d6a1b767f6aa4b116a82cf",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "939acf22e3cd19ce3ece",
+      "human_review_required": true,
+      "normalized_name_sha256": "14c40106cce351eff14a59e4baf7a5d186747a1095db41b63148394d73e58549",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "93c0c209122e6bc2242b",
+      "human_review_required": true,
+      "normalized_name_sha256": "eab12f3e0c1f066d54ba4f2b89efab1cf2a9d04daad5883a2862fa7413649386",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "9494ff081536be2c4b63",
+      "human_review_required": true,
+      "normalized_name_sha256": "b9c56bc07296901c1ef8b2ae89b9defa5908412b56e759433c7e292d4707053f",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "97da84f3bf569946b949",
+      "human_review_required": true,
+      "normalized_name_sha256": "c533f15da15cc38cd777a1dff6a2979e64580098e91e7dda9f7eb971ad78dde9",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "9a49a5968d3f4b950845",
+      "human_review_required": true,
+      "normalized_name_sha256": "2288983000e27be815518600c57c9d6b6907e1ac76c4a055bd89d6bc1a1f3e18",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "9b84449874dd658da6e3",
+      "human_review_required": true,
+      "normalized_name_sha256": "e60f1e8f9c530573ad5a4d947d0ba5a19eee792c3443f85592f13b4272065960",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "9cd90cdf015012e24802",
+      "human_review_required": true,
+      "normalized_name_sha256": "31017fe4d5661bd2a3ae9cf7b18ed52201cd936f063415a3310643eb472007d7",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "9da9ccf62ef882d668b7",
+      "human_review_required": true,
+      "normalized_name_sha256": "27901780c8645f5be43f15a545b7ad3777ecda12fc78395432d5a442b4d55389",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "9fa32153c62a3b9547b8",
+      "human_review_required": true,
+      "normalized_name_sha256": "9fb23d96401200fe87d45c6e71e2c1c0a1e88d25658180e70c438d312be1c4ad",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "a1ccb51549ab4f9743e3",
+      "human_review_required": true,
+      "normalized_name_sha256": "4c0f77c88a058373f12c238ed6bfb3b405604571aed9565eee62bb7e6007c6cc",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "a46e099e58e2625245d7",
+      "human_review_required": true,
+      "normalized_name_sha256": "ba04b0851456744e05425c05fa97fe34d97b75689f4da1f70e729a1179a376b9",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "a5a85c6708d04974c92f",
+      "human_review_required": true,
+      "normalized_name_sha256": "f3a9c7598180a119ea2a96be1871e8cd5b15c3024f9706b59da30d80fc7f3c85",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "a7db0af1084bc2d06253",
+      "human_review_required": true,
+      "normalized_name_sha256": "54738c751477a53e6b4bf31ef7d008555e9523ed663d5598a10703bd47ca2f94",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "a8b1a6ee75743d41fc2a",
+      "human_review_required": true,
+      "normalized_name_sha256": "180ff12fc6cffae9d64a7817a3ccc74bc0def094e5229c4f50f03c7bd2bae79d",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "ab7dc121e9d66fcf0538",
+      "human_review_required": true,
+      "normalized_name_sha256": "00b2c75160947007c96bf95f4cc337d785183566fe43f6a9310a771ed62e6bc3",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "aed8d3c51a53cac1047e",
+      "human_review_required": true,
+      "normalized_name_sha256": "d17e56b7a03bddc8483cf32e085ed668efcbba18a519b05b8bd77d4dcb6ebdf3",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "af1eeb5c84a1c372b862",
+      "human_review_required": true,
+      "normalized_name_sha256": "20d337fa86dd774ce5c9ecf97735e63d52bd15e844ec650b0505c3897861dbda",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "b056e99904362f66edfc",
+      "human_review_required": true,
+      "normalized_name_sha256": "9e2313815fe1e2fa340db2ca2c2407ecb44be9aadade1b1ced88f5dba52dcfd4",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "b3a795069b1c5c8dbb17",
+      "human_review_required": true,
+      "normalized_name_sha256": "656022c0c91437c6692555de7c581e6f9d697832f9368a1177273b44b039ab08",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "b660fb9de89f45550b6f",
+      "human_review_required": true,
+      "normalized_name_sha256": "391846982c941b3d70b0a9c71308c21361deb44ba3d7fca22635bb3ff0261dcf",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "b6bbeec3c1fea2476c60",
+      "human_review_required": true,
+      "normalized_name_sha256": "b01deb391fd796977b0dd37e6dbdead001c4b92e682817ae56d3dfb376437fc8",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "b85f5fc9210a7ce3b2cd",
+      "human_review_required": true,
+      "normalized_name_sha256": "ea59318d2a79701d152908f6d9f5a74b8a19fdf5dfdb9edecfb79d8601814af3",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "bac302799d93a0c8c129",
+      "human_review_required": true,
+      "normalized_name_sha256": "f4f8d688d0943b99bae9d4a2b73acf2e69095be57094fa541bf7d4058211e264",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "bae21a65d922e6edff69",
+      "human_review_required": true,
+      "normalized_name_sha256": "cddc8885f06a1e7e4f881a38a2ddabbfc7fc7786155b996be1f474b311890510",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "bb27d8705fec351ce120",
+      "human_review_required": true,
+      "normalized_name_sha256": "3ff3f5a3742431cb467cc1c7b37fbcf9d81aa6e2b550f8cd3920151a0b2efc78",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "be2778776617f7f1a449",
+      "human_review_required": true,
+      "normalized_name_sha256": "d93283a672b11c0a23a452fddf1517106473b9ea8d44d6dc30443ff401a88668",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "bee868aa41f7f4fb10fc",
+      "human_review_required": true,
+      "normalized_name_sha256": "1d17d7a402ebbfd501ac40b40f95af0e8a0d30d84650f6b030bd5a89cbd50f79",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "c226e3e83fd2a8830803",
+      "human_review_required": true,
+      "normalized_name_sha256": "1d6bb6d11622df93ce5a36c9107310e769ad47b393093682b07f07cbbff0192e",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "c31b256de34459db0d33",
+      "human_review_required": true,
+      "normalized_name_sha256": "27f04c7d2bc6c9442641133fa90b5ab70aabc8e63bd657cc3e2753318af338b0",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "c6c3d630550591fe279a",
+      "human_review_required": true,
+      "normalized_name_sha256": "bfde7de7e3835fa1409e512c352b01cef17bcc039a9d93e7012e95bdeb3562f1",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "c9321bc2cf9c9a27141a",
+      "human_review_required": true,
+      "normalized_name_sha256": "50d008e53a0b7cc38602785c8829ce9a5ab002aea17c0da553da87baae61d60c",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "c9dd2b14dadde55e564a",
+      "human_review_required": true,
+      "normalized_name_sha256": "a4839f5c1011e02b9fe2983433edda587cc225b33f730169961bd9c027beebc3",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "cb0bc285ee3d65c910a1",
+      "human_review_required": true,
+      "normalized_name_sha256": "d6cf5b6b8407d44cf1882940d4797297bc92818e35d8a5966dbb424aa1cfee3a",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "d276e6e90981c64871d5",
+      "human_review_required": true,
+      "normalized_name_sha256": "0a10b6c0c138b59857b970a332f990cdc94cede916a3db434f15e41c6154d8ff",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "d632b4dfd372abd5c37c",
+      "human_review_required": true,
+      "normalized_name_sha256": "de6f000ce7c732b3230ce65280ff2ea1fdabc69cae56b9cd51239585dce6dd10",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "d9070aea10fcf3d46f7a",
+      "human_review_required": true,
+      "normalized_name_sha256": "326de1793f3d4feddef3a7579a05905c2b2e639a43263019329cc3f0e5125aef",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "d93a30c15ca148dea2ca",
+      "human_review_required": true,
+      "normalized_name_sha256": "c5d72d5df662a27e2351b5afcd427b985416c224a68cd048942b6a70c6263f60",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "d9ce431bbf76966b65ec",
+      "human_review_required": true,
+      "normalized_name_sha256": "15ee0b0a807e5e9998821cd16b809281ccd4fcc414f558765c781ce837bef9a2",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "dcbe32e326107f1c3b01",
+      "human_review_required": true,
+      "normalized_name_sha256": "b8da6ca907a57f78c504fb85ea34866426e5463349cd26340b783412ff909b4b",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "dd65d676f97ee052ce74",
+      "human_review_required": true,
+      "normalized_name_sha256": "6a616cf3359bd39dcd6d38ba796288375e2ca443b2acd8de4b74dc93711fbaa3",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "dece36500bdf0673ae3a",
+      "human_review_required": true,
+      "normalized_name_sha256": "57c02d7d2fba707bf2f9591027c458fbc3c7764b16e096cf4532b9c476bccd08",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "e21d5c8a9387da889b8d",
+      "human_review_required": true,
+      "normalized_name_sha256": "fc4cc0b4b06a660246b4d59d1596ef1d92c77a6ccb4a820efad4aa800655d15f",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "e5155fb6b957855961a6",
+      "human_review_required": true,
+      "normalized_name_sha256": "c9610d40ff2d709ee23e8c7561c1fadd87744774f7f9b087de387e9258bafcc2",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "e91e03e33e10fca03bd8",
+      "human_review_required": true,
+      "normalized_name_sha256": "f4c84eddad9ee98349871a57bafddab81db28a83c4a763dc7cc3ef3294fd8838",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "e9b67bed6e15499d43ba",
+      "human_review_required": true,
+      "normalized_name_sha256": "c66f6942537c1e77238f1896c5c45eb62a1cd180acb290d1f74617d2cb40bdc6",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "eb052f44da2686b9b23e",
+      "human_review_required": true,
+      "normalized_name_sha256": "3985f209d3b7ea1ce699442fbdbc1123b9c35b2e9ed75ec0bb6b47417ab77360",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "edadea5a33515c4c2f6a",
+      "human_review_required": true,
+      "normalized_name_sha256": "46e1604bab14e529a968de50a7738f497e1bab05bc3067b5a99a3d840dba4e55",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "ee1a645e2e1bcbda0008",
+      "human_review_required": true,
+      "normalized_name_sha256": "d054a7a0ee7b65d3f76ab831d83cac51b0f264298b69a411a9fb0a3c29e6cb6c",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "ee444caa727203e7f1a6",
+      "human_review_required": true,
+      "normalized_name_sha256": "2b6edee2ad500e5653955bebbf24bc776a7c8a9cbc40fbdbe58184ee4126cb85",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "eebb902c086748d01581",
+      "human_review_required": true,
+      "normalized_name_sha256": "cd44573c1931cbb6a6e20a37c69425837fa1759d7aceae3ab8f84dc56cece695",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "eefbfa2533c3836ba9bc",
+      "human_review_required": true,
+      "normalized_name_sha256": "290591767289ff4fcb870bcc93cae6be50a21d2fecb08161a1eac8d30b45006a",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "efa438d220aa2a8d5fad",
+      "human_review_required": true,
+      "normalized_name_sha256": "e1b6932fd663c248675e7d64e842a5d0326c6509378ac3773230abc88758fae3",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "f103babf24d984e50182",
+      "human_review_required": true,
+      "normalized_name_sha256": "97d257c40bf5aba3bbb8a937aa1a6c59faf7b0b957caf75c43dfb5bad36a0cbd",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "f3c0e3319b454dcd32db",
+      "human_review_required": true,
+      "normalized_name_sha256": "8a43adde9e8e352e4ad04634a024afd7fa611f4f19ab6c2e7baf79cd55386ec7",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "f682374dd0d85b90c459",
+      "human_review_required": true,
+      "normalized_name_sha256": "e4c431e911f94784407a9e8b125a5f1c1f5cee0e7e2d1199121bf161a1d0fd74",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "f785f6875fc832c027d1",
+      "human_review_required": true,
+      "normalized_name_sha256": "bd25279f0cde9ab0ec337db9b8e2ab4f8a0381c1db5f14ae206e61c58cfade15",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "f92faeee51001117327a",
+      "human_review_required": true,
+      "normalized_name_sha256": "0a76da07c3acd7d8d17616939999c4b51a47d76d02a47a1a90a2022606bbef16",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "f94f3c2b85352e2746f1",
+      "human_review_required": true,
+      "normalized_name_sha256": "e4923e0aa77f0d98d107cffbdfa9e3963bccadbf1f4efbd17829ca3ab03aecf1",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "fa7e3fa73eb6e9b9bfba",
+      "human_review_required": true,
+      "normalized_name_sha256": "9f4e24013a1eda0c55200c6e21930a5026ed2c340ab50d22dbc6c4bd2f501e8c",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "fe5c68b4dd5a570bcab2",
+      "human_review_required": true,
+      "normalized_name_sha256": "f21e9152fd7f0ef8ad3ee5ff9bac109d016ac7a7a538df549ba2b8bfac0fb3bb",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "feb0fdbe341264c0f378",
+      "human_review_required": true,
+      "normalized_name_sha256": "70cec823f105ac2f841d894d99c8692c4f52fa7355614e7f1bc6d7a15e85f55f",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "ffafca6e74dc88f8a641",
+      "human_review_required": true,
+      "normalized_name_sha256": "5716ef2dab7a73e837664fd65a15815c8ad973cf640a0f003b87ef965b44d07b",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Gwagwalada Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "fff34b8b3f9687044902",
+      "human_review_required": true,
+      "normalized_name_sha256": "f96a268a7786b4d7f09f0306daa615360a0d468fedc2cb2c41125873b2badd8a",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Kuje Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "bdca962b468d5a811946",
+      "human_review_required": true,
+      "normalized_name_sha256": "e27c4257559c2e32790bc8e3cba914da69cf396e15a343cdf20ae16320bc3bf0",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 2
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Kwali Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "5eadec28790a02229d48",
+      "human_review_required": true,
+      "normalized_name_sha256": "ef2af4dbe66d253db7fa7e5d39934863fb8e09b2d202343230e8f59b5bb39247",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 2
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Kwali Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "839f6b8013a6b1375c92",
+      "human_review_required": true,
+      "normalized_name_sha256": "523f08ce5b52eab6a7ff7c3422f4ef283111b2580959c620ba61c2b7dc5c6c1f",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 2
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Kwali Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "83ec932be22d870ce318",
+      "human_review_required": true,
+      "normalized_name_sha256": "f0ff4fec7ef26955146d6c050c214f7083840eef28c0eb04ffa841938ab923bf",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 1,
+        "zipcode.com.ng": 1
+      },
+      "source_identifiers_present_count": 2
+    },
+    {
+      "candidate_count": 2,
+      "canonical_area_council": "Kwali Area Council",
+      "confidence": "low_without_record-level review",
+      "coordinates_present_count": 0,
+      "feature_type": "settlement",
+      "group_id": "fd4b2476391afee7b889",
+      "human_review_required": true,
+      "normalized_name_sha256": "1f675d95a6cf4bab263ddc6c7235e4e6d1546d25715569a968cb035565a4cdd2",
+      "public_source_records_only": true,
+      "recommended_action": "manual_review_preserve_all_records_and_provenance",
+      "source_counts": {
+        "wikipedia-fct-postal": 2
+      },
+      "source_identifiers_present_count": 2
+    }
+  ],
+  "method": "exact normalized_name + canonicalized council + exact feature type; no automatic merge; record labels withheld"
+}

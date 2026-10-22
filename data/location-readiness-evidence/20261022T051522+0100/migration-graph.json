@@ -1,0 +1,124 @@
+{
+  "head_revisions": [
+    "20261022_fct_location_directory"
+  ],
+  "linear_single_head": true,
+  "missing_parent_revisions": [],
+  "parse_or_duplicate_errors": [],
+  "revision_count": 22,
+  "revisions": [
+    {
+      "file": "20261006_add_postgis_location_tables.py",
+      "parent": "20261006_upgrade_booking_location_schema",
+      "revision": "20261006_add_postgis_location_tables"
+    },
+    {
+      "file": "20261006_baseline_chigo_schema.py",
+      "parent": null,
+      "revision": "20261006_baseline_chigo_schema"
+    },
+    {
+      "file": "20261006_expand_location_resolution.py",
+      "parent": "20261006_add_postgis_location_tables",
+      "revision": "20261006_expand_location_resolution"
+    },
+    {
+      "file": "20261006_upgrade_booking_location_schema.py",
+      "parent": "20261006_baseline_chigo_schema",
+      "revision": "20261006_upgrade_booking_location_schema"
+    },
+    {
+      "file": "20261007_add_demo_fleet_metadata.py",
+      "parent": "20261006_expand_location_resolution",
+      "revision": "20261007_add_demo_fleet_metadata"
+    },
+    {
+      "file": "20261008_add_attachment_media.py",
+      "parent": "20261008_add_service_intent",
+      "revision": "20261008_add_attachment_media"
+    },
+    {
+      "file": "20261008_add_booking_route_metadata.py",
+      "parent": "20261008_add_location_learning_metadata",
+      "revision": "20261008_add_booking_route_metadata"
+    },
+    {
+      "file": "20261008_add_inventory_catalogue.py",
+      "parent": "20261008_add_attachment_media",
+      "revision": "20261008_add_inventory_catalogue"
+    },
+    {
+      "file": "20261008_add_location_learning_metadata.py",
+      "parent": "20261008_add_inventory_catalogue",
+      "revision": "20261008_add_location_learning_metadata"
+    },
+    {
+      "file": "20261008_add_service_intent.py",
+      "parent": "20261007_add_demo_fleet_metadata",
+      "revision": "20261008_add_service_intent"
+    },
+    {
+      "file": "20261008_add_support_chat.py",
+      "parent": "20261008_add_booking_route_metadata",
+      "revision": "20261008_add_support_chat"
+    },
+    {
+      "file": "20261009_add_oauth_identities.py",
+      "parent": "20261008_add_support_chat",
+      "revision": "20261009_add_oauth_identities"
+    },
+    {
+      "file": "20261010_add_customer_referrals.py",
+      "parent": "20261009_add_oauth_identities",
+      "revision": "20261010_customer_referrals"
+    },
+    {
+      "file": "20261011_add_service_pricing_approval.py",
+      "parent": "20261011_service_aware_locations",
+      "revision": "20261011_service_pricing_approval"
+    },
+    {
+      "file": "20261011_service_aware_locations.py",
+      "parent": "20261010_customer_referrals",
+      "revision": "20261011_service_aware_locations"
+    },
+    {
+      "file": "20261012_home_decor_requests.py",
+      "parent": "20261011_service_pricing_approval",
+      "revision": "20261012_home_decor_requests"
+    },
+    {
+      "file": "20261016_booking_cancellation_damage_reporting.py",
+      "parent": "20261012_home_decor_requests",
+      "revision": "20261016_booking_cancel_damage"
+    },
+    {
+      "file": "20261018_dispatch_reservations.py",
+      "parent": "20261016_booking_cancel_damage",
+      "revision": "20261018_dispatch_reservations"
+    },
+    {
+      "file": "20261019_booking_event_idempotency.py",
+      "parent": "20261018_dispatch_reservations",
+      "revision": "20261019_booking_event_idempotency"
+    },
+    {
+      "file": "20261020_customer_account_controls.py",
+      "parent": "20261019_booking_event_idempotency",
+      "revision": "20261020_customer_controls"
+    },
+    {
+      "file": "20261021_optional_booking_countries.py",
+      "parent": "20261020_customer_controls",
+      "revision": "20261021_optional_booking_countries"
+    },
+    {
+      "file": "20261022_fct_location_directory.py",
+      "parent": "20261021_optional_booking_countries",
+      "revision": "20261022_fct_location_directory"
+    }
+  ],
+  "root_revisions": [
+    "20261006_baseline_chigo_schema"
+  ]
+}

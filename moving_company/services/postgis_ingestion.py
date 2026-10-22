@@ -345,6 +345,26 @@ def _council_for_point(latitude, longitude, council_boundaries):
     return next((name for name, geometry in council_boundaries.items() if geometry.covers(point)), None)
 
 
+def _geonames_feature_type(feature_class, feature_code):
+    if feature_class == 'P':
+        if feature_code == 'PPLC':
+            return 'city'
+        if feature_code in {'PPLA', 'PPLA1', 'PPLA2', 'PPLA3', 'PPLA4'}:
+            return 'administrative_seat'
+        if feature_code in {'PPL', 'PPLL', 'PPLX', 'PPLS', 'PPLW', 'PPLQ'}:
+            return 'settlement'
+        return 'populated_place'
+    if feature_class == 'A':
+        return 'administrative_area'
+    if feature_class == 'S':
+        return 'facility'
+    if feature_class == 'T':
+        return 'landform'
+    if feature_class == 'H':
+        return 'water_feature'
+    return 'geographic_feature'
+
+
 def _read_geonames(path, fct_geometry, council_boundaries):
     rows = []
     processed = 0
@@ -366,16 +386,102 @@ def _read_geonames(path, fct_geometry, council_boundaries):
                 if not fct_geometry.covers(Point(longitude, latitude)):
                     continue
                 aliases = [name for name in fields[3].split(',') if name]
+                council = _council_for_point(latitude, longitude, council_boundaries)
+                try:
+                    population = int(fields[14]) if fields[14] else None
+                except ValueError:
+                    population = None
+                try:
+                    elevation_m = int(fields[15]) if fields[15] else None
+                except ValueError:
+                    elevation_m = None
                 rows.append({
-                    'name': fields[1], 'place_type': 'town' if fields[7] == 'P' else 'poi',
-                    'area_council': _council_for_point(latitude, longitude, council_boundaries),
+                    'name': fields[1], 'place_type': _geonames_feature_type(fields[6], fields[7]),
+                    'area_council': council,
+                    'parent_name': council,
                     'latitude': latitude, 'longitude': longitude,
-                    'aliases': aliases, 'keywords': [fields[2]], 'source': 'geonames',
+                    'aliases': list(dict.fromkeys([fields[2], *aliases])),
+                    'keywords': [fields[7], fields[11]] if fields[11] else [fields[7]],
+                    'source': 'geonames',
                     'source_id': fields[0], 'source_url': f'https://www.geonames.org/{fields[0]}',
-                    'description': fields[11] or None, 'confidence': 0.75,
+                    'feature_class': fields[6], 'feature_code': fields[7],
+                    'admin_codes': fields[10:14], 'population': population,
+                    'elevation_m': elevation_m,
+                    'dem_m': int(fields[16]) if fields[16].lstrip('-').isdigit() else None,
+                    'timezone': fields[17] or None, 'modified': fields[18] or None,
+                    'source_attributes': {
+                        'feature_class': fields[6], 'feature_code': fields[7],
+                        'admin_codes': fields[10:14], 'population': population,
+                        'elevation_m': elevation_m,
+                    },
+                    'confidence': 0.75,
                     'verification_status': 'imported', 'verified': False,
                 })
     return rows, processed
+
+
+def _read_wof(path, fct_geometry, council_boundaries):
+    from shapely.geometry import shape
+
+    root = Path(path)
+    files = [root] if root.is_file() else sorted(root.rglob('*.geojson'))
+    if not files:
+        raise ValueError(f'No GeoJSON files found for Who\'s On First at {root}')
+    rows = []
+    files_processed = 0
+    for file_path in files:
+        try:
+            document = json.loads(file_path.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError) as error:
+            LOGGER.warning('Skipping unreadable WOF record %s: %s', file_path, error)
+            continue
+        if document.get('type') == 'FeatureCollection':
+            features = document.get('features') or []
+        elif document.get('type') == 'Feature':
+            features = [document]
+        else:
+            continue
+        files_processed += 1
+        for feature in features:
+            properties = feature.get('properties') or {}
+            geometry_data = feature.get('geometry')
+            wof_id = properties.get('wof:id') or feature.get('id')
+            name = str(properties.get('name') or '').strip()
+            if not wof_id or not name or not geometry_data:
+                continue
+            geometry = shape(geometry_data)
+            if geometry.is_empty or not geometry.is_valid or not geometry.intersects(fct_geometry):
+                continue
+            clipped = geometry.intersection(fct_geometry)
+            point = clipped.representative_point()
+            latitude, longitude = point.y, point.x
+            council = _council_for_point(latitude, longitude, council_boundaries)
+            aliases = []
+            for key, value in properties.items():
+                if key.startswith('name:') and value and value != name:
+                    aliases.extend(value if isinstance(value, list) else [value])
+            source_url = f'https://spelunker.whosonfirst.org/id/{wof_id}/'
+            rows.append({
+                'name': name,
+                'place_type': str(properties.get('wof:placetype') or 'locality'),
+                'area_council': council,
+                'parent_name': council,
+                'latitude': latitude,
+                'longitude': longitude,
+                'aliases': list(dict.fromkeys(str(alias) for alias in aliases if str(alias).strip())),
+                'keywords': [str(properties.get('wof:placetype') or 'locality')],
+                'source': 'whos-on-first',
+                'source_id': str(wof_id),
+                'source_url': source_url,
+                'confidence': 0.8,
+                'verification_status': 'imported',
+                'verified': False,
+                'coordinate_precision': 'administrative_area' if geometry.geom_type in {'Polygon', 'MultiPolygon'} else 'approximate',
+                'source_attributes': properties,
+                'parent_source_id': str(properties.get('wof:parent_id')) if properties.get('wof:parent_id') else None,
+                'source_attribution': 'Data from Who\'s On First. https://whosonfirst.org/docs/licenses/',
+            })
+    return rows, files_processed
 
 
 def _curated_records():
@@ -392,6 +498,58 @@ def _curated_records():
         record['keywords'] = record.pop('search_keywords', [])
         records.append(record)
     return records
+
+
+def _coverage_summary(records):
+    summaries = {}
+    source_ids = {}
+    for record in records:
+        source = str(record.get('source') or 'unknown')
+        summary = summaries.setdefault(source, {
+            'records': 0,
+            'with_coordinates': 0,
+            'with_parent_relationship': 0,
+            'missing_name': 0,
+            'invalid_coordinates': 0,
+            'duplicate_source_identifiers': 0,
+            'by_feature_type': {},
+            'by_area_council': {council: 0 for council in AREA_COUNCILS},
+        })
+        summary['records'] += 1
+        name = str(record.get('name') or '').strip()
+        if not name:
+            summary['missing_name'] += 1
+        feature_type = str(record.get('place_type') or 'unknown')
+        summary['by_feature_type'][feature_type] = summary['by_feature_type'].get(feature_type, 0) + 1
+        council = record.get('area_council')
+        if council in summary['by_area_council']:
+            summary['by_area_council'][council] += 1
+        if record.get('parent_name') or record.get('parent_id'):
+            summary['with_parent_relationship'] += 1
+
+        try:
+            latitude = float(record['latitude'])
+            longitude = float(record['longitude'])
+            valid_coordinates = (
+                -90 <= latitude <= 90 and -180 <= longitude <= 180
+                and not (latitude == 0 and longitude == 0)
+            )
+        except (KeyError, TypeError, ValueError):
+            valid_coordinates = False
+        if valid_coordinates:
+            summary['with_coordinates'] += 1
+        elif record.get('latitude') is not None or record.get('longitude') is not None:
+            summary['invalid_coordinates'] += 1
+
+        source_id = record.get('source_id')
+        if source_id is not None:
+            key = (source, str(source_id))
+            if key in source_ids:
+                summary['duplicate_source_identifiers'] += 1
+            else:
+                source_ids[key] = True
+
+    return summaries
 
 
 def _source_connection_url():
@@ -438,6 +596,10 @@ def _insert_records(engine, records, *, force=False, dry_run=False):
             source_metadata = {
                 'osm': {'license': 'ODbL-1.0', 'attribution': '© OpenStreetMap contributors'},
                 'geonames': {'license': 'CC-BY-4.0', 'attribution': 'GeoNames.org'},
+                'whos-on-first': {
+                    'license': 'Review per-record source properties and WOF license terms',
+                    'attribution': 'Data from Who\'s On First. https://whosonfirst.org/docs/licenses/',
+                },
                 'chigo': {'license': 'proprietary', 'attribution': 'Chigo curated data'},
             }.get(source, {})
             source_ids[source] = connection.execute(text("""
@@ -447,8 +609,12 @@ def _insert_records(engine, records, *, force=False, dry_run=False):
                 RETURNING id
             """), {
                 'name': source,
-                'type': 'open-geodata' if source in {'osm', 'geonames'} else 'curated',
-                'url': {'osm': DEFAULT_OSM_URL, 'geonames': GEONAMES_URL, 'chigo': None}.get(source),
+                'type': 'open-geodata' if source in {'osm', 'geonames', 'whos-on-first'} else 'curated',
+                'url': {
+                    'osm': DEFAULT_OSM_URL, 'geonames': GEONAMES_URL,
+                    'whos-on-first': 'https://github.com/whosonfirst-data/whosonfirst-data-admin-ng',
+                    'chigo': None,
+                }.get(source),
                 'metadata': json.dumps(source_metadata),
             }).scalar_one()
         for record in records:
@@ -546,7 +712,14 @@ def _insert_records(engine, records, *, force=False, dry_run=False):
             """), {
                 'location_id': existing_id, 'source_id': source_ids[record['source']],
                 'external_id': str(record['source_id']), 'source_url': record.get('source_url'),
-                'attributes': json.dumps({'place_type': record['place_type'], 'confidence': record.get('confidence')}),
+                'attributes': json.dumps({
+                    'place_type': record['place_type'],
+                    'confidence': record.get('confidence'),
+                    'source_attributes': record.get('source_attributes') or {},
+                    'parent_source_id': record.get('parent_source_id'),
+                    'source_attribution': record.get('source_attribution'),
+                    'coordinate_precision': record.get('coordinate_precision'),
+                }),
             })
             for alias in record.get('aliases') or []:
                 normalized_alias = normalize_location_name(alias)
@@ -635,9 +808,12 @@ def ingest(args):
         selected.add('osm')
     if args.all or args.import_geonames:
         selected.add('geonames')
+    import_wof = bool(getattr(args, 'import_wof', False))
+    if import_wof:
+        selected.add('whos-on-first')
     if args.all or args.import_boundaries:
         selected.add('boundaries')
-    if (args.import_osm or args.import_geonames or args.all) and 'boundaries' not in selected:
+    if (args.import_osm or args.import_geonames or import_wof or args.all) and 'boundaries' not in selected:
         selected.add('boundaries')
     if not selected:
         raise ValueError('Choose --all, --download, or at least one --import-* option')
@@ -665,9 +841,6 @@ def ingest(args):
         progress_handler = ProgressHandler(handler)
         progress_handler.apply_file(str(paths['osm']), locations=True, idx='sparse_file_array')
         handler.progress()
-        progress_handler = ProgressHandler(handler)
-        progress_handler.apply_file(str(paths['osm']), locations=True, idx='sparse_file_array')
-        handler.progress()
         osm_records = handler.records
         report['osm_objects_processed'] = handler.objects_processed
         report['osm_named_objects'] = handler.named_objects
@@ -689,6 +862,18 @@ def ingest(args):
         geonames_records, report['geonames_processed'] = _read_geonames(paths['geonames'], fct_geometry, council_boundaries)
         report['fct_geonames'] = len(geonames_records)
 
+    wof_records = []
+    if import_wof:
+        wof_path = getattr(args, 'wof_path', None)
+        if not wof_path:
+            raise ValueError('--import-wof requires --wof-path pointing to a local WOF GeoJSON file or directory')
+        boundary_path = paths.get('boundaries_adm1') or data_dir / 'geoboundaries-NGA-ADM1.geojson'
+        fct_geometry, _ = _load_fct_boundary(boundary_path)
+        adm2_path = paths.get('boundaries_adm2') or data_dir / 'geoboundaries-NGA-ADM2.geojson'
+        council_boundaries = _load_council_boundaries(adm2_path, fct_geometry)
+        wof_records, report['wof_files_processed'] = _read_wof(wof_path, fct_geometry, council_boundaries)
+        report['fct_wof'] = len(wof_records)
+
     boundary_paths = []
     if 'boundaries' in selected and (args.all or args.import_boundaries):
         boundary_paths = [('ADM1', paths['boundaries_adm1']), ('ADM2', paths['boundaries_adm2'])]
@@ -699,9 +884,14 @@ def ingest(args):
         report['area_councils_resolved'] = len(council_boundaries)
         report['area_councils_missing'] = sorted(set(AREA_COUNCILS) - set(council_boundaries))
 
-    records = osm_records + geonames_records
-    if args.all or args.import_osm or args.import_geonames:
+    records = osm_records + geonames_records + wof_records
+    if args.all or args.import_osm or args.import_geonames or import_wof:
         records = _curated_records() + records
+    report['coverage_by_source'] = _coverage_summary(records)
+    report['candidate_counts_by_area_council'] = {
+        council: sum(source['by_area_council'][council] for source in report['coverage_by_source'].values())
+        for council in AREA_COUNCILS
+    }
     if args.dry_run:
         report['canonical_locations'] = len(records)
         report.setdefault('area_councils_resolved', len({record.get('area_council') for record in records if record.get('area_council')}))
@@ -739,6 +929,8 @@ def main():
     parser.add_argument('--download', action='store_true', help='Download selected source datasets only; no database writes.')
     parser.add_argument('--import-osm', action='store_true', help='Download/parse Nigeria OSM PBF and retain named features inside the FCT polygon.')
     parser.add_argument('--import-geonames', action='store_true', help='Download GeoNames Nigeria and retain points inside the FCT polygon.')
+    parser.add_argument('--import-wof', action='store_true', help='Parse local Who\'s On First Nigeria GeoJSON records; no automatic download is performed.')
+    parser.add_argument('--wof-path', help='Local WOF GeoJSON file or directory, required with --import-wof.')
     parser.add_argument('--import-boundaries', action='store_true', help='Download and import FCT/area council boundary geometry.')
     parser.add_argument('--normalize', action='store_true', help='Normalize names and aliases during import.')
     parser.add_argument('--deduplicate', action='store_true', help='Use stable source IDs and upsert to prevent repeat-import duplicates.')

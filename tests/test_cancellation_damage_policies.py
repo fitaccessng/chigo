@@ -357,7 +357,7 @@ def test_fumigation_entry_uses_only_its_service_assessment_questions(app):
     assert property_page.status_code == 200
     assert b'Pest or infestation type' in property_page.data
     assert b'Areas requiring treatment' in property_page.data
-    assert b'data-condition-value="upholstery-care" hidden' in property_page.data
+    assert b'data-condition-value="upholstery-care" data-condition-answer="fumigation-pest-control" hidden' in property_page.data
     with app.app_context():
         booking = Booking.query.filter_by(customer_id=customer_id).one()
         assert booking.workflow_data['property']['service_answers']['morph_cleaning_category'] == 'fumigation-pest-control'

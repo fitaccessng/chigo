@@ -1,0 +1,58 @@
+{
+  "abaji": {
+    "canonical": "Abaji Area Council",
+    "normalization_version": "fct-councils-v1"
+  },
+  "abaji area council": {
+    "canonical": "Abaji Area Council",
+    "normalization_version": "fct-councils-v1"
+  },
+  "abuja municipal": {
+    "canonical": "Abuja Municipal Area Council",
+    "normalization_version": "fct-councils-v1"
+  },
+  "abuja municipal area council": {
+    "canonical": "Abuja Municipal Area Council",
+    "normalization_version": "fct-councils-v1"
+  },
+  "amac": {
+    "canonical": "Abuja Municipal Area Council",
+    "normalization_version": "fct-councils-v1"
+  },
+  "bwari": {
+    "canonical": "Bwari Area Council",
+    "normalization_version": "fct-councils-v1"
+  },
+  "bwari area council": {
+    "canonical": "Bwari Area Council",
+    "normalization_version": "fct-councils-v1"
+  },
+  "gwagwalada": {
+    "canonical": "Gwagwalada Area Council",
+    "normalization_version": "fct-councils-v1"
+  },
+  "gwagwalada area council": {
+    "canonical": "Gwagwalada Area Council",
+    "normalization_version": "fct-councils-v1"
+  },
+  "kuje": {
+    "canonical": "Kuje Area Council",
+    "normalization_version": "fct-councils-v1"
+  },
+  "kuje area council": {
+    "canonical": "Kuje Area Council",
+    "normalization_version": "fct-councils-v1"
+  },
+  "kwali": {
+    "canonical": "Kwali Area Council",
+    "normalization_version": "fct-councils-v1"
+  },
+  "kwali area council": {
+    "canonical": "Kwali Area Council",
+    "normalization_version": "fct-councils-v1"
+  },
+  "municipal area council": {
+    "canonical": "Abuja Municipal Area Council",
+    "normalization_version": "fct-councils-v1"
+  }
+}

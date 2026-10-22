@@ -21,7 +21,7 @@ from .inventory_catalogue import (
 )
 from .location_service import route_distance, validate_coordinates
 from .service_workflow import (
-    QUESTION_SCHEMA_VERSION, get_service_workflow, normalize_service_type, recommendations_for_booking,
+    BOOKING_STAGE_ORDER, QUESTION_SCHEMA_VERSION, STAGE_STATE_BY_STAGE, get_service_workflow, normalize_service_type, recommendations_for_booking,
     service_questions_for, validate_booking_question_data, validate_question_answers,
     validate_service_bundle,
 )
@@ -31,12 +31,8 @@ from .vehicle_catalogue import ensure_active_vehicle_catalogue
 from .referral_service import apply_referral_discount
 
 
-STAGES = ('location', 'property', 'inventory', 'services', 'schedule', 'quote', 'payment', 'review')
-STAGE_STATES = {
-    'location': 'LOCATION_COMPLETED', 'property': 'PROPERTY_COMPLETED',
-    'inventory': 'INVENTORY_COMPLETED', 'services': 'SERVICES_COMPLETED',
-    'schedule': 'SCHEDULE_COMPLETED', 'quote': 'QUOTE_READY',
-}
+STAGES = BOOKING_STAGE_ORDER
+STAGE_STATES = STAGE_STATE_BY_STAGE
 ITEM_ESTIMATES = {
     '1-seater sofa': (1.1, 35), '2-seater sofa': (1.8, 55), '3-seater sofa': (2.5, 85),
     'l-shaped sofa': (3.8, 125), 'recliner': (1.4, 45), 'armchair': (0.9, 28),
@@ -88,14 +84,14 @@ def create_booking_request(customer_id=None, location=None, user_id=None, servic
         'pickup_area_council', 'pickup_district', 'pickup_neighborhood', 'pickup_location_type', 'pickup_original_input', 'pickup_normalized_location',
         'pickup_local_place_id', 'pickup_location_id',
         'pickup_nearest_landmark', 'pickup_nearest_road', 'pickup_route_resolution',
-        'pickup_formatted_address', 'pickup_latitude', 'pickup_longitude', 'pickup_place_id',
+        'pickup_formatted_address', 'pickup_latitude', 'pickup_longitude', 'pickup_place_id', 'pickup_postal_code',
         'pickup_provider', 'pickup_provider_raw_id', 'pickup_notes', 'pickup_access',
         'pickup_inside_estate', 'pickup_narrow_road', 'pickup_parking_close', 'pickup_floor', 'pickup_stairs',
         'destination_address', 'destination_unit', 'destination_area', 'destination_city', 'destination_state', 'destination_country',
         'destination_area_council', 'destination_district', 'destination_neighborhood', 'destination_location_type', 'destination_original_input', 'destination_normalized_location',
         'destination_local_place_id', 'dropoff_location_id',
         'destination_nearest_landmark', 'destination_nearest_road', 'destination_route_resolution',
-        'destination_formatted_address', 'destination_latitude', 'destination_longitude', 'destination_place_id',
+        'destination_formatted_address', 'destination_latitude', 'destination_longitude', 'destination_place_id', 'destination_postal_code',
         'destination_provider', 'destination_provider_raw_id', 'destination_notes', 'destination_access',
         'destination_inside_estate', 'destination_narrow_road', 'destination_parking_close', 'destination_floor', 'destination_stairs',
         'distance_km', 'route_duration_minutes', 'route_provider', 'distance_source', 'distance_precision',
@@ -732,6 +728,10 @@ def inventory_requirements(booking: Booking):
 def vehicle_options(booking: Booking):
     ensure_active_vehicle_catalogue()
     vehicles = VehicleType.query.filter_by(is_active=True).order_by(VehicleType.capacity_m3, VehicleType.sort_order).all()
+    vehicles = [
+        vehicle for vehicle in vehicles
+        if float(vehicle.capacity_m3 or 0) > 0 and float(vehicle.max_payload_kg or 0) > 0
+    ]
     shipment_answers = (booking.workflow_data or {}).get('inventory_answers') or {}
     has_requirements = bool(booking.inventory or booking.items) or (booking.primary_service == 'logistics' and bool(shipment_answers))
     requirements = inventory_requirements(booking) if has_requirements else {'volume_m3': 0, 'weight_kg': 0}
@@ -861,6 +861,8 @@ def save_vehicle_selection(booking: Booking, vehicle_type_id, user_id=None):
     vehicle = VehicleType.query.filter_by(id=vehicle_id, is_active=True).first()
     if vehicle is None:
         raise ValueError('That vehicle option is no longer available.')
+    if float(vehicle.capacity_m3 or 0) <= 0 or float(vehicle.max_payload_kg or 0) <= 0:
+        raise ValueError('That vehicle is missing verified capacity data and cannot be selected.')
     shipment_answers = (booking.workflow_data or {}).get('inventory_answers') or {}
     has_requirements = bool(booking.inventory or booking.items) or (booking.primary_service == 'logistics' and bool(shipment_answers))
     requirements = inventory_requirements(booking) if has_requirements else {'volume_m3': 0, 'weight_kg': 0}
@@ -1496,6 +1498,11 @@ def accept_quote(booking: Booking, user_id, *, policy_acknowledged=None):
 
 
 def apply_price_override(booking: Booking, amount: float, reason: str, user_id):
+    if booking.payment_status in {'Paid', 'Deposit Paid'} or booking.status in {
+        'Confirmed', 'Assigned', 'In Progress', 'En Route', 'Arrived', 'Loading',
+        'In Transit', 'Unloading', 'Completed',
+    }:
+        raise ValueError('A paid or operational booking cannot have its quote overridden.')
     if not reason.strip() or amount < 0:
         raise ValueError('Provide a non-negative override amount and a reason.')
     previous_override = booking.manually_overridden_total
@@ -1545,6 +1552,10 @@ def apply_price_override(booking: Booking, amount: float, reason: str, user_id):
         'balance': booking.balance_amount,
         'manual_review_resolved': True,
     })
+    if booking.quote_status == 'Accepted':
+        calculation.pop('policy_acceptance', None)
+        booking.quote_status = 'Ready'
+        booking.workflow_state = 'QUOTE_READY'
     if calculation.get('availability_confirmation_required') and calculation.get('availability_confirmed') and booking.estimated_total > 0:
         booking.quote_status = 'Ready'
         booking.workflow_state = 'QUOTE_READY'

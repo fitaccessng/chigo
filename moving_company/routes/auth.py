@@ -213,7 +213,7 @@ def login():
     next_path = _safe_internal_path(request.values.get('next'))
     if form.validate_on_submit():
         user = User.query.filter_by(email=form.email.data.strip().lower()).first()
-        if user and user.check_password(form.password.data):
+        if user and user.is_active and user.check_password(form.password.data):
             pending_request_id = session.get('active_booking_request_id')
             session.clear()
             login_user(user)

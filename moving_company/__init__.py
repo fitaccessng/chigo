@@ -2,12 +2,13 @@ import os
 
 import click
 from flask import Flask, current_app, flash, redirect, render_template, request, session, url_for
+from flask_login import current_user, logout_user
 from flask_wtf.csrf import CSRFError
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.engine import make_url
 
-from .config import Config
+from .config import Config, is_strong_secret
 from .extensions import bcrypt, csrf, db, login_manager, migrate
 from .models import Booking, User
 from .routes.admin import admin_bp
@@ -61,14 +62,14 @@ def create_app(testing=False):
     app = Flask(__name__)
     app.config.from_object(Config)
     if str(app.config.get('APP_ENV', '')).strip().lower() == 'production':
-        secret_key = str(app.config.get('SECRET_KEY') or '')
-        if len(secret_key) < 32 or secret_key in {'dev-secret-key', 'change-me'}:
-            raise RuntimeError('Production requires a SECRET_KEY with at least 32 characters.')
+        if not is_strong_secret(app.config.get('SECRET_KEY')):
+            raise RuntimeError('Production requires a strong SECRET_KEY of at least 32 characters.')
     if testing:
         app.config['TESTING'] = True
         app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
         app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_pre_ping': True}
         app.config['AUTO_CREATE_SCHEMA'] = True
+        app.config['BCRYPT_LOG_ROUNDS'] = 4
     configure_google_oauth(app)
     db.init_app(app)
     migrate.init_app(app, db)
@@ -76,6 +77,14 @@ def create_app(testing=False):
     csrf.init_app(app)
     login_manager.init_app(app)
     app.context_processor(inject_seo_analytics_context)
+
+    @app.before_request
+    def reject_inactive_accounts():
+        if current_user.is_authenticated and not current_user.is_active:
+            logout_user()
+            session.clear()
+            flash('This account is unavailable. Contact support if you need assistance.', 'error')
+            return redirect(url_for('auth.login'))
 
     if not testing and not os.getenv('FLASK_SKIP_DB_PREFLIGHT'):
         validate_database_connection(app)
@@ -213,7 +222,10 @@ def create_app(testing=False):
                 db.session.rollback()
                 db.create_all()
             upgrade_booking_schema()
-            seed_defaults()
+            # Alembic must be able to load an older schema before an additive
+            # migration introduces newly mapped columns.
+            if not os.getenv('FLASK_SKIP_DB_PREFLIGHT'):
+                seed_defaults()
 
     return app
 
@@ -223,7 +235,7 @@ def seed_defaults():
     from .services.location_service import seed_fct_locations
     from .services.vehicle_catalogue import DEFAULT_VEHICLE_TYPES
 
-    if current_app.config.get('APP_ENV') != 'production' and not User.query.filter_by(email='admin@chigo.com').first():
+    if current_app.config.get('APP_ENV') == 'development' and not User.query.filter_by(email='admin@chigo.com').first():
         admin = User(
             first_name='Admin',
             last_name='User',
@@ -314,6 +326,18 @@ def seed_defaults():
 
 def upgrade_booking_schema():
     additions = {
+        'users': {
+            'is_active': "BOOLEAN DEFAULT TRUE NOT NULL",
+            'account_status': "VARCHAR(20) DEFAULT 'active' NOT NULL",
+            'disabled_services': "JSON DEFAULT '[]' NOT NULL",
+        },
+        'booking_events': {
+            'idempotency_key': 'VARCHAR(160)',
+        },
+        'booking_assignments': {
+            'partner_id': 'INTEGER REFERENCES truck_partners(id)',
+            'partner_vehicle_id': 'INTEGER REFERENCES partner_vehicles(id)',
+        },
         'bookings': {
             'booking_request_id': 'VARCHAR(32)', 'workflow_state': "VARCHAR(40) DEFAULT 'CONFIRMED' NOT NULL",
             'quote_status': "VARCHAR(30) DEFAULT 'Draft' NOT NULL", 'workflow_data': "JSON DEFAULT '{}' NOT NULL",
@@ -330,6 +354,7 @@ def upgrade_booking_schema():
             'pickup_normalized_location': 'VARCHAR(500)', 'destination_normalized_location': 'VARCHAR(500)',
             'pickup_local_place_id': 'INTEGER REFERENCES local_places(id)',
             'destination_local_place_id': 'INTEGER REFERENCES local_places(id)',
+            'pickup_postal_code': 'VARCHAR(20)', 'destination_postal_code': 'VARCHAR(20)',
             'pickup_nearest_landmark': 'VARCHAR(180)', 'pickup_nearest_road': 'VARCHAR(180)',
             'pickup_route_resolution': 'VARCHAR(40)', 'pickup_notes': 'TEXT',
             'route_duration_minutes': 'FLOAT', 'service_area_status': 'VARCHAR(40)',
@@ -395,6 +420,10 @@ def upgrade_booking_schema():
             'verified': 'BOOLEAN DEFAULT FALSE', 'active': 'BOOLEAN DEFAULT TRUE', 'search_count': 'INTEGER DEFAULT 0 NOT NULL',
             'selection_count': 'INTEGER DEFAULT 0 NOT NULL', 'booking_count': 'INTEGER DEFAULT 0 NOT NULL',
             'last_used_at': 'TIMESTAMP',
+            'source_name': 'VARCHAR(120)', 'source_url': 'VARCHAR(500)',
+            'source_identifier': 'VARCHAR(255)', 'raw_source_name': 'VARCHAR(180)',
+            'postal_code': 'VARCHAR(20)', 'source_metadata': "JSON DEFAULT '{}' NOT NULL",
+            'verification_status': "VARCHAR(30) DEFAULT 'unverified' NOT NULL",
         },
     }
     with db.engine.begin() as connection:
@@ -406,6 +435,15 @@ def upgrade_booking_schema():
                 present = {column['name'] for column in inspect(connection).get_columns(table)}
                 if name not in present:
                     connection.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {sql_type}'))
+            if table == 'users':
+                connection.execute(text(
+                    'CREATE INDEX IF NOT EXISTS ix_users_account_status ON users (account_status)'
+                ))
+            if table == 'booking_events':
+                connection.execute(text(
+                    'CREATE UNIQUE INDEX IF NOT EXISTS uq_booking_events_idempotency_key '
+                    'ON booking_events (idempotency_key)'
+                ))
             if table == 'incident_reports' and 'submitted_at' in columns:
                 connection.execute(text(
                     'UPDATE incident_reports SET submitted_at = COALESCE(date_time, CURRENT_TIMESTAMP) '
@@ -416,3 +454,5 @@ def upgrade_booking_schema():
         if 'local_places' in existing_tables:
             connection.execute(text('CREATE INDEX IF NOT EXISTS ix_local_places_active_normalized_name ON local_places (active, normalized_name)'))
             connection.execute(text('CREATE INDEX IF NOT EXISTS ix_local_places_council_normalized_name ON local_places (area_council, normalized_name)'))
+            connection.execute(text('CREATE INDEX IF NOT EXISTS ix_local_places_postal_code ON local_places (postal_code)'))
+            connection.execute(text('CREATE UNIQUE INDEX IF NOT EXISTS ix_local_places_source_identifier ON local_places (source_identifier)'))

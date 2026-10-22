@@ -173,6 +173,16 @@ Credits are promotional, non-transferable and not cash. This release records ava
 
 ## Local setup
 
+### Location service diagnostics
+
+Run the read-only location health report with:
+
+```bash
+python scripts/location_diagnostics.py
+```
+
+It checks the configured database target and connectivity, available location tables and indexes, PostGIS and spatial functions where applicable, migration state, location coordinate quality and duplicates, FCT import provenance, Photon/OSRM reachability, and real autocomplete probes without printing result addresses or credentials. Use `--benchmark 20` for cache-cleared endpoint and local matcher p50/p95/p99 timing and `--log-file <path>` to count recent safe database/provider search errors in an application log. A missing `DATABASE_URL` is reported separately from a database or provider outage; local SQLite remains supported for development. A successful local run is not evidence of staging readiness.
+
 1. Create and activate a virtual environment
    ```bash
    python3 -m venv .venv

@@ -15,6 +15,9 @@ class User(UserMixin, db.Model):
     last_name = db.Column(db.String(100), nullable=False)
     phone = db.Column(db.String(30), nullable=False)
     role = db.Column(db.String(50), default='customer')
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
+    account_status = db.Column(db.String(20), nullable=False, default='active', server_default='active')
+    disabled_services = db.Column(db.JSON, nullable=False, default=list, server_default='[]')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     bookings = db.relationship('Booking', back_populates='customer', foreign_keys='Booking.customer_id')
@@ -35,6 +38,9 @@ class User(UserMixin, db.Model):
     @property
     def full_name(self):
         return f'{self.first_name} {self.last_name}'.strip()
+
+    def can_use_service(self, service_type):
+        return self.is_active and service_type not in set(self.disabled_services or [])
 
 
 class OAuthIdentity(db.Model):
@@ -152,11 +158,12 @@ class Booking(db.Model):
     pickup_route_resolution = db.Column(db.String(40))
     pickup_city = db.Column(db.String(100), nullable=True)
     pickup_state = db.Column(db.String(100), nullable=True)
-    pickup_country = db.Column(db.String(100), nullable=False, default='Nigeria')
+    pickup_country = db.Column(db.String(100), nullable=True)
     pickup_formatted_address = db.Column(db.Text)
     pickup_latitude = db.Column(db.Float, default=0.0)
     pickup_longitude = db.Column(db.Float, default=0.0)
     pickup_place_id = db.Column(db.String(255))
+    pickup_postal_code = db.Column(db.String(20))
     pickup_provider = db.Column(db.String(50), default='manual')
     pickup_provider_raw_id = db.Column(db.String(255))
     pickup_notes = db.Column(db.Text)
@@ -182,11 +189,12 @@ class Booking(db.Model):
     destination_route_resolution = db.Column(db.String(40))
     destination_city = db.Column(db.String(100), nullable=True)
     destination_state = db.Column(db.String(100), nullable=True)
-    destination_country = db.Column(db.String(100), nullable=False, default='Nigeria')
+    destination_country = db.Column(db.String(100), nullable=True)
     destination_formatted_address = db.Column(db.Text)
     destination_latitude = db.Column(db.Float, default=0.0)
     destination_longitude = db.Column(db.Float, default=0.0)
     destination_place_id = db.Column(db.String(255))
+    destination_postal_code = db.Column(db.String(20))
     destination_provider = db.Column(db.String(50), default='manual')
     destination_provider_raw_id = db.Column(db.String(255))
     destination_notes = db.Column(db.Text)
@@ -654,6 +662,13 @@ class LocalPlace(db.Model):
     longitude = db.Column(db.Float, default=0.0)
     provider = db.Column(db.String(50), default='local')
     provider_place_id = db.Column(db.String(255))
+    source_name = db.Column(db.String(120))
+    source_url = db.Column(db.String(500))
+    source_identifier = db.Column(db.String(255), unique=True, index=True)
+    raw_source_name = db.Column(db.String(180))
+    postal_code = db.Column(db.String(20), index=True)
+    source_metadata = db.Column(db.JSON, nullable=False, default=dict)
+    verification_status = db.Column(db.String(30), nullable=False, default='unverified')
     coordinate_precision = db.Column(db.String(30), default='unknown')
     verified = db.Column(db.Boolean, default=False)
     active = db.Column(db.Boolean, default=True)

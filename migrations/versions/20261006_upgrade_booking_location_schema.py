@@ -5,7 +5,7 @@ Revises: 20261006_baseline_chigo_schema
 Create Date: 2026-10-06
 """
 
-from alembic import op
+from alembic import context, op
 import sqlalchemy as sa
 
 revision = '20261006_upgrade_booking_location_schema'
@@ -88,8 +88,17 @@ def _sql_type(column_type):
 
 
 def _add_missing_columns(table_name, columns):
+    if context.is_offline_mode():
+        for name, column_type in columns.items():
+            op.execute(
+                f'ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS '
+                f'{name} {_sql_type(column_type)}'
+            )
+        return
+    existing_columns = {column['name'] for column in sa.inspect(op.get_bind()).get_columns(table_name)}
     for name, column_type in columns.items():
-        op.execute(f'ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {name} {_sql_type(column_type)}')
+        if name not in existing_columns:
+            op.add_column(table_name, sa.Column(name, column_type))
 
 
 def upgrade():

@@ -4,6 +4,7 @@ import re
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from moving_company import create_app
 from moving_company.extensions import db
@@ -109,7 +110,9 @@ def test_manual_location_search_text_is_saved_as_address(app, monkeypatch):
 
     response = client.post('/booking/location/residential', data={
         'pickup_search': '12 Example Road, Abuja',
+        'pickup_city': 'Abuja', 'pickup_state': 'FCT',
         'destination_search': '8 Sample Avenue, Abuja',
+        'destination_city': 'Abuja', 'destination_state': 'FCT',
     })
 
     assert response.status_code == 302
@@ -117,6 +120,40 @@ def test_manual_location_search_text_is_saved_as_address(app, monkeypatch):
         booking = Booking.query.order_by(Booking.id.desc()).first()
         assert booking.pickup_address == '12 Example Road, Abuja'
         assert booking.destination_address == '8 Sample Avenue, Abuja'
+
+
+def test_moving_location_requires_city_and_state_without_inventing_defaults(app, monkeypatch):
+    app.config['WTF_CSRF_ENABLED'] = False
+    monkeypatch.setattr('moving_company.routes.booking_engine.geocode_address', lambda _address: None)
+    client = app.test_client()
+    login_customer(app, client)
+
+    response = client.post('/booking/location/residential', data={
+        'pickup_search': '12 Example Road',
+        'destination_search': '8 Sample Avenue',
+    })
+    assert response.status_code == 200
+    assert b'Confirm the city and state for each location' in response.data
+    with app.app_context():
+        assert Booking.query.count() == 0
+
+
+def test_location_without_provider_admin_fields_does_not_invent_abujafct_or_nigeria(app, monkeypatch):
+    app.config['WTF_CSRF_ENABLED'] = False
+    monkeypatch.setattr('moving_company.routes.booking_engine.geocode_address', lambda _address: None)
+    client = app.test_client()
+    login_customer(app, client)
+
+    response = client.post('/booking/location/cleaning', data={
+        'pickup_address': '1 Unknown Region Road',
+    })
+    assert response.status_code == 302
+
+    with app.app_context():
+        booking = Booking.query.order_by(Booking.id.desc()).first()
+        assert booking.pickup_city is None
+        assert booking.pickup_state is None
+        assert booking.pickup_country is None
 
 
 def test_new_booking_quote_rejects_missing_service_answers(app):
@@ -392,6 +429,96 @@ def test_vehicle_options_recover_empty_active_catalogue_and_allow_multiple_units
         assert booking.workflow_data['vehicle']['selected_type_id'] == recommended['id']
 
 
+def test_vehicle_options_and_selection_fail_closed_on_missing_capacity(app):
+    with app.app_context():
+        booking = create_request()
+        replace_inventory(booking, [{
+            'name': 'Large custom load', 'quantity': 1,
+            'estimated_volume_m3': 4, 'estimated_weight_kg': 800,
+        }])
+        invalid_vehicle = VehicleType.query.filter_by(is_active=True).first()
+        original_capacity = invalid_vehicle.capacity_m3
+        original_payload = invalid_vehicle.max_payload_kg
+        invalid_vehicle.capacity_m3 = 0
+        invalid_vehicle.max_payload_kg = 0
+        db.session.commit()
+
+        options = vehicle_options(booking)
+        assert invalid_vehicle.id not in {option['id'] for option in options}
+        with pytest.raises(ValueError, match='missing verified capacity data'):
+            save_vehicle_selection(booking, invalid_vehicle.id)
+
+        invalid_vehicle.capacity_m3 = original_capacity
+        invalid_vehicle.max_payload_kg = original_payload
+
+
+def test_vehicle_selection_calculates_required_number_of_configured_units(app):
+    with app.app_context():
+        booking = create_request()
+        replace_inventory(booking, [{
+            'name': 'Multi-vehicle load', 'quantity': 1,
+            'estimated_volume_m3': 50, 'estimated_weight_kg': 9000,
+        }])
+        vehicle = max(VehicleType.query.filter_by(is_active=True).all(), key=lambda row: row.capacity_m3)
+
+        save_vehicle_selection(booking, vehicle.id)
+        option = next(row for row in vehicle_options(booking) if row['id'] == vehicle.id)
+        requirements = inventory_requirements(booking)
+        assert option['quantity'] > 1
+        assert option['quantity'] * option['capacity_m3'] >= requirements['volume_m3']
+        assert option['quantity'] * option['max_payload_kg'] >= requirements['weight_kg']
+
+
+def test_vehicle_selection_rejects_inactive_catalogue_entry(app):
+    with app.app_context():
+        booking = create_request()
+        vehicle = VehicleType.query.filter_by(is_active=True).first()
+        vehicle_id = vehicle.id
+        vehicle.is_active = False
+        db.session.commit()
+
+        with pytest.raises(ValueError, match='no longer available'):
+            save_vehicle_selection(booking, vehicle_id)
+
+
+def test_services_post_rejects_manipulated_vehicle_with_missing_capacity(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    login_customer(app, client)
+    with app.app_context():
+        booking = create_request()
+        replace_inventory(booking, [{
+            'name': 'Sofa', 'quantity': 1, 'estimated_volume_m3': 1.5, 'estimated_weight_kg': 50,
+        }])
+        workflow_data = dict(booking.workflow_data or {})
+        workflow_data.update({
+            'inventory_confirmed': True,
+            'inventory_answers': {'heavy_or_oversized': 'no'},
+            'property': {'service_answers': {
+                'destination_property_type': 'Flat / Apartment',
+                'restricted_vehicle_access': 'no', 'long_carry_distance': 'no',
+            }},
+        })
+        booking.workflow_data = workflow_data
+        booking.workflow_state = 'INVENTORY_COMPLETED'
+        vehicle = VehicleType.query.filter_by(is_active=True).first()
+        vehicle.capacity_m3 = 0
+        vehicle_id = vehicle.id
+        booking_id = booking.id
+        request_id = booking.booking_request_id
+        db.session.commit()
+    with client.session_transaction() as session:
+        session['active_booking_request_id'] = request_id
+
+    response = client.post(f'/booking/{request_id}/services', data={'vehicle_type_id': str(vehicle_id)})
+    assert response.status_code == 200
+    assert b'missing verified capacity data' in response.data
+    with app.app_context():
+        booking = db.session.get(Booking, booking_id)
+        assert booking.workflow_state == 'SERVICES_COMPLETED'
+        assert 'vehicle' not in booking.workflow_data
+
+
 def test_inventory_and_service_pages_have_previous_and_no_manual_service_hours(app):
     app.config['WTF_CSRF_ENABLED'] = False
     client = app.test_client()
@@ -411,6 +538,12 @@ def test_inventory_and_service_pages_have_previous_and_no_manual_service_hours(a
     assert inventory.status_code == 200
     inventory_html = inventory.get_data(as_text=True)
     assert 'Living Room' in inventory_html and 'Fragile / Valuable' in inventory_html
+    assert 'static/css/booking.css' in inventory_html
+    assert 'static/js/booking.js' in inventory_html
+    assert 'inventory-category-group' in inventory_html
+    assert '<summary' in inventory_html
+    assert 'preservedSubmitter.name = submitter.name' in inventory_html
+    assert 'preservedSubmitter.value = submitter.value' in inventory_html
     assert 'Vehicle recommendation' not in inventory_html
     assert 'Previous: Property' in inventory_html
     services = client.get(f'/booking/{request_id}/services')
@@ -419,6 +552,29 @@ def test_inventory_and_service_pages_have_previous_and_no_manual_service_hours(a
     assert 'Packing &amp; Protection' in services_html
     assert 'Additional service hours' not in services_html
     assert 'Previous: Inventory' in services_html
+    assert 'aria-label="Remove Wardrobe"' in inventory_html
+    assert 'title="Delete item"' in inventory_html
+
+
+def test_property_questions_use_accessible_native_choice_groups(app):
+    client = app.test_client()
+    login_customer(app, client)
+    with app.app_context():
+        booking = create_request()
+        request_id = booking.booking_request_id
+
+    with client.session_transaction() as session:
+        session['active_booking_request_id'] = request_id
+
+    response = client.get(f'/booking/{request_id}/property')
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'booking-question-grid' in html
+    assert 'role="radiogroup"' in html
+    assert 'aria-labelledby="service_restricted_vehicle_access-label"' in html
+    assert 'data-condition-key="property_type"' in html
+    assert 'Floors or storeys at pickup' in html
+    assert 'Enter 1 for a single-level property.' in html
 
 
 def test_customer_can_add_catalogue_items_with_quantity_only(app):
@@ -505,7 +661,9 @@ def test_residential_inventory_is_saved_reviewed_then_vehicle_is_recommended(app
     assert property_page.status_code == 200
     assert 'Bedrooms at destination' in property_html
     assert 'Destination property floors or storeys' in property_html
-    assert 'data-condition-value="Flat / Apartment|Self-contained|Duplex|Detached House|Semi-detached House|Bungalow|Terrace House"' in property_html
+    assert 'name="service_destination_property_type"' in property_html
+    assert '<select name="service_destination_property_type"' in property_html
+    assert 'type="checkbox" name="service_destination_property_type"' not in property_html
 
     inventory_page = client.get(f'/booking/{request_id}/inventory')
     inventory_html = inventory_page.get_data(as_text=True)
@@ -725,6 +883,16 @@ def test_inventory_confirmation_is_idempotent_and_event_key_is_unique(app):
         assert BookingEvent.query.filter_by(booking_id=booking.id, action='inventory.confirmed').count() == 1
         assert confirm_inventory(booking) is False
 
+        duplicate = BookingEvent(
+            booking_id=booking.id, action='inventory.confirmed',
+            idempotency_key=event.idempotency_key,
+        )
+        db.session.add(duplicate)
+        with pytest.raises(IntegrityError):
+            db.session.flush()
+        db.session.rollback()
+        assert BookingEvent.query.filter_by(booking_id=booking.id, action='inventory.confirmed').count() == 1
+
 
 def test_api_identical_inventory_confirmation_retry_keeps_one_event(app):
     app.config['WTF_CSRF_ENABLED'] = False
@@ -771,6 +939,28 @@ def test_payment_is_not_faked_when_provider_is_unconfigured(app, monkeypatch):
         assert Booking.query.filter_by(booking_request_id=booking.booking_request_id).count() == 1
 
 
+def test_paid_booking_rejects_manual_quote_override_without_state_changes(app):
+    with app.app_context():
+        booking = create_request()
+        booking.status = 'Confirmed'
+        booking.payment_status = 'Paid'
+        booking.quote_status = 'Accepted'
+        booking.workflow_state = 'CONFIRMED'
+        booking.estimated_total = 100000
+        booking.deposit_amount = 30000
+        db.session.commit()
+
+        with pytest.raises(ValueError, match='paid or operational'):
+            apply_price_override(booking, 50000, 'Attempted paid-booking repricing', user_id=None)
+
+        assert booking.status == 'Confirmed'
+        assert booking.payment_status == 'Paid'
+        assert booking.quote_status == 'Accepted'
+        assert booking.workflow_state == 'CONFIRMED'
+        assert booking.estimated_total == 100000
+        assert booking.deposit_amount == 30000
+
+
 def test_api_payment_allows_an_accepted_unpaid_quote_but_not_a_paid_booking(app, monkeypatch):
     app.config['WTF_CSRF_ENABLED'] = False
     client = app.test_client()
@@ -806,6 +996,28 @@ def test_api_payment_allows_an_accepted_unpaid_quote_but_not_a_paid_booking(app,
     assert blocked.status_code == 409
 
 
+def test_payment_page_uses_the_booking_service_stages(app):
+    app.config['WTF_CSRF_ENABLED'] = False
+    client = app.test_client()
+    login_customer(app, client)
+    with app.app_context():
+        customer = User.query.filter_by(email='booking-engine-test@example.com').one()
+        booking = create_booking_request(
+            customer_id=customer.id, service_type='cleaning',
+            location={'pickup_address': '12 Yakubu Gowon Way', 'pickup_city': 'Abuja', 'pickup_state': 'FCT'},
+        )
+        booking.workflow_state = 'QUOTE_ACCEPTED'
+        booking.quote_status = 'Accepted'
+        db.session.commit()
+        request_id = booking.booking_request_id
+    response = client.get(f'/booking/{request_id}/payment')
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'Step 6 of 6' in html
+    assert 'role="progressbar"' in html
+    assert 'aria-valuetext="Step 6 of 6: Payment"' in html
+
+
 @pytest.mark.parametrize(
     ('path_suffix', 'method', 'json_payload'),
     [
@@ -822,6 +1034,7 @@ def test_api_payment_allows_an_accepted_unpaid_quote_but_not_a_paid_booking(app,
         ('api/bookings/{request_id}/calculate', 'post', {}),
         ('api/bookings/{request_id}/quote/accept', 'post', {'policy_acknowledged': True}),
         ('api/bookings/{request_id}/payment', 'post', {}),
+        ('api/bookings/{request_id}/ai/suggest', 'post', {'external_processing_acknowledged': True, 'description': 'Move details'}),
     ],
 )
 def test_paid_confirmed_booking_rejects_customer_workflow_edits(app, path_suffix, method, json_payload):
@@ -933,7 +1146,7 @@ def test_payment_stage_renders_deposit_and_secure_payment_action(app, monkeypatc
     assert response.status_code == 200
     html = response.get_data(as_text=True)
     assert 'Secure your moving date' in html
-    assert 'Deposit due now' in html
+    assert 'Deposit due now: ₦' in html
     assert 'Continue to secure payment' in html
 
     retry = client.post(f'/booking/{request_id}/payment')
