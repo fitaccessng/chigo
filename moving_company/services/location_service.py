@@ -5,6 +5,7 @@ import re
 import time
 import urllib.parse
 import urllib.request
+from collections import defaultdict
 from datetime import datetime
 from difflib import SequenceMatcher
 
@@ -30,6 +31,7 @@ _SEARCH_CACHE_LIMIT = 500
 _ROUTE_CACHE = {}
 _ROUTE_CACHE_TTL = 300
 _REQUEST_FAILED = object()
+_PHOTON_AUTOCOMPLETE_TIMEOUT = 1.2
 
 ABUJA_ALIAS_MAP = {
     'gwarimpa': 'gwarinpa',
@@ -83,8 +85,10 @@ def _nominatim_request(path, params=None, timeout=3.5):
 
 def _photon_request(path, params=None, timeout=3.5):
     base_url = _get_config_value('PHOTON_BASE_URL') or 'https://photon.komoot.io'
-    request_path = f"{base_url.rstrip('/')}{path}"
-    request_params = {'lang': 'en'}
+    parsed_path = urllib.parse.urlsplit(path)
+    request_path = f"{base_url.rstrip('/')}{parsed_path.path}"
+    request_params = dict(urllib.parse.parse_qsl(parsed_path.query, keep_blank_values=True))
+    request_params.setdefault('lang', 'en')
     if params:
         request_params.update(params)
     query_string = urllib.parse.urlencode(request_params, doseq=True)
@@ -309,6 +313,8 @@ def _normalise_result(raw_result):
     address = raw_result.get('address') or {}
     provider_place_id = raw_result.get('provider_place_id') or raw_result.get('place_id') or raw_result.get('osm_id') or raw_result.get('id') or raw_result.get('name') or ''
     result = {
+        'id': raw_result.get('id'),
+        'local_place_id': raw_result.get('local_place_id'),
         'name': raw_result.get('name') or raw_result.get('display_name') or raw_result.get('formatted_address') or 'Location',
         'formatted_address': raw_result.get('formatted_address') or raw_result.get('display_name') or raw_result.get('name') or 'Address unavailable',
         'display_name': raw_result.get('display_name') or raw_result.get('formatted_address') or raw_result.get('name') or 'Address unavailable',
@@ -343,8 +349,12 @@ def _normalise_result(raw_result):
 def _photon_to_location(item):
     properties = item.get('properties') or item
     coordinates = (item.get('geometry') or {}).get('coordinates') or []
-    latitude = float(properties.get('lat') or (coordinates[1] if len(coordinates) > 1 else 0))
-    longitude = float(properties.get('lon') or (coordinates[0] if coordinates else 0))
+    candidate_latitude = properties.get('lat') or (coordinates[1] if len(coordinates) > 1 else None)
+    candidate_longitude = properties.get('lon') or (coordinates[0] if coordinates else None)
+    validated_coordinates = validate_coordinates(candidate_latitude, candidate_longitude)
+    if validated_coordinates is None:
+        return None
+    latitude, longitude = validated_coordinates
     osm_type = str(properties.get('osm_type') or '').casefold()
     precision = 'street' if osm_type in {'way', 'node'} else 'area'
     name = properties.get('name') or properties.get('street') or item.get('display_name') or properties.get('city') or 'Location'
@@ -375,6 +385,53 @@ def _photon_to_location(item):
         'address_components': properties,
     }
     return location
+
+
+def _photon_result_is_fct_candidate(item):
+    properties = item.get('properties') or item
+    coordinates = (item.get('geometry') or {}).get('coordinates') or []
+    latitude = properties.get('lat') or (coordinates[1] if len(coordinates) > 1 else None)
+    longitude = properties.get('lon') or (coordinates[0] if coordinates else None)
+    point = validate_coordinates(latitude, longitude)
+    if point is None:
+        return False
+    latitude, longitude = point
+    if not (
+        FCT_BOUNDS['min_latitude'] <= latitude <= FCT_BOUNDS['max_latitude']
+        and FCT_BOUNDS['min_longitude'] <= longitude <= FCT_BOUNDS['max_longitude']
+    ):
+        return False
+
+    country = normalize_location_name(properties.get('country') or '')
+    country_code = str(properties.get('countrycode') or properties.get('country_code') or '').casefold()
+    if country_code and country_code != 'ng':
+        return False
+    if country and country != 'nigeria':
+        return False
+    if not country and country_code != 'ng':
+        return False
+
+    state = normalize_location_name(properties.get('state') or '')
+    state_is_fct = state in {
+        'fct', 'federal capital territory', 'abuja federal capital territory',
+    }
+    if state and not state_is_fct:
+        return False
+    county = normalize_location_name(
+        properties.get('county') or properties.get('area_council') or ''
+    )
+    council_is_fct = canonical_area_council(county) is not None or county == 'municipal area council'
+    return state_is_fct or council_is_fct
+
+
+def _photon_result_matches_query(item, query):
+    properties = item.get('properties') or item
+    searchable = normalize_location_name(' '.join(str(properties.get(key) or '') for key in (
+        'name', 'street', 'district', 'suburb', 'neighbourhood', 'city', 'town', 'village',
+        'county', 'state', 'country', 'postcode',
+    )))
+    query_terms = normalize_location_name(query).split()
+    return bool(query_terms) and all(term in searchable.split() for term in query_terms)
 
 
 def _nominatim_to_location(item):
@@ -553,6 +610,24 @@ def _search_local_abuja_places(query, limit=8):
     return results
 
 
+def _missing_location_relation(error, allowed_relations):
+    driver_error = getattr(error, 'orig', None)
+    diagnostics = getattr(driver_error, 'diag', None)
+    sqlstate = (
+        getattr(driver_error, 'sqlstate', None)
+        or getattr(driver_error, 'pgcode', None)
+        or getattr(diagnostics, 'sqlstate', None)
+    )
+    if sqlstate != '42P01':
+        return None
+    relation = getattr(diagnostics, 'table_name', None)
+    if relation is None:
+        message = getattr(diagnostics, 'message_primary', '') or ''
+        match = re.search(r'relation "([a-zA-Z_][a-zA-Z0-9_]*)" does not exist', message)
+        relation = match.group(1) if match else None
+    return relation if relation in allowed_relations else None
+
+
 def _search_postgis_locations(query, limit=8, area_council=None):
     if not has_app_context():
         return []
@@ -614,8 +689,16 @@ def _search_postgis_locations(query, limit=8, area_council=None):
         }).mappings().all()
     except SQLAlchemyError as error:
         db.session.rollback()
+        missing_relation = _missing_location_relation(error, {'location_records', 'location_aliases'})
+        if missing_relation:
+            current_app.logger.warning(
+                'PostGIS location index unavailable (missing optional relation=%s); using fallback sources.',
+                missing_relation,
+            )
+            return []
         raise LocationSearchUnavailable('database') from error
 
+    results = []
     if len(rows) < result_limit:
         remaining = result_limit - len(rows)
         try:
@@ -634,7 +717,15 @@ def _search_postgis_locations(query, limit=8, area_council=None):
                   'normalized': normalized, 'limit': remaining}).mappings().all()
         except SQLAlchemyError as error:
             db.session.rollback()
-            raise LocationSearchUnavailable('database') from error
+            missing_relation = _missing_location_relation(error, {'location_observations'})
+            if missing_relation:
+                current_app.logger.warning(
+                    'PostGIS observation supplement unavailable (missing optional relation=%s).',
+                    missing_relation,
+                )
+                observations = []
+            else:
+                raise LocationSearchUnavailable('database') from error
         for observation in observations:
             results.append({
                 'id': f"observation-{observation['id']}",
@@ -1023,19 +1114,94 @@ def merge_canonical_locations(source_id, target_id, *, maximum_distance_m=250):
 
 def _merge_results(results):
     merged = []
-    seen = set()
+    by_source_id = {}
+    semantic_matches = defaultdict(list)
     for result in results:
         normalised = _normalise_result(result)
-        key = (
-            normalised['formatted_address'],
-            round(float(normalised['latitude'] or 0), 4),
-            round(float(normalised['longitude'] or 0), 4),
-        )
-        if key in seen:
+        source_name = str(normalised.get('source') or normalised.get('provider') or '')
+        normalised['source_provenance'] = sorted(set(normalised.get('source_provenance') or [source_name]) - {''})
+        source_id = str(normalised.get('provider_raw_id') or normalised.get('provider_place_id') or '')
+        source_key = (source_name, source_id) if source_name and source_id else None
+        matched_index = by_source_id.get(source_key) if source_key else None
+
+        coordinates = validate_coordinates(normalised.get('latitude'), normalised.get('longitude'))
+        council = canonical_area_council(normalised.get('area_council')) or normalize_location_name(normalised.get('area_council'))
+        feature_type = normalize_location_name(normalised.get('location_type') or normalised.get('type'))
+        semantic_key = (normalize_location_name(normalised.get('name')), council, feature_type)
+        if matched_index is not None:
+            candidate = merged[matched_index]
+            candidate_council = canonical_area_council(candidate.get('area_council')) or normalize_location_name(candidate.get('area_council'))
+            candidate_type = normalize_location_name(candidate.get('location_type') or candidate.get('type'))
+            candidate_coordinates = validate_coordinates(candidate.get('latitude'), candidate.get('longitude'))
+            if candidate_council != council or candidate_type != feature_type:
+                matched_index = None
+            elif coordinates and candidate_coordinates and _distance_km(*coordinates, *candidate_coordinates) > 0.15:
+                matched_index = None
+        if matched_index is None and coordinates and semantic_key[0]:
+            for candidate_index in semantic_matches.get(semantic_key, []):
+                candidate = merged[candidate_index]
+                candidate_coordinates = validate_coordinates(candidate.get('latitude'), candidate.get('longitude'))
+                if candidate_coordinates and _distance_km(*coordinates, *candidate_coordinates) <= 0.15:
+                    matched_index = candidate_index
+                    break
+
+        if matched_index is None:
+            matched_index = len(merged)
+            merged.append(normalised)
+            if source_key:
+                by_source_id[source_key] = matched_index
+            if coordinates and semantic_key[0]:
+                semantic_matches[semantic_key].append(matched_index)
             continue
-        seen.add(key)
-        merged.append(normalised)
+
+        existing = merged[matched_index]
+        for key, value in normalised.items():
+            if existing.get(key) in (None, '', 0) and value not in (None, '', 0):
+                existing[key] = value
+        sources = set(existing.get('source_provenance') or [])
+        sources.update(value for value in (existing.get('source'), normalised.get('source')) if value)
+        if sources:
+            existing['source_provenance'] = sorted(sources)
     return merged
+
+
+def _rank_location_results(results, query):
+    normalized_query = normalize_location_name(query)
+    query_terms = normalized_query.split()
+
+    def rank(result):
+        name = normalize_location_name(result.get('name'))
+        haystack = normalize_location_name(' '.join(str(result.get(key) or '') for key in (
+            'formatted_address', 'area', 'district', 'neighborhood', 'city', 'state', 'country', 'postal_code',
+        )))
+        fields = [name, haystack]
+        aliases = result.get('aliases') or []
+        if isinstance(aliases, str):
+            aliases = re.split(r'[,;|]', aliases)
+        fields.extend(normalize_location_name(alias) for alias in aliases)
+        if normalized_query == name:
+            relevance = 1000
+        elif name.startswith(normalized_query):
+            relevance = 800
+        elif any(field == normalized_query for field in fields[1:]):
+            relevance = 750
+        elif normalized_query and normalized_query in haystack:
+            relevance = 650
+        else:
+            matched = sum(any(term in field for field in fields if field) for term in query_terms)
+            relevance = int(500 * matched / max(1, len(query_terms)))
+        verified = bool(result.get('verified')) or result.get('verification_status') == 'verified'
+        has_coordinates = validate_coordinates(result.get('latitude'), result.get('longitude')) is not None
+        fct_context = bool(result.get('area_council')) or normalize_location_name(result.get('state')) in {
+            'fct', 'federal capital territory', 'abuja federal capital territory',
+        }
+        if 'airport' in normalized_query and normalize_location_name(
+            result.get('location_type') or result.get('type')
+        ) == 'airport':
+            relevance += 250
+        return (relevance, int(verified), int(has_coordinates), int(fct_context), float(result.get('popularity_score') or 0))
+
+    return sorted(results, key=rank, reverse=True)
 
 
 def _result_score(item, query):
@@ -1119,33 +1285,65 @@ def search_places(query, session_token=None, latitude=None, longitude=None, limi
         return [dict(result) for result in cached[1]]
 
     candidate_limit = min(50, result_limit * 5) if canonical_council or latitude is not None else result_limit
-    local_results = _search_postgis_locations(
+    postgis_results = _search_postgis_locations(
         raw_query, limit=candidate_limit, area_council=area_council,
     )
-    if not local_results:
-        local_results = _search_local_abuja_places(raw_query, limit=candidate_limit)
+    try:
+        curated_results = _search_local_abuja_places(raw_query, limit=candidate_limit)
+    except SQLAlchemyError as error:
+        from ..extensions import db
+
+        db.session.rollback()
+        missing_relation = _missing_location_relation(error, {'local_places'})
+        if not missing_relation:
+            raise LocationSearchUnavailable('database') from error
+        current_app.logger.warning(
+            'Local place index unavailable (missing optional relation=%s); using provider fallback.',
+            missing_relation,
+        )
+        curated_results = []
+    local_results = _merge_results([*postgis_results, *curated_results])
+    local_results = [
+        result for result in local_results
+        if not result.get('country') or normalize_location_name(result.get('country')) == 'nigeria'
+    ]
+    local_results = [
+        result for result in local_results
+        if not result.get('state') or normalize_location_name(result.get('state')) in {
+            'fct', 'federal capital territory', 'abuja federal capital territory',
+        }
+    ]
     if local_results:
-        results = local_results
+        results = _rank_location_results(local_results, raw_query)
         for result in results:
             result['search_count'] = int(result.get('search_count') or 0) + 1
     else:
-        external_query = raw_query
-        if not any(term in raw_query.casefold() for term in ('abuja', 'fct', 'federal capital territory')):
-            external_query = f'{raw_query}, Abuja, FCT, Nigeria'
+        external_query = normalize_location_name(raw_query)
+        if 'nigeria' not in external_query.casefold():
+            external_query = f'{raw_query}, Nigeria'
+        bbox = ','.join(str(FCT_BOUNDS[key]) for key in (
+            'min_longitude', 'min_latitude', 'max_longitude', 'max_latitude',
+        ))
         payload = _photon_request('/api/?q={}'.format(urllib.parse.quote(external_query)), {
             'limit': result_limit,
-        }, timeout=2.5)
+            'bbox': bbox,
+        }, timeout=_PHOTON_AUTOCOMPLETE_TIMEOUT)
         if payload is None:
             raise LocationSearchUnavailable('provider')
         results = []
         if isinstance(payload, dict):
             hits = payload.get('features') or payload.get('hits') or []
             for item in hits:
+                if not _photon_result_is_fct_candidate(item) or not _photon_result_matches_query(item, raw_query):
+                    continue
                 result = _photon_to_location(item)
+                if result is None:
+                    continue
                 result['original_query'] = raw_query
                 result['normalized_query'] = normalized
                 results.append(result)
             results = _merge_results(results)
+            results = _rank_location_results(results, raw_query)
 
     if canonical_council:
         results = [

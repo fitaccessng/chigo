@@ -21,6 +21,11 @@ def upgrade():
     from moving_company.models import db
 
     db.metadata.create_all(bind=op.get_bind(), checkfirst=True)
+    # Alembic creates this metadata table with VARCHAR(32) by default, while
+    # several Chigo revision identifiers are longer.  Widen it before Alembic
+    # records this baseline revision so the following migration can proceed.
+    if op.get_bind().dialect.name == 'postgresql':
+        op.execute('ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(64)')
 
 
 def downgrade():

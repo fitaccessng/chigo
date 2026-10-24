@@ -23,7 +23,7 @@ _AUTOCOMPLETE_LEGACY_FIELDS = (
     'area_council', 'district', 'neighborhood', 'location_type', 'type', 'city',
     'state', 'country', 'latitude', 'longitude', 'postal_code', 'place_id',
     'provider_place_id', 'provider', 'provider_raw_id', 'source',
-    'coordinate_precision', 'original_query', 'normalized_query', 'confidence',
+    'source_provenance', 'coordinate_precision', 'original_query', 'normalized_query', 'confidence',
 )
 _PUBLIC_ADDRESS_FIELDS = (
     'house_number', 'road', 'street', 'suburb', 'neighbourhood', 'city_district',
@@ -57,6 +57,25 @@ def _autocomplete_contract(result):
         'verified': verified,
         'requires_confirmation': not verified or not components['city'] or not components['state'] or not has_coordinates,
     }
+
+
+def _log_location_database_error(error):
+    cause = getattr(error, '__cause__', None)
+    driver_error = getattr(cause, 'orig', None) or getattr(error, 'orig', None)
+    diagnostics = getattr(driver_error, 'diag', None)
+    sqlstate = (
+        getattr(driver_error, 'sqlstate', None)
+        or getattr(driver_error, 'pgcode', None)
+        or getattr(diagnostics, 'sqlstate', None)
+    )
+    message = getattr(diagnostics, 'message_primary', None)
+    if message:
+        current_app.logger.error(
+            'Location autocomplete unavailable (kind=database, driver=%s, sqlstate=%s, message=%s).',
+            type(driver_error).__name__, sqlstate or 'unknown', str(message)[:240],
+        )
+        return
+    current_app.logger.error('Location autocomplete unavailable (kind=database).')
 
 
 @csrf.exempt
@@ -97,13 +116,16 @@ def autocomplete():
             longitude=coordinates[1] if coordinates else None,
         )
     except LocationSearchUnavailable as error:
-        current_app.logger.error('Location autocomplete unavailable (kind=%s).', error.kind)
+        if error.kind == 'database':
+            _log_location_database_error(error)
+        else:
+            current_app.logger.error('Location autocomplete unavailable (kind=%s).', error.kind)
         return jsonify({'success': False, 'error': 'Location search is temporarily unavailable. Please retry.'}), 503
-    except SQLAlchemyError:
+    except SQLAlchemyError as error:
         db_session = getattr(current_app.extensions.get('sqlalchemy'), 'session', None)
         if db_session is not None:
             db_session.rollback()
-        current_app.logger.error('Location autocomplete unavailable (kind=database).')
+        _log_location_database_error(error)
         return jsonify({'success': False, 'error': 'Location search is temporarily unavailable. Please retry.'}), 503
     return jsonify({'success': True, 'results': [_autocomplete_contract(result) for result in results]})
 

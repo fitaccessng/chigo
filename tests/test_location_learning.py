@@ -15,19 +15,22 @@ def test_search_uses_local_then_photon_then_customer_fallback(monkeypatch):
     monkeypatch.setattr(location_service, '_search_postgis_locations', lambda *args, **kwargs: [])
     monkeypatch.setattr(location_service, '_search_local_abuja_places', lambda *args, **kwargs: [])
     monkeypatch.setattr(location_service, '_photon_request', lambda *args, **kwargs: {
-        'hits': [{
-            'display_name': 'ABC Estate, Lokogoma',
-            'osm_id': 101,
-            'lat': 9.0,
-            'lon': 7.4,
-            'osm_type': 'way',
+        'features': [{
+            'type': 'Feature',
+            'geometry': {'type': 'Point', 'coordinates': [7.4, 9.0]},
+            'properties': {
+                'name': 'ABC Estate', 'district': 'Lokogoma', 'city': 'Abuja',
+                'state': 'Federal Capital Territory', 'country': 'Nigeria',
+                'countrycode': 'NG', 'osm_id': 101, 'osm_type': 'way',
+            },
         }]
     })
 
     with _app().app_context():
         results = location_service.search_places('ABC Estate', limit=4)
 
-    assert results[0]['name'] == 'ABC Estate, Lokogoma'
+    assert results[0]['name'] == 'ABC Estate'
+    assert 'Lokogoma' in results[0]['formatted_address']
     assert results[0]['provider'] == 'photon'
     assert results[0]['coordinate_precision'] == 'street'
 

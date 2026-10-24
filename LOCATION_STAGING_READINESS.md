@@ -4,6 +4,31 @@ Audit timestamp: 2026-10-22T05:18:29+01:00
 Repository commit: `f19174c` on branch `main`  
 Decision: **NOT READY**
 
+## Live Autocomplete Repair Follow-Up (2026-10-22)
+
+- Read-only live probes on DockHive app `chigo-africa` v32 observed zero results for `Gwarinpa`, `Gwarimpa`, `Wuse`, `Kuje`, and a deliberate no-match; `Abuja` returned French Photon results.
+- Confirmed source defect: bare `Abuja` matched the old “already contains Abuja/FCT” check and was sent to Photon globally as `q=Abuja`, without country restriction or geographic bias. Missing live local rows may additionally explain zero local hits for known FCT names; the live DB remains uninspectable, so that is unknown rather than a proven cause.
+- Local code fix now adds FCT/Nigeria query context, sends Photon the supported FCT bbox, and filters fallback results by valid FCT-bounds coordinates and Nigeria plus FCT-state/council metadata. This rejects the observed foreign results and a contradictory Nasarawa result from the bbox sample. Local-first behavior, booking API shape, and DB contents are unchanged.
+- Focused validation: combined autocomplete/location/booking/route regression selection passed **26 tests**, 146 deselected. Pylance checks and `git diff --check` passed.
+- No deployment, production configuration change, DB read/write, migration, import, or live retest after the local fix occurred. Live DB tables/counts/import provenance remain unknown. Keep readiness **NOT READY** until persistent DB contents are verified and the actual attached database can be inspected safely.
+
+## Unified Search Coordinator Follow-Up (2026-10-22)
+
+## Unified Search Coordinator Follow-Up (2026-10-22)
+
+- The local coordinator queries both existing local indexes (PostGIS canonical records and SQLAlchemy `LocalPlace`) and combines candidates before considering the single Photon fallback. It merges source IDs and nearby same-name/type/council candidates conservatively, preserves same-name records in different councils and retains source labels in `source_provenance`.
+- Local candidates with contradictory country/state metadata are filtered. Photon fallback uses Abuja/FCT/Nigeria context, a bounded FCT bbox, a 1.2-second timeout, valid-coordinate checks, Nigeria metadata, and FCT state/council validation. Explicit non-FCT state, foreign, malformed, and out-of-FCT candidates are rejected.
+- Local ID normalization preserves `id`/`local_place_id` for existing booking selection persistence. Reused source IDs do not merge when council/type conflicts or coordinates differ by more than 150 m.
+
+### Final Verification Checkpoint
+
+- Focused location/booking/import/routing command after the final merge guard: **41 passed, 142 deselected**. Five edge tests passed for FCT aliases, cross-index deduplication, source-ID collision safety, foreign/non-FCT filtering, and Photon adapter compatibility.
+- Complete unfiltered suite before the last localized source-ID guard/test: **312 passed, 0 failed, 0 skipped in 121.68 seconds**. The full suite was not rerun after that final localized change; the focused location/booking suite was rerun and passed.
+- Latest local SQLite diagnostic, 20 cache-cleared requests: endpoint p50/p95/p99 **8.9/11.0/35.8 ms**; local matcher **6.1/11.6/205.9 ms**. One deliberate no-match overlapped a Photon transport outage and correctly returned HTTP 503. These are local-only timings; matcher p99 is slightly above the provisional 200 ms goal, and no PostgreSQL/PostGIS result exists.
+- Live DockHive app v32 batch before fix deployment: Gwarinpa 0/3,058 ms; Gwarimpa 0/183 ms; Wuse 0/845 ms; Maitama 0/860 ms; Kuje 0/906 ms; Gwagwalada 0/1,289 ms; Bwari 0/1,020 ms; Abuja 8/948 ms, with French Photon results; deliberate no-match 0/3,029 ms. All returned HTTP 200 and `success=true`. These are uncontrolled browser wall-clock observations; empty payloads do not prove that the local DB query succeeded.
+- Live DB identity, schema, FCT rows, import status, and recovery remain unknown. No migration, import, DB write, production configuration change, browser booking journey, or redeployment occurred. DockHive remains version 32. Readiness remains **NOT READY**.
+The coordinator follow-up also merges the two existing local stores, preserves canonical IDs, reports contributing source labels, deduplicates conservatively, and bounds/validates the existing Photon fallback. The final focused run passed 41 tests (141 deselected). A 20-request local SQLite diagnostic measured endpoint p50/p95/p99 7.7/11.8/12.0 ms and matcher 6.1/10.8/209.3 ms; these do not measure the live PostgreSQL/PostGIS target. No live retest or redeployment was performed.
+
 ## Executive Decision
 
 **NOT READY** — the workspace identifies development SQLite, not staging; there is no positive staging target, no proven production/staging separation, and no verified recoverable staging backup. No database mutation, migration, import, deployment, browser booking journey, or PostGIS benchmark was run. Do not proceed to staging writes.

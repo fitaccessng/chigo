@@ -16,21 +16,26 @@ depends_on = None
 
 
 def upgrade():
-    op.create_table(
-        'oauth_identities',
-        sa.Column('id', sa.Integer(), nullable=False),
-        sa.Column('user_id', sa.Integer(), nullable=False),
-        sa.Column('provider', sa.String(length=32), nullable=False),
-        sa.Column('subject', sa.String(length=255), nullable=False),
-        sa.Column('email', sa.String(length=255), nullable=False),
-        sa.Column('email_verified', sa.Boolean(), nullable=False),
-        sa.Column('created_at', sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('provider', 'subject', name='uq_oauth_identity_provider_subject'),
-        sa.UniqueConstraint('user_id', 'provider', name='uq_oauth_identity_user_provider'),
-    )
-    op.create_index(op.f('ix_oauth_identities_user_id'), 'oauth_identities', ['user_id'], unique=False)
+    inspector = sa.inspect(op.get_bind())
+    if not inspector.has_table('oauth_identities'):
+        op.create_table(
+            'oauth_identities',
+            sa.Column('id', sa.Integer(), nullable=False),
+            sa.Column('user_id', sa.Integer(), nullable=False),
+            sa.Column('provider', sa.String(length=32), nullable=False),
+            sa.Column('subject', sa.String(length=255), nullable=False),
+            sa.Column('email', sa.String(length=255), nullable=False),
+            sa.Column('email_verified', sa.Boolean(), nullable=False),
+            sa.Column('created_at', sa.DateTime(), nullable=False),
+            sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+            sa.PrimaryKeyConstraint('id'),
+            sa.UniqueConstraint('provider', 'subject', name='uq_oauth_identity_provider_subject'),
+            sa.UniqueConstraint('user_id', 'provider', name='uq_oauth_identity_user_provider'),
+        )
+    indexes = {index['name'] for index in sa.inspect(op.get_bind()).get_indexes('oauth_identities')}
+    index_name = op.f('ix_oauth_identities_user_id')
+    if index_name not in indexes:
+        op.create_index(index_name, 'oauth_identities', ['user_id'], unique=False)
 
 
 def downgrade():

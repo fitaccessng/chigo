@@ -58,6 +58,17 @@ def validate_database_connection(app):
         ) from error
 
 
+def bootstrap_google_oauth_schema(app):
+    if not app.config.get('GOOGLE_OAUTH_SCHEMA_BOOTSTRAP'):
+        return False
+    from .models import OAuthIdentity
+
+    with app.app_context():
+        db.create_all(tables=[OAuthIdentity.__table__], checkfirst=True)
+    app.logger.info('Created the Google OAuth identity table if it was missing.')
+    return True
+
+
 def create_app(testing=False):
     app = Flask(__name__)
     app.config.from_object(Config)
@@ -88,6 +99,7 @@ def create_app(testing=False):
 
     if not testing and not os.getenv('FLASK_SKIP_DB_PREFLIGHT'):
         validate_database_connection(app)
+    bootstrap_google_oauth_schema(app)
 
     app.register_blueprint(public_bp)
     app.register_blueprint(auth_bp, url_prefix='/auth')
@@ -211,6 +223,36 @@ def create_app(testing=False):
             expired = expire_dispatch_offers()
             retried = retry_failed_dispatch_notifications()
             click.echo(f'Expired offers processed: {expired}; failed offer emails retried: {retried}.')
+
+    @app.cli.command('prepare-migration-version-table')
+    def prepare_migration_version_table_command():
+        """Make Alembic's revision marker large enough for this project's IDs."""
+        with app.app_context():
+            if db.engine.dialect.name != 'postgresql':
+                click.echo('Skipping Alembic version-table preparation for non-PostgreSQL database.')
+                return
+            with db.engine.begin() as connection:
+                connection.execute(text(
+                    'ALTER TABLE IF EXISTS alembic_version '
+                    'ALTER COLUMN version_num TYPE VARCHAR(64)'
+                ))
+            click.echo('Prepared Alembic version table.')
+
+    @app.cli.command('bootstrap-empty-production-schema')
+    def bootstrap_empty_production_schema_command():
+        """Create and stamp a deliberately approved, empty production database."""
+        if os.getenv('CHIGO_SCHEMA_BOOTSTRAP', '').lower() != 'true':
+            raise click.ClickException('CHIGO_SCHEMA_BOOTSTRAP=true is required.')
+        with app.app_context():
+            if db.engine.dialect.name != 'postgresql':
+                raise click.ClickException('Schema bootstrap is restricted to PostgreSQL.')
+            inspector = inspect(db.engine)
+            if inspector.has_table('users'):
+                has_users = db.session.execute(text('SELECT EXISTS (SELECT 1 FROM users)')).scalar()
+                if has_users:
+                    raise click.ClickException('Refusing to bootstrap a database that contains users.')
+            db.create_all()
+            click.echo('Created the current schema for an empty PostgreSQL database.')
 
     with app.app_context():
         if app.config.get('AUTO_CREATE_SCHEMA'):

@@ -77,6 +77,26 @@ def test_unavailable_postgres_fails_startup_instead_of_using_sqlite(monkeypatch)
         moving_company.validate_database_connection(app)
 
 
+def test_google_oauth_schema_bootstrap_is_gated_and_targets_one_table(monkeypatch):
+    import moving_company
+    from moving_company.models import OAuthIdentity
+
+    app = create_app(testing=True)
+    app.config['GOOGLE_OAUTH_SCHEMA_BOOTSTRAP'] = False
+    monkeypatch.setattr(moving_company.db, 'create_all', lambda **_kwargs: pytest.fail('bootstrap must be off'))
+    assert moving_company.bootstrap_google_oauth_schema(app) is False
+
+    calls = []
+    monkeypatch.setattr(
+        moving_company.db, 'create_all',
+        lambda **kwargs: calls.append(kwargs),
+    )
+    app.config['GOOGLE_OAUTH_SCHEMA_BOOTSTRAP'] = True
+
+    assert moving_company.bootstrap_google_oauth_schema(app) is True
+    assert calls == [{'tables': [OAuthIdentity.__table__], 'checkfirst': True}]
+
+
 def test_postgis_location_payload_normalizes_fct_records():
     from moving_company.services.postgis_ingestion import normalize_location_payload
 
@@ -562,6 +582,35 @@ def test_autocomplete_reports_database_failure_without_provider_fallback(monkeyp
     assert calls == []
 
 
+def test_autocomplete_logs_safe_postgres_error_without_sql_or_parameters(monkeypatch, caplog):
+    from sqlalchemy.exc import SQLAlchemyError
+    from moving_company.routes import locations as locations_route
+
+    class DriverDiagnostics:
+        sqlstate = '42P01'
+        message_primary = 'relation "location_records" does not exist'
+
+    class DriverError(Exception):
+        diag = DriverDiagnostics()
+
+    app = create_app(testing=True)
+    driver_error = DriverError('private driver detail')
+    database_error = SQLAlchemyError('SELECT * FROM private_table WHERE value = :secret')
+    database_error.orig = driver_error
+    search_error = location_service.LocationSearchUnavailable('database')
+    search_error.__cause__ = database_error
+    monkeypatch.setattr(locations_route, 'search_places', lambda *_args, **_kwargs: (_ for _ in ()).throw(search_error))
+
+    with caplog.at_level('ERROR', logger='moving_company.routes.locations'):
+        response = app.test_client().get('/api/locations/autocomplete?q=Gwarinpa')
+
+    assert response.status_code == 503
+    assert '42P01' in caplog.text
+    assert 'relation "location_records" does not exist' in caplog.text
+    assert 'private_table' not in caplog.text
+    assert 'private driver detail' not in caplog.text
+
+
 def test_autocomplete_reports_provider_timeout_separately_from_no_matches(monkeypatch):
     app = create_app(testing=True)
     location_service.clear_location_search_cache()
@@ -589,6 +638,130 @@ def test_postgis_search_wraps_database_errors(monkeypatch):
             location_service._search_postgis_locations('Gwarinpa')
 
     assert error.value.kind == 'database'
+
+
+def test_postgis_search_falls_back_when_canonical_location_table_is_missing(monkeypatch):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    class Diagnostics:
+        sqlstate = '42P01'
+        table_name = 'location_records'
+
+    class DriverError(Exception):
+        diag = Diagnostics()
+
+    app = create_app(testing=True)
+    with app.app_context():
+        monkeypatch.setattr(db.engine.dialect, 'name', 'postgresql')
+        database_error = SQLAlchemyError('query details are not logged')
+        database_error.orig = DriverError()
+        monkeypatch.setattr(
+            db.session, 'execute',
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(database_error),
+        )
+
+        assert location_service._search_postgis_locations('Gwarinpa') == []
+
+
+def test_postgis_search_ignores_missing_optional_observation_table(monkeypatch):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    class EmptyRows:
+        def mappings(self):
+            return self
+
+        def all(self):
+            return []
+
+    class Diagnostics:
+        sqlstate = '42P01'
+        table_name = 'location_observations'
+
+    class DriverError(Exception):
+        diag = Diagnostics()
+
+    app = create_app(testing=True)
+    with app.app_context():
+        monkeypatch.setattr(db.engine.dialect, 'name', 'postgresql')
+        calls = 0
+
+        def execute(*_args, **_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return EmptyRows()
+            database_error = SQLAlchemyError('query details are not logged')
+            database_error.orig = DriverError()
+            raise database_error
+
+        monkeypatch.setattr(db.session, 'execute', execute)
+
+        assert location_service._search_postgis_locations('Gwarinpa') == []
+        assert calls == 2
+
+
+def test_postgis_search_does_not_suppress_other_missing_tables(monkeypatch):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    class Diagnostics:
+        sqlstate = '42P01'
+        table_name = 'bookings'
+
+    class DriverError(Exception):
+        diag = Diagnostics()
+
+    app = create_app(testing=True)
+    with app.app_context():
+        monkeypatch.setattr(db.engine.dialect, 'name', 'postgresql')
+        database_error = SQLAlchemyError('query details are not logged')
+        database_error.orig = DriverError()
+        monkeypatch.setattr(
+            db.session, 'execute',
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(database_error),
+        )
+
+        with pytest.raises(location_service.LocationSearchUnavailable):
+            location_service._search_postgis_locations('Gwarinpa')
+
+
+def test_autocomplete_uses_bounded_provider_when_local_place_table_is_missing(monkeypatch):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    class Diagnostics:
+        sqlstate = '42P01'
+        table_name = 'local_places'
+
+    class DriverError(Exception):
+        diag = Diagnostics()
+
+    app = create_app(testing=True)
+    location_service.clear_location_search_cache()
+    monkeypatch.setattr(location_service, '_search_postgis_locations', lambda *_args, **_kwargs: [])
+    database_error = SQLAlchemyError('private query information')
+    database_error.orig = DriverError()
+    monkeypatch.setattr(
+        location_service, '_search_local_abuja_places',
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(database_error),
+    )
+    monkeypatch.setattr(location_service, '_photon_request', lambda *_args, **_kwargs: {
+        'features': [{
+            'type': 'Feature',
+            'geometry': {'type': 'Point', 'coordinates': [7.49, 9.07]},
+            'properties': {
+                'name': 'Gwarinpa', 'city': 'Abuja',
+                'state': 'Federal Capital Territory', 'country': 'Nigeria',
+                'countrycode': 'NG', 'osm_type': 'W', 'osm_id': 123,
+            },
+        }],
+    })
+
+    response = app.test_client().get('/api/locations/autocomplete?q=Gwarinpa')
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['success'] is True
+    assert payload['results'][0]['name'] == 'Gwarinpa'
+    assert payload['results'][0]['provider'] == 'photon'
 
 
 def test_json_provider_timeout_is_explicit_for_search(monkeypatch):
@@ -725,7 +898,219 @@ def test_autocomplete_falls_back_to_photon_for_unseeded_abuja_streets(monkeypatc
     assert result['formatted_address'] == 'Example Street, Abuja, Federal Capital Territory, Nigeria'
     assert result['latitude'] == 9.07
     assert result['longitude'] == 7.49
-    assert calls[0][0] == '/api/?q=Example%20Street%2C%20Abuja%2C%20FCT%2C%20Nigeria'
+    assert calls[0][0] == '/api/?q=Example%20Street%2C%20Nigeria'
+    assert calls[0][1] == {
+        'limit': 8,
+        'bbox': '6.6,8.2,7.85,9.85',
+    }
+
+
+def test_photon_fallback_keeps_only_results_verified_as_nigerian_fct(monkeypatch):
+    app = create_app(testing=True)
+    location_service.clear_location_search_cache()
+    provider_calls = []
+    monkeypatch.setattr(location_service, '_search_postgis_locations', lambda *args, **kwargs: [])
+    monkeypatch.setattr(location_service, '_search_local_abuja_places', lambda *args, **kwargs: [])
+    monkeypatch.setattr(location_service, '_photon_request', lambda *args, **kwargs: provider_calls.append((args, kwargs)) or {
+        'features': [
+            {
+                'type': 'Feature',
+                'geometry': {'type': 'Point', 'coordinates': [6.2, 48.8]},
+                'properties': {'name': 'Abuja', 'state': 'Grand Est', 'country': 'France', 'countrycode': 'FR'},
+            },
+            {
+                'type': 'Feature',
+                'geometry': {'type': 'Point', 'coordinates': [7.60, 9.03]},
+                'properties': {'name': 'Nearby Nasarawa', 'state': 'Nasarawa', 'country': 'Nigeria', 'countrycode': 'NG'},
+            },
+            {
+                'type': 'Feature',
+                'geometry': {'type': 'Point', 'coordinates': [7.60, 9.03]},
+                'properties': {
+                    'name': 'Contradictory Administrative Result', 'state': 'Nasarawa',
+                    'county': 'Kuje Area Council', 'country': 'Nigeria', 'countrycode': 'NG',
+                },
+            },
+            {
+                'type': 'Feature',
+                'geometry': {'type': 'Point', 'coordinates': [7.49, 9.07]},
+                'properties': {
+                    'name': 'Wuse District', 'city': 'Abuja',
+                    'state': 'Federal Capital Territory', 'country': 'Nigeria', 'countrycode': 'NG',
+                },
+            },
+            {
+                'type': 'Feature',
+                'geometry': {'type': 'Point', 'coordinates': [7.24, 8.88]},
+                'properties': {
+                    'name': 'Kuje', 'city': 'Abuja', 'county': 'Kuje Area Council',
+                    'country': 'Nigeria', 'countrycode': 'NG',
+                },
+            },
+            {
+                'type': 'Feature',
+                'geometry': {'type': 'Point', 'coordinates': ['bad', None]},
+                'properties': {
+                    'name': 'Malformed FCT feature', 'state': 'Federal Capital Territory',
+                    'country': 'Nigeria', 'countrycode': 'NG',
+                },
+            },
+        ]
+    })
+
+    response = app.test_client().get('/api/locations/autocomplete?q=Abuja&limit=8')
+
+    assert response.status_code == 200
+    results = response.get_json()['results']
+    assert [result['name'] for result in results] == ['Wuse District', 'Kuje']
+    assert all(result['country'] == 'Nigeria' for result in results)
+    assert all(result['latitude'] is not None and result['longitude'] is not None for result in results)
+    assert 'Malformed FCT feature' not in {result['name'] for result in results}
+    assert provider_calls[0][0][0] == '/api/?q=Abuja%2C%20Nigeria'
+    assert provider_calls[0][0][1] == {'limit': 8, 'bbox': '6.6,8.2,7.85,9.85'}
+
+
+def test_photon_fallback_discards_fct_candidates_unrelated_to_query(monkeypatch):
+    app = create_app(testing=True)
+    location_service.clear_location_search_cache()
+    monkeypatch.setattr(location_service, '_search_postgis_locations', lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(location_service, '_search_local_abuja_places', lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(location_service, '_photon_request', lambda *_args, **_kwargs: {
+        'features': [
+            {
+                'type': 'Feature',
+                'geometry': {'type': 'Point', 'coordinates': [7.49, 9.07]},
+                'properties': {
+                    'name': 'Gwarinpa District', 'district': 'Gwarinpa',
+                    'state': 'Federal Capital Territory', 'country': 'Nigeria', 'countrycode': 'NG',
+                },
+            },
+            {
+                'type': 'Feature',
+                'geometry': {'type': 'Point', 'coordinates': [7.50, 9.06]},
+                'properties': {
+                    'name': 'Unrelated FCT business', 'city': 'Abuja',
+                    'state': 'Federal Capital Territory', 'country': 'Nigeria', 'countrycode': 'NG',
+                },
+            },
+        ],
+    })
+
+    response = app.test_client().get('/api/locations/autocomplete?q=Gwarinpa')
+
+    assert response.status_code == 200
+    results = response.get_json()['results']
+    assert [result['name'] for result in results] == ['Gwarinpa District']
+
+
+def test_search_merges_local_indexes_but_keeps_same_name_in_other_council(monkeypatch):
+    app = create_app(testing=True)
+    location_service.clear_location_search_cache()
+    monkeypatch.setattr(location_service, '_search_postgis_locations', lambda *args, **kwargs: [{
+        'id': 'postgis-10', 'name': 'Gwarinpa', 'formatted_address': 'Gwarinpa, Abuja',
+        'area_council': 'Abuja Municipal Area Council', 'location_type': 'district',
+        'latitude': 9.118, 'longitude': 7.423, 'country': 'Nigeria',
+        'state': 'Federal Capital Territory', 'provider': 'local-reference',
+        'provider_raw_id': 'osm:10', 'source': 'osm', 'verification_status': 'imported',
+    }, {
+        'id': 'postgis-20', 'name': 'Gwarinpa', 'formatted_address': 'Gwarinpa, Bwari',
+        'area_council': 'Bwari Area Council', 'location_type': 'district',
+        'latitude': 9.5, 'longitude': 7.4, 'country': 'Nigeria',
+        'state': 'Federal Capital Territory', 'provider': 'local-reference',
+        'provider_raw_id': 'osm:20', 'source': 'osm', 'verification_status': 'imported',
+    }])
+    monkeypatch.setattr(location_service, '_search_local_abuja_places', lambda *args, **kwargs: [{
+        'id': 10, 'name': 'Gwarinpa', 'formatted_address': 'Gwarinpa, Abuja Municipal Area Council',
+        'area_council': 'Abuja Municipal Area Council', 'location_type': 'district',
+        'latitude': 9.11801, 'longitude': 7.42301, 'country': 'Nigeria',
+        'state': 'Federal Capital Territory', 'provider': 'local-reference',
+        'provider_raw_id': 'local-10', 'source': 'chigo-curated', 'verified': True,
+    }])
+    monkeypatch.setattr(location_service, '_photon_request', lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError('Photon should not run when local indexes return results')
+    ))
+
+    with app.app_context():
+        results = location_service.search_places('Gwarinpa', limit=8)
+
+    assert len(results) == 2
+    assert {result['area_council'] for result in results} == {
+        'Abuja Municipal Area Council', 'Bwari Area Council',
+    }
+    amac = next(result for result in results if result['area_council'] == 'Abuja Municipal Area Council')
+    assert amac['source_provenance'] == ['chigo-curated', 'osm']
+
+
+def test_local_search_supports_required_fct_alias_queries_without_provider(monkeypatch):
+    app = create_app(testing=True)
+    location_service.clear_location_search_cache()
+    monkeypatch.setattr(location_service, '_search_postgis_locations', lambda *args, **kwargs: [])
+    monkeypatch.setattr(location_service, '_photon_request', lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError('local FCT aliases should resolve before provider fallback')
+    ))
+
+    with app.app_context():
+        expected = {
+            'Gwarinpa': 'Gwarinpa',
+            'Gwarimpa': 'Gwarinpa',
+            'Wuse': 'Wuse',
+            'Maitama': 'Maitama',
+            'Kuje': 'Kuje',
+            'Gwagwalada': 'Gwagwalada',
+            'Bwari': 'Bwari',
+        }
+        for query, canonical_name in expected.items():
+            results = location_service.search_places(query, limit=8)
+            assert results
+            assert results[0]['name'] == canonical_name
+            assert results[0]['country'] == 'Nigeria'
+
+
+def test_merge_results_deduplicates_source_ids_and_nearby_same_place_only():
+    results = location_service._merge_results([
+        {
+            'name': 'Gwarinpa', 'formatted_address': 'Gwarinpa, Abuja',
+            'area_council': 'Abuja Municipal Area Council', 'location_type': 'district',
+            'latitude': 9.118, 'longitude': 7.423, 'provider': 'local-reference',
+            'provider_raw_id': 'osm:42', 'source': 'osm', 'country': 'Nigeria',
+        },
+        {
+            'name': 'Gwarinpa', 'formatted_address': 'Gwarinpa district, Abuja',
+            'area_council': 'Abuja Municipal Area Council', 'location_type': 'district',
+            'latitude': 9.1181, 'longitude': 7.4231, 'provider': 'local-reference',
+            'provider_raw_id': 'chigo:42', 'source': 'chigo-curated', 'country': 'Nigeria',
+        },
+        {
+            'name': 'Gwarinpa', 'formatted_address': 'Gwarinpa, Bwari',
+            'area_council': 'Bwari Area Council', 'location_type': 'district',
+            'latitude': 9.45, 'longitude': 7.4, 'provider': 'local-reference',
+            'provider_raw_id': 'osm:43', 'source': 'osm', 'country': 'Nigeria',
+        },
+    ])
+
+    assert len(results) == 2
+    amac = next(result for result in results if result['area_council'] == 'Abuja Municipal Area Council')
+    assert amac['source_provenance'] == ['chigo-curated', 'osm']
+
+
+def test_merge_results_does_not_merge_source_id_collision_across_councils():
+    results = location_service._merge_results([
+        {
+            'name': 'Same Place', 'area_council': 'Abuja Municipal Area Council',
+            'location_type': 'settlement', 'latitude': 9.05, 'longitude': 7.45,
+            'provider': 'local-reference', 'provider_raw_id': 'source:duplicate-1',
+        },
+        {
+            'name': 'Same Place', 'area_council': 'Bwari Area Council',
+            'location_type': 'settlement', 'latitude': 9.35, 'longitude': 7.35,
+            'provider': 'local-reference', 'provider_raw_id': 'source:duplicate-1',
+        },
+    ])
+
+    assert len(results) == 2
+    assert {result['area_council'] for result in results} == {
+        'Abuja Municipal Area Council', 'Bwari Area Council',
+    }
 
 
 def test_photon_request_uses_public_service_host_by_default(monkeypatch):
@@ -737,6 +1122,26 @@ def test_photon_request_uses_public_service_host_by_default(monkeypatch):
 
     assert calls[0][0].startswith('https://photon.komoot.io/api/?')
     assert 'q=Gwarinpa+Abuja' in calls[0][0]
+
+
+def test_photon_request_does_not_double_encode_prebuilt_query(monkeypatch):
+    calls = []
+    monkeypatch.setattr(location_service, '_get_config_value', lambda name: None)
+    monkeypatch.setattr(
+        location_service, '_request_json',
+        lambda url, headers=None, timeout=12: calls.append(url) or {'features': []},
+    )
+
+    location_service._photon_request(
+        '/api/?q=Gwarinpa%2C%20Abuja%2C%20FCT%2C%20Nigeria',
+        {'limit': 8, 'bbox': '6.6,8.2,7.85,9.85'}, timeout=1.2,
+    )
+
+    query = location_service.urllib.parse.parse_qs(location_service.urllib.parse.urlsplit(calls[0]).query)
+    assert query['q'] == ['Gwarinpa, Abuja, FCT, Nigeria']
+    assert query['limit'] == ['8']
+    assert query['bbox'] == ['6.6,8.2,7.85,9.85']
+    assert '%252C' not in calls[0]
 
 
 def test_local_fct_autocomplete_is_ranked_without_calling_nominatim(monkeypatch):
