@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import os
+import time
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
-import stripe
+import requests
 from flask import current_app, url_for
 
 from ..extensions import db
@@ -11,51 +16,83 @@ from .booking_engine_service import record_event
 from .seo_analytics import queue_booking_conversion
 
 
-def _stripe_secret_key():
-    return current_app.config.get('STRIPE_SECRET_KEY') or os.getenv('STRIPE_SECRET_KEY')
+BACHS_GATEWAY = 'bachs'
+BACHS_API_VERSION = 'v1'
+WEBHOOK_TOLERANCE_SECONDS = 300
 
 
-def _stripe_webhook_secret():
-    return current_app.config.get('STRIPE_WEBHOOK_SECRET') or os.getenv('STRIPE_WEBHOOK_SECRET')
+def _bachs_api_key():
+    return (current_app.config.get('BACHS_API_KEY') or os.getenv('BACHS_API_KEY') or '').strip()
 
 
-def _stripe_client():
-    secret = _stripe_secret_key()
-    if not secret:
+def _bachs_webhook_secret():
+    return (current_app.config.get('BACHS_WEBHOOK_SECRET') or os.getenv('BACHS_WEBHOOK_SECRET') or '').strip()
+
+
+def _bachs_base_url(api_key):
+    if api_key.startswith('sk_sandbox_'):
+        return f'https://sandbox-api.bachs.io/{BACHS_API_VERSION}'
+    if api_key.startswith('sk_live_'):
+        return f'https://api.bachs.io/{BACHS_API_VERSION}'
+    raise ValueError('Bachs API key is invalid or uses an unsupported environment.')
+
+
+def _bachs_request(method, path, *, payload=None, idempotency_key=None):
+    api_key = _bachs_api_key()
+    if not api_key:
         raise ValueError('Online payments are not configured yet. Your quote and booking request have been saved.')
-    return stripe.StripeClient(secret)
+    headers = {'Authorization': f'Bearer {api_key}', 'Accept': 'application/json'}
+    if payload is not None:
+        headers['Content-Type'] = 'application/json'
+    if idempotency_key:
+        headers['Idempotency-Key'] = idempotency_key
+    try:
+        response = requests.request(
+            method, f'{_bachs_base_url(api_key)}{path}', headers=headers, json=payload, timeout=15,
+        )
+    except requests.RequestException as error:
+        current_app.logger.warning('Bachs API request failed: %s', error.__class__.__name__)
+        raise ValueError('The payment provider could not be reached. Please try again later.') from error
+    if not response.ok:
+        error_code = None
+        try:
+            error_code = (response.json().get('error') or {}).get('code')
+        except (ValueError, AttributeError):
+            pass
+        current_app.logger.warning('Bachs API request failed: status=%s code=%s', response.status_code, error_code)
+        raise ValueError('The payment provider could not start checkout. Your booking request is unchanged; try again later.')
+    try:
+        return response.json()
+    except ValueError as error:
+        current_app.logger.warning('Bachs API returned a non-JSON response.')
+        raise ValueError('The payment provider returned an incomplete checkout session. Please try again later.') from error
 
 
-def _value(obj, key, default=None):
-    if isinstance(obj, dict):
-        return obj.get(key, default)
-    return getattr(obj, key, default)
+def _money(value):
+    try:
+        return Decimal(str(value)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError, TypeError) as error:
+        raise ValueError('The accepted quote does not have a payable amount.') from error
 
 
-def _record_payment_success(payment: Payment, checkout_session) -> Booking:
+def _record_payment_success(payment: Payment, checkout_id: str, amount, currency: str) -> Booking:
     booking = db.get_or_404(Booking, payment.booking_id)
-    metadata = _value(checkout_session, 'metadata', {}) or {}
-    amount_total = _value(checkout_session, 'amount_total')
-    currency = str(_value(checkout_session, 'currency', '') or '').lower()
     if (
-        _value(checkout_session, 'id') != payment.payment_reference
-        or _value(checkout_session, 'mode') != 'payment'
-        or _value(checkout_session, 'payment_status') != 'paid'
-        or int(amount_total or 0) != int(round(payment.amount * 100))
-        or currency != payment.currency.lower()
-        or metadata.get('booking_request_id') != booking.booking_request_id
+        checkout_id != payment.payment_reference
+        or _money(amount) != _money(payment.amount)
+        or str(currency or '').upper() != payment.currency.upper()
     ):
-        raise ValueError('Stripe could not confirm the expected payment for this booking.')
+        raise ValueError('Bachs could not confirm the expected payment for this booking.')
 
     if payment.status != 'Successful':
         payment.status = 'Successful'
+        payment.transaction_status = 'SUCCEEDED'
         booking.payment_status = 'Paid'
         booking.status = 'Confirmed'
         booking.workflow_state = 'CONFIRMED'
-        record_event(
-            booking, 'payment.succeeded',
-            new={'reference': payment.payment_reference, 'amount': payment.amount},
-        )
+        record_event(booking, 'payment.succeeded', new={
+            'reference': payment.payment_reference, 'amount': payment.amount, 'gateway': BACHS_GATEWAY,
+        })
         db.session.commit()
     queue_booking_conversion(booking, 'payment_success')
     queue_booking_conversion(booking, 'booking_completed')
@@ -67,140 +104,107 @@ def initialize_payment(booking: Booking, customer_email: str):
         raise ValueError('Accept the current quote before starting payment.')
     if booking.payment_status == 'Paid':
         raise ValueError('This booking request is already paid.')
-    client = _stripe_client()
     if not customer_email:
         raise ValueError('Sign in with an email address before paying.')
+    if not _bachs_api_key():
+        raise ValueError('Online payments are not configured yet. Your quote and booking request have been saved.')
 
-    amount = float(booking.deposit_amount or 0)
+    amount = _money(booking.deposit_amount)
     if amount <= 0:
         raise ValueError('The accepted quote does not have a payable amount.')
-
-    pending = Payment.query.filter_by(booking_id=booking.id, status='Pending', gateway='stripe').first()
-    previous_attempts = Payment.query.filter_by(booking_id=booking.id, gateway='stripe').count()
+    pending = Payment.query.filter_by(booking_id=booking.id, status='Pending', gateway=BACHS_GATEWAY).first()
     if pending and pending.authorization_url:
-        try:
-            checkout_session = client.v1.checkout.sessions.retrieve(pending.payment_reference)
-            if _value(checkout_session, 'status') == 'open':
-                return pending
-            if _value(checkout_session, 'payment_status') == 'paid':
-                _record_payment_success(pending, checkout_session)
-                raise ValueError('This booking request is already paid.')
-            pending.status = 'Expired'
-            db.session.commit()
-        except stripe.StripeError as error:
-            current_app.logger.warning(
-                'Stripe session reuse failed for booking %s: %s code=%s param=%s',
-                booking.booking_request_id, error.__class__.__name__,
-                getattr(error, 'code', None), getattr(error, 'param', None),
-            )
-            raise ValueError('The payment provider could not be reached. Please try again later.') from error
+        session_data = _bachs_request('GET', f'/checkout-sessions/{pending.payment_reference}')
+        if session_data.get('status') == 'open':
+            return pending
+        pending.status = 'Expired'
+        db.session.commit()
 
-    try:
-        checkout_session = client.v1.checkout.sessions.create(
-            {
-                'mode': 'payment',
-                'automatic_payment_methods': {'enabled': True},
-                'customer_email': customer_email,
-                'client_reference_id': booking.booking_request_id,
-                'line_items': [{
-                    'price_data': {
-                        'currency': 'ngn',
-                        'unit_amount': int(round(amount * 100)),
-                        'product_data': {
-                            'name': f'Moving booking deposit · {booking.booking_request_id}',
-                            'description': 'Deposit to secure your Chigo moving booking.',
-                        },
-                    },
-                    'quantity': 1,
-                }],
-                'metadata': {'booking_request_id': booking.booking_request_id},
-                'success_url': f"{url_for('booking.payment_callback', _external=True)}?session_id={{CHECKOUT_SESSION_ID}}",
-                'cancel_url': url_for(
-                    'booking.workflow', request_id=booking.booking_request_id,
-                    stage='payment', _external=True,
-                ),
-            },
-            options={'idempotency_key': f'chigo-deposit-{booking.id}-{previous_attempts + 1}-{int(round(amount * 100))}'},
-        )
-    except stripe.StripeError as error:
-        current_app.logger.warning(
-            'Stripe checkout creation failed for booking %s: %s code=%s param=%s',
-            booking.booking_request_id, error.__class__.__name__,
-            getattr(error, 'code', None), getattr(error, 'param', None),
-        )
-        raise ValueError('The payment provider could not start checkout. Your booking request is unchanged; try again later.') from error
-
-    session_id = _value(checkout_session, 'id')
-    checkout_url = _value(checkout_session, 'url')
-    if not session_id or not checkout_url:
+    attempt = Payment.query.filter_by(booking_id=booking.id, gateway=BACHS_GATEWAY).count() + 1
+    checkout = _bachs_request(
+        'POST', '/checkout-sessions',
+        payload={
+            'pricing': {'currency': 'NGN', 'amount': format(amount, '.2f')},
+            'customer': {'email': customer_email},
+            'success_url': url_for('booking.payment_callback', _external=True),
+            'cancel_url': url_for('booking.workflow', request_id=booking.booking_request_id, stage='payment', _external=True),
+        },
+        idempotency_key=f'chigo-deposit-{booking.id}-{attempt}-{format(amount, ".2f")}',
+    )
+    checkout_id = checkout.get('checkout_id')
+    checkout_url = checkout.get('checkout_url')
+    if not checkout_id or not checkout_url:
         raise ValueError('The payment provider returned an incomplete checkout session. Please try again later.')
 
     payment = Payment(
-        booking_id=booking.id,
-        amount=amount,
-        status='Pending',
-        payment_reference=session_id,
-        gateway='stripe',
-        authorization_url=checkout_url,
-        currency='NGN',
+        booking_id=booking.id, amount=float(amount), status='Pending', payment_reference=checkout_id,
+        gateway=BACHS_GATEWAY, authorization_url=checkout_url, currency='NGN', transaction_status='OPEN',
     )
     db.session.add(payment)
     booking.workflow_state = 'PAYMENT_PENDING'
     booking.payment_status = 'Pending'
-    record_event(
-        booking, 'payment.initialized',
-        new={'reference': session_id, 'amount': amount, 'gateway': 'stripe'},
-        user_id=booking.customer_id,
-    )
+    record_event(booking, 'payment.initialized', new={
+        'reference': checkout_id, 'amount': float(amount), 'gateway': BACHS_GATEWAY,
+    }, user_id=booking.customer_id)
     db.session.commit()
     return payment
 
 
 def verify_payment(reference: str):
     if not reference:
-        raise ValueError('A Stripe Checkout session is required.')
-    payment = Payment.query.filter_by(payment_reference=reference, gateway='stripe').first()
+        raise ValueError('A Bachs Checkout session is required.')
+    payment = Payment.query.filter_by(payment_reference=reference, gateway=BACHS_GATEWAY).first()
     if payment is None:
-        raise ValueError('This Stripe session is not attached to a booking request.')
+        raise ValueError('This Bachs Checkout session is not attached to a booking request.')
     if payment.status == 'Successful':
-        booking = db.get_or_404(Booking, payment.booking_id)
-        queue_booking_conversion(booking, 'payment_success')
-        queue_booking_conversion(booking, 'booking_completed')
-        return booking
+        return db.get_or_404(Booking, payment.booking_id)
+    _bachs_request('GET', f'/checkout-sessions/{reference}')
+    raise ValueError('Payment is being confirmed. Your booking will update when Bachs confirms it.')
 
-    client = _stripe_client()
+
+def _verify_bachs_webhook(raw_body: bytes, headers):
+    secret = _bachs_webhook_secret()
+    if not secret:
+        raise ValueError('Bachs webhook verification is not configured.')
+    signature_header = headers.get('X-Bachs-Signature-V2', '')
+    signatures, timestamp = [], None
+    if signature_header:
+        for part in signature_header.split(','):
+            key, separator, value = part.strip().partition('=')
+            if not separator:
+                continue
+            if key == 't':
+                timestamp = value
+            elif key == 'v1':
+                signatures.append(value)
+    else:
+        timestamp = headers.get('X-Bachs-Timestamp', '')
+        signatures = [headers.get('X-Bachs-Signature', '')]
+    if not any(signatures):
+        raise ValueError('Bachs webhook signature is missing.')
     try:
-        checkout_session = client.v1.checkout.sessions.retrieve(reference)
-    except stripe.StripeError as error:
-        current_app.logger.warning(
-            'Stripe checkout verification failed for session %s: %s code=%s param=%s',
-            reference, error.__class__.__name__,
-            getattr(error, 'code', None), getattr(error, 'param', None),
-        )
-        raise ValueError('Stripe could not verify this payment yet. Please try again shortly.') from error
-    return _record_payment_success(payment, checkout_session)
+        timestamp = int(timestamp)
+    except (TypeError, ValueError) as error:
+        raise ValueError('Bachs webhook timestamp is invalid.') from error
+    if abs(time.time() - timestamp) > WEBHOOK_TOLERANCE_SECONDS:
+        raise ValueError('Bachs webhook timestamp is outside the allowed window.')
+    expected = hmac.new(secret.encode(), f'{timestamp}.'.encode() + raw_body, hashlib.sha256).hexdigest()
+    if not any(signature and hmac.compare_digest(expected, signature) for signature in signatures):
+        raise ValueError('Bachs webhook signature is invalid.')
 
 
-def process_stripe_webhook(payload: bytes, signature: str) -> bool:
-    webhook_secret = _stripe_webhook_secret()
-    if not webhook_secret:
-        raise ValueError('Stripe webhook verification is not configured.')
-    if not signature:
-        raise ValueError('Stripe signature header is required.')
+def process_bachs_webhook(raw_body: bytes, headers) -> bool:
+    _verify_bachs_webhook(raw_body, headers)
     try:
-        event = stripe.Webhook.construct_event(payload, signature, webhook_secret)
-    except (ValueError, stripe.SignatureVerificationError) as error:
-        raise ValueError('Stripe webhook signature is invalid.') from error
-
-    event_type = _value(event, 'type')
-    if event_type not in {'checkout.session.completed', 'checkout.session.async_payment_succeeded'}:
+        event = json.loads(raw_body)
+    except (TypeError, ValueError) as error:
+        raise ValueError('Bachs webhook payload is invalid.') from error
+    if event.get('type') != 'collection.succeeded':
         return False
-    checkout_session = _value(_value(event, 'data', {}), 'object', {})
-    if _value(checkout_session, 'payment_status') != 'paid':
-        return False
-    session_id = _value(checkout_session, 'id')
-    payment = Payment.query.filter_by(payment_reference=session_id, gateway='stripe').first()
+    data = event.get('data') or {}
+    checkout_id = data.get('checkout_id')
+    payment = Payment.query.filter_by(payment_reference=checkout_id, gateway=BACHS_GATEWAY).first()
     if payment is None:
-        raise ValueError('Stripe session is not attached to a booking request.')
-    _record_payment_success(payment, checkout_session)
+        raise ValueError('Bachs Checkout session is not attached to a booking request.')
+    _record_payment_success(payment, checkout_id, data.get('amount'), data.get('currency'))
     return True
