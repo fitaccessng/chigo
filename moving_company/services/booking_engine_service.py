@@ -165,6 +165,11 @@ def save_workflow_section(booking: Booking, section: str, values: dict, user_id=
     if section not in {'property', 'services', 'schedule'}:
         raise ValueError('Unknown booking section.')
     values = {key: value for key, value in values.items() if not (section == 'services' and key == 'additional_hours')}
+    if section == 'property' and booking.primary_service != 'cleaning':
+        # Residential moves are scoped from the actual inventory checklist;
+        # room counts are only collected for cleaning-service pricing.
+        values.pop('bedrooms', None)
+        values.pop('bathrooms', None)
     workflow_data = dict(booking.workflow_data or {})
     previous = workflow_data.get(section, {})
     workflow_data[section] = dict(values)
@@ -172,8 +177,6 @@ def save_workflow_section(booking: Booking, section: str, values: dict, user_id=
     if section == 'property':
         if values.get('property_type'):
             booking.property_type = values['property_type']
-            booking.number_of_bedrooms = int(values.get('bedrooms') or 0)
-            booking.number_of_bathrooms = int(values.get('bathrooms') or 0)
             booking.number_of_floors = int(values.get('floors') or 1)
     elif section == 'schedule':
         booking.move_date = date.fromisoformat(values['date'])
@@ -746,6 +749,21 @@ def vehicle_options(booking: Booking):
         candidate.sort_order or 0,
     )) if vehicles and has_requirements else None
     selected_id = ((booking.workflow_data or {}).get('vehicle') or {}).get('selected_type_id')
+    uploaded_images_by_type = {}
+    # Truck photos are uploaded against operational fleet records while the
+    # booking picker is based on vehicle types.  Use the primary fleet photo
+    # as the representative photo for a matching type, without changing the
+    # configured type or assignment rules.
+    for truck in Truck.query.order_by(Truck.id).all():
+        image = next((row for row in truck.images if row.is_primary), None)
+        if image is None:
+            image = min(truck.images, key=lambda row: (row.sort_order, row.id), default=None)
+        vehicle_key = (truck.vehicle_type or '').casefold()
+        if image is not None and vehicle_key and vehicle_key not in uploaded_images_by_type:
+            uploaded_images_by_type[vehicle_key] = {
+                'truck_id': truck.id,
+                'filename': image.file_name.rsplit('/', 1)[-1],
+            }
     return [{
         'id': vehicle.id, 'name': vehicle.name, 'description': vehicle.description,
         'image': vehicle.image or (
@@ -753,6 +771,7 @@ def vehicle_options(booking: Booking):
             else 'images/demo/cargo-van-demo.svg' if 'van' in (vehicle.body_type or '').casefold()
             else 'images/demo/truck-demo.svg'
         ),
+        'truck_image': uploaded_images_by_type.get((vehicle.name or '').casefold()),
         'best_for': vehicle.best_for, 'capacity_m3': vehicle.capacity_m3,
         'max_payload_kg': vehicle.max_payload_kg, 'quantity': count_for(vehicle),
         'unit_price': max(float(vehicle.minimum_price or 0), float(vehicle.base_price or 0)),
@@ -919,13 +938,12 @@ def suggested_inventory(booking: Booking):
             ('Box', 'Boxes', max(10, stations * 2)),
         ]
     else:
-        bedrooms = max(1, int(property_data.get('bedrooms') or 1))
         suggestions = [
-            ('Bed', 'Bedroom', bedrooms), ('Mattress', 'Bedroom', bedrooms),
-            ('Wardrobe', 'Bedroom', bedrooms), ('Sofa', 'Furniture', 1),
+            ('Bed', 'Bedroom', 1), ('Mattress', 'Bedroom', 1),
+            ('Wardrobe', 'Bedroom', 1), ('Sofa', 'Furniture', 1),
             ('Dining table', 'Furniture', 1), ('Dining chair', 'Furniture', 4),
             ('Refrigerator', 'Appliances', 1), ('Washing machine', 'Appliances', 1),
-            ('Microwave', 'Kitchen', 1), ('Box', 'Boxes', max(10, bedrooms * 10)),
+            ('Microwave', 'Kitchen', 1), ('Box', 'Boxes', 10),
         ]
     return suggestions
 
@@ -1295,7 +1313,10 @@ def calculate_quote(booking: Booking, user_id=None):
     if booking.distance_km is None or float(booking.distance_km) <= 0:
         pickup = validate_coordinates(booking.pickup_latitude, booking.pickup_longitude)
         destination = validate_coordinates(booking.destination_latitude, booking.destination_longitude)
-        route = route_distance(*pickup, *destination) if pickup and destination else None
+        # Keep a previously saved request moving when the external road router
+        # is down.  The fallback is explicitly stored as approximate so it is
+        # never represented as a verified road distance to operations.
+        route = route_distance(*pickup, *destination, fallback=True) if pickup and destination else None
         if route:
             booking.distance_km = route['distance_km']
             booking.route_duration_minutes = route['duration_minutes']
@@ -1306,7 +1327,12 @@ def calculate_quote(booking: Booking, user_id=None):
             booking.route_calculated_at = datetime.utcnow()
         else:
             booking.route_status = 'PENDING'
-            raise ValueError('Road distance is temporarily unavailable. Your move details are saved; retry the quote shortly or contact operations.')
+            return _save_quote_required(
+                booking,
+                'We could not verify the driving route from the supplied locations. '
+                'Your move request is saved; operations will confirm the route and prepare your quote.',
+                user_id=user_id,
+            )
     if not booking.items:
         raise ValueError('Add inventory before calculating the quote.')
 

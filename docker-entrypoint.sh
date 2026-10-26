@@ -12,6 +12,10 @@ else
   flask --app run.py db upgrade
 fi
 
+if [ "${CHIGO_INITIAL_SUPER_ADMIN_BOOTSTRAP:-false}" = "true" ]; then
+  flask --app run.py bootstrap-initial-super-admin
+fi
+
 exec gunicorn \
   --bind "0.0.0.0:${PORT:-8000}" \
   --workers 1 \

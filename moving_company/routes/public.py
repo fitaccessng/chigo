@@ -74,32 +74,54 @@ def services():
 
 @public_bp.route('/services/moving')
 def moving_service():
-    return render_template('public/service_detail.html', title='Moving')
+    return render_template('public/service_detail.html', title='Residential Moving', service_type='residential',
+                           description='A door-to-door home move in Abuja and its surrounding areas. Your item-by-item inventory determines the crew, vehicle, loading and transport plan.')
+
+
+@public_bp.route('/services/commercial')
+def commercial_service():
+    return render_template('public/service_detail.html', title='Commercial Moving', service_type='commercial',
+                           description='A coordinated office or business relocation in Abuja and its surrounding areas, planned around equipment, work areas and operating constraints.')
 
 
 @public_bp.route('/services/packing')
 def packing_service():
-    return render_template('public/service_detail.html', title='Packing')
+    return render_template('public/service_detail.html', title='Packing', service_type='packing',
+                           description='Packing is a standalone service: our team protects and boxes the items you choose at one location. It does not include moving or transport unless you add that separately.')
 
 
 @public_bp.route('/services/cleaning')
 def cleaning_service():
-    return render_template('public/service_detail.html', title='Cleaning')
+    return render_template('public/service_detail.html', title='Cleaning', service_type='cleaning',
+                           description='Cleaning is available in Abuja and its surrounding areas. Bedroom and bathroom counts are requested only when they are needed to scope the cleaning service.')
 
 
 @public_bp.route('/services/unpacking')
 def unpacking_service():
-    return render_template('public/service_detail.html', title='Unpacking')
+    return render_template('public/service_detail.html', title='Unpacking', service_type='residential')
 
 
 @public_bp.route('/services/storage')
 def storage_service():
-    return render_template('public/service_detail.html', title='Storage')
+    return render_template('public/service_detail.html', title='Storage', service_type='storage')
+
+
+@public_bp.route('/services/home-decor')
+def home_decor_service():
+    return render_template('public/service_detail.html', title='Home Décor', service_type='home_decor',
+                           description='Plan a styling and décor enquiry for your Abuja-area space after a move or as a standalone project.',
+                           start_url=url_for('home_decor.start'))
+
+
+@public_bp.route('/services/support')
+def support_service():
+    return render_template('public/service_detail.html', title='24/7 Support', service_type='support',
+                           description='Tell our Abuja-area operations team what you need help with and they will confirm the appropriate next step.')
 
 
 @public_bp.route('/services/logistics')
 def logistics_service():
-    return render_template('public/service_detail.html', title='Logistics')
+    return render_template('public/service_detail.html', title='Logistics', service_type='logistics')
 
 
 @public_bp.route('/how-it-works')

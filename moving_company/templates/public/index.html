@@ -150,7 +150,7 @@
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
       
       <!-- Service 1: Residential Moving -->
-      <div class="bg-white rounded-2xl overflow-hidden shadow-card border border-slate-100 group hover:shadow-xl transition-all duration-300">
+      <a href="{{ url_for('public.moving_service') }}" class="block bg-white rounded-2xl overflow-hidden shadow-card border border-slate-100 group hover:shadow-xl transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2">
         <div class="relative h-52 overflow-hidden">
           <img src="{{ url_for('static', filename='images/resendiat.jpeg') }}" alt="Residential Moving" width="600" height="400" loading="lazy" decoding="async" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
           <span class="absolute bottom-3 left-3 bg-white/90 backdrop-blur-md px-3.5 py-1.5 rounded-lg text-xs font-bold text-slate-900 shadow-sm">Residential Moving</span>
@@ -159,10 +159,10 @@
           <h3 class="text-lg font-bold text-slate-900 mb-2">Residential Moving</h3>
           <p class="text-slate-600 text-sm">Safe and smooth home relocation handled with care from start to finish.</p>
         </div>
-      </div>
+      </a>
 
       <!-- Service 2: Commercial Moving -->
-      <div class="bg-white rounded-2xl overflow-hidden shadow-card border border-slate-100 group hover:shadow-xl transition-all duration-300">
+      <a href="{{ url_for('public.commercial_service') }}" class="block bg-white rounded-2xl overflow-hidden shadow-card border border-slate-100 group hover:shadow-xl transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2">
         <div class="relative h-52 overflow-hidden">
           <img src="{{ url_for('static', filename='images/commer.webp') }}" alt="Commercial Moving" width="600" height="400" loading="lazy" decoding="async" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
           <span class="absolute bottom-3 left-3 bg-white/90 backdrop-blur-md px-3.5 py-1.5 rounded-lg text-xs font-bold text-slate-900 shadow-sm">Commercial Moving</span>
@@ -171,29 +171,29 @@
           <h3 class="text-lg font-bold text-slate-900 mb-2">Commercial Moving</h3>
           <p class="text-slate-600 text-sm">Efficient business and office moving with minimal downtime and disruption.</p>
         </div>
-      </div>
+      </a>
 
       <!-- Service 3: Packing Services -->
-      <div class="bg-white rounded-2xl overflow-hidden shadow-card border border-slate-100 group hover:shadow-xl transition-all duration-300">
+      <a href="{{ url_for('public.packing_service') }}" class="block bg-white rounded-2xl overflow-hidden shadow-card border border-slate-100 group hover:shadow-xl transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2">
         <div class="relative h-52 overflow-hidden">
           <img src="{{ url_for('static', filename='images/packiing.jpeg') }}" alt="Packing Services" width="600" height="400" loading="lazy" decoding="async" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
           <span class="absolute bottom-3 left-3 bg-white/90 backdrop-blur-md px-3.5 py-1.5 rounded-lg text-xs font-bold text-slate-900 shadow-sm">Packing Services</span>
         </div>
         <div class="p-6">
           <h3 class="text-lg font-bold text-slate-900 mb-2">Packing Services</h3>
-          <p class="text-slate-600 text-sm">Professional packing to protect your belongings during every step of the move.</p>
+          <p class="text-slate-600 text-sm">We pack your belongings safely; transport is only added when you need it.</p>
         </div>
-      </div>
+      </a>
 
       <!-- Service 4: Long-Distance Moving -->
-      <div class="bg-white rounded-2xl overflow-hidden shadow-card border border-slate-100 group hover:shadow-xl transition-all duration-300">
+      <div class="relative bg-white rounded-2xl overflow-hidden shadow-card border border-slate-100 opacity-75" aria-label="Long-distance moving coming soon">
         <div class="relative h-52 overflow-hidden">
           <img src="https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?auto=format&fit=crop&w=600&q=75" alt="Long-Distance Moving" width="600" height="400" loading="lazy" decoding="async" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
-          <span class="absolute bottom-3 left-3 bg-white/90 backdrop-blur-md px-3.5 py-1.5 rounded-lg text-xs font-bold text-slate-900 shadow-sm">Long-Distance Moving</span>
+          <span class="absolute bottom-3 left-3 bg-amber-300 px-3.5 py-1.5 rounded-lg text-xs font-bold text-slate-900 shadow-sm">Coming soon</span>
         </div>
         <div class="p-6">
           <h3 class="text-lg font-bold text-slate-900 mb-2">Long-Distance Moving</h3>
-          <p class="text-slate-600 text-sm">Reliable and secure moving services across cities and long distances.</p>
+          <p class="text-slate-600 text-sm">Long-distance moves are not available during our Abuja-area launch.</p>
         </div>
       </div>
 

@@ -58,6 +58,13 @@ def validate_database_connection(app):
         ) from error
 
 
+def ensure_postgresql_extensions(engine):
+    """Install extensions required by the production schema before create_all()."""
+    with engine.begin() as connection:
+        connection.execute(text('CREATE EXTENSION IF NOT EXISTS postgis'))
+        connection.execute(text('CREATE EXTENSION IF NOT EXISTS pg_trgm'))
+
+
 def bootstrap_google_oauth_schema(app):
     if not app.config.get('GOOGLE_OAUTH_SCHEMA_BOOTSTRAP'):
         return False
@@ -178,6 +185,51 @@ def create_app(testing=False):
             db.session.commit()
             click.echo(f'Super-admin account created for {email}.')
 
+    @app.cli.command('bootstrap-initial-super-admin')
+    def bootstrap_initial_super_admin_command():
+        """Create the initial production super-admin from one-time encrypted variables."""
+        if os.getenv('CHIGO_INITIAL_SUPER_ADMIN_BOOTSTRAP', '').lower() != 'true':
+            raise click.ClickException('CHIGO_INITIAL_SUPER_ADMIN_BOOTSTRAP=true is required.')
+
+        full_name = os.getenv('CHIGO_INITIAL_SUPER_ADMIN_NAME', '').strip()
+        email = os.getenv('CHIGO_INITIAL_SUPER_ADMIN_EMAIL', '').strip().lower()
+        password = os.getenv('CHIGO_INITIAL_SUPER_ADMIN_PASSWORD', '')
+        if len(full_name) < 2 or '@' not in email:
+            raise click.ClickException('A valid initial super-admin name and email are required.')
+        if (
+            len(password) < 16
+            or not any(character.islower() for character in password)
+            or not any(character.isupper() for character in password)
+            or not any(character.isdigit() for character in password)
+            or password.isalnum()
+        ):
+            raise click.ClickException(
+                'Initial super-admin password must be at least 16 characters with upper/lowercase, number, and symbol.'
+            )
+
+        with app.app_context():
+            existing_super_admin = User.query.filter_by(role='super_admin').first()
+            if existing_super_admin:
+                if existing_super_admin.email == email:
+                    click.echo('Initial super-admin already exists.')
+                    return
+                raise click.ClickException('A super-admin account already exists.')
+            if User.query.filter_by(email=email).first():
+                raise click.ClickException('An account with that email already exists.')
+
+            name_parts = full_name.split(maxsplit=1)
+            user = User(
+                first_name=name_parts[0],
+                last_name=name_parts[1] if len(name_parts) > 1 else '',
+                email=email,
+                phone='',
+                role='super_admin',
+            )
+            user.set_password(password)
+            db.session.add(user)
+            db.session.commit()
+            click.echo('Initial super-admin account created.')
+
     @app.cli.command('seed-demo')
     def seed_demo_command():
         """Seed isolated development fleet, partner, mover, and team records."""
@@ -251,6 +303,7 @@ def create_app(testing=False):
                 has_users = db.session.execute(text('SELECT EXISTS (SELECT 1 FROM users)')).scalar()
                 if has_users:
                     raise click.ClickException('Refusing to bootstrap a database that contains users.')
+            ensure_postgresql_extensions(db.engine)
             db.create_all()
             click.echo('Created the current schema for an empty PostgreSQL database.')
 

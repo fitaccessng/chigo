@@ -50,7 +50,7 @@ SERVICE_WORKFLOWS = {
         'description': 'Move your home with the right property, inventory, and handling details.',
         'steps': ('location', 'property', 'inventory', 'services', 'schedule', 'quote', 'payment', 'review'),
         'questions': {
-            'property': ('property_type', 'bedrooms', 'bathrooms', 'floors', 'approximate_size_m2', 'elevator', 'loading_access', 'stairs'),
+            'property': ('property_type', 'floors', 'approximate_size_m2', 'elevator', 'loading_access', 'stairs'),
             'inventory': ('inventory_items', 'fragile_items', 'special_handling'),
         },
     },
@@ -350,11 +350,6 @@ SERVICE_QUESTION_SCHEMAS = {
                                'Semi-detached House', 'Bungalow', 'Terrace House', 'Other')),
             _question('destination_property_other', 'Describe the destination property', 'text', required=True, maximum=120,
                       condition=('destination_property_type', 'Other')),
-            _question('destination_bedrooms', 'Bedrooms at destination', 'number', minimum=0, maximum=100, step=1,
-                      condition=('destination_property_type', (
-                          'Flat / Apartment', 'Self-contained', 'Duplex', 'Detached House',
-                          'Semi-detached House', 'Bungalow', 'Terrace House',
-                      ))),
             _question('destination_floors', 'Destination property floors or storeys', 'number', minimum=1, maximum=100, step=1,
                       condition=('destination_property_type', (
                           'Flat / Apartment', 'Self-contained', 'Duplex', 'Detached House',

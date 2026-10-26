@@ -179,7 +179,7 @@ def test_admin_attachment_access_is_admin_only_and_truck_gallery_lifecycle_is_co
         assert len(images) == 2
         assert [image.sort_order for image in images] == [0, 1]
         first, second = images
-        assert first.is_primary is False
+        assert first.is_primary is True
         assert second.is_primary is False
 
     primary = admin_client.post(
@@ -225,4 +225,5 @@ def test_admin_attachment_access_is_admin_only_and_truck_gallery_lifecycle_is_co
     customer_client = app.test_client()
     login(customer_client, 'owner@example.com')
     assert customer_client.get(f'/admin/trucks/{truck_id}/images/{first.file_name.rsplit("/", 1)[-1]}').status_code == 403
+    assert customer_client.get(f'/booking/vehicle-images/{truck_id}/{first.file_name.rsplit("/", 1)[-1]}').status_code == 200
     assert customer_client.get(f'/admin/bookings/{booking_id}/attachments/{attachment_filename}').status_code == 403

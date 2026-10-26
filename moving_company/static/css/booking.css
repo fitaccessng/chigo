@@ -143,6 +143,14 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Keep the booking form full-width through tablet sizes.  A 17rem summary
+   column beside two-column fields was the source of the post-location mobile
+   overflow. */
+@media (max-width: 1023px) {
+  #booking-engine .booking-stage-layout.has-booking-summary { display: block; }
+  #booking-engine .booking-summary { display: none; }
+}
+
 @media (max-width: 639px) {
   .booking-experience { background-size: 22px 22px; }
   .booking-experience h1 { font-size: 1.55rem; }
@@ -152,13 +160,25 @@
   .booking-experience .booking-footer-actions > :is(a, button) { width: 100%; justify-content: center; }
   #booking-engine { padding-inline: 1rem; }
   #booking-engine > header { padding-bottom: 1rem; }
+  #booking-engine > div:last-of-type { padding: 1rem; }
   #booking-engine nav[aria-label="Booking progress"] ol { gap: .75rem; }
-  #booking-engine .booking-stage-layout { display: block; }
-  #booking-engine .booking-summary { display: none; }
 }
 
-@media (min-width: 768px) and (max-width: 900px) {
-  #booking-engine .booking-stage-layout.has-booking-summary { grid-template-columns: minmax(0, 1fr) 14rem; gap: 1.25rem; }
+/* The Tailwind `sm` breakpoint starts at 640px, which is still a phone in
+   landscape.  Keep every post-location form to one readable column until a
+   tablet-sized viewport is available.  This also prevents the inventory
+   quantity/remove row and the custom-item form from creating horizontal
+   scrolling on narrow phones. */
+@media (max-width: 767px) {
+  #booking-engine .booking-stage-content [class*="sm:grid-cols-"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #booking-engine .booking-stage-content .min-w-56 {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+  #booking-engine .booking-stage-content .w-28 { width: 100%; }
+  #booking-engine > div:last-of-type { padding: 1rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {

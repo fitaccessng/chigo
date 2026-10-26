@@ -1,6 +1,10 @@
 from datetime import date, datetime, timedelta
+import hashlib
+import hmac
 from io import BytesIO
+import json
 import re
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -9,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from moving_company import create_app
 from moving_company.extensions import db
 from moving_company.models import (
-    Booking, BookingEvent, BookingQuoteLine, InventoryItem, Payment, Referral,
+    Booking, BookingEvent, BookingQuoteLine, InventoryItem, Payment, Referral, Truck, VehicleImage,
     ReferralAttribution, ReferralCampaign, ReferralCode, ReferralReward,
     RewardTransaction, ServicePricing, User, VehicleType,
 )
@@ -20,7 +24,7 @@ from moving_company.services.booking_engine_service import (
 )
 from moving_company.services import booking_engine_service
 from moving_company.services import payment_provider_service
-from moving_company.services.payment_provider_service import initialize_payment, process_stripe_webhook
+from moving_company.services.payment_provider_service import initialize_payment, process_bachs_webhook
 from moving_company.services.referral_service import (
     ensure_referral_code, expire_referral_rewards, get_campaign,
     issue_referral_reward, reverse_referral_reward,
@@ -65,7 +69,7 @@ def csrf_token(response):
 
 def complete_quote(booking):
     save_workflow_section(booking, 'property', {
-        'property_type': 'Apartment', 'bedrooms': 2, 'bathrooms': 2,
+        'property_type': 'Apartment', 'floors': 1,
         'service_answers': {
             'destination_property_type': 'Apartment',
             'restricted_vehicle_access': 'no', 'long_carry_distance': 'no',
@@ -429,6 +433,29 @@ def test_vehicle_options_recover_empty_active_catalogue_and_allow_multiple_units
         assert booking.workflow_data['vehicle']['selected_type_id'] == recommended['id']
 
 
+def test_vehicle_options_prefer_uploaded_matching_truck_photo(app):
+    with app.app_context():
+        booking = create_request()
+        vehicle = VehicleType.query.filter_by(is_active=True).first()
+        truck = Truck(
+            registration_number='PHOTO-001', vehicle_type=vehicle.name,
+            capacity='20 m3', status='Available', rate=100000,
+        )
+        db.session.add(truck)
+        db.session.flush()
+        image = VehicleImage(
+            truck_id=truck.id, file_name=f'vehicles/{truck.id}/vehicle.webp',
+            original_filename='vehicle.webp', mime_type='image/webp', file_size=123,
+            sort_order=0, is_primary=True,
+        )
+        db.session.add(image)
+        db.session.commit()
+
+        option = next(row for row in vehicle_options(booking) if row['id'] == vehicle.id)
+
+        assert option['truck_image'] == {'truck_id': truck.id, 'filename': 'vehicle.webp'}
+
+
 def test_vehicle_options_and_selection_fail_closed_on_missing_capacity(app):
     with app.app_context():
         booking = create_request()
@@ -659,7 +686,7 @@ def test_residential_inventory_is_saved_reviewed_then_vehicle_is_recommended(app
     property_page = client.get(f'/booking/{request_id}/property')
     property_html = property_page.get_data(as_text=True)
     assert property_page.status_code == 200
-    assert 'Bedrooms at destination' in property_html
+    assert 'Bedrooms at destination' not in property_html
     assert 'Destination property floors or storeys' in property_html
     assert 'name="service_destination_property_type"' in property_html
     assert '<select name="service_destination_property_type"' in property_html
@@ -924,8 +951,8 @@ def test_api_identical_inventory_confirmation_retry_keeps_one_event(app):
 
 
 def test_payment_is_not_faked_when_provider_is_unconfigured(app, monkeypatch):
-    monkeypatch.delenv('STRIPE_SECRET_KEY', raising=False)
-    monkeypatch.setitem(app.config, 'STRIPE_SECRET_KEY', None)
+    monkeypatch.delenv('BACHS_API_KEY', raising=False)
+    monkeypatch.setitem(app.config, 'BACHS_API_KEY', None)
     with app.app_context():
         booking = create_request()
         complete_quote(booking)
@@ -1124,8 +1151,8 @@ def test_paid_confirmed_location_edit_does_not_invalidate_quote_or_reservation_s
 
 def test_payment_stage_renders_deposit_and_secure_payment_action(app, monkeypatch):
     app.config['WTF_CSRF_ENABLED'] = False
-    monkeypatch.delenv('STRIPE_SECRET_KEY', raising=False)
-    monkeypatch.setitem(app.config, 'STRIPE_SECRET_KEY', None)
+    monkeypatch.delenv('BACHS_API_KEY', raising=False)
+    monkeypatch.setitem(app.config, 'BACHS_API_KEY', None)
     client = app.test_client()
     with app.app_context():
         owner = User(first_name='Payment', last_name='Customer', email='payment-customer@example.com', phone='')
@@ -1154,8 +1181,8 @@ def test_payment_stage_renders_deposit_and_secure_payment_action(app, monkeypatc
     assert b'Online payments are not configured yet' in retry.data
 
 
-def test_stripe_checkout_creates_and_reuses_deposit_session(app, monkeypatch):
-    app.config['STRIPE_SECRET_KEY'] = 'sk_test_unit_test'
+def test_bachs_checkout_creates_and_reuses_deposit_session(app, monkeypatch):
+    app.config['BACHS_API_KEY'] = 'sk_sandbox_unit_test'
     with app.app_context():
         booking = create_request()
         complete_quote(booking)
@@ -1164,44 +1191,51 @@ def test_stripe_checkout_creates_and_reuses_deposit_session(app, monkeypatch):
         expected_deposit = booking.deposit_amount
 
         calls = []
-        session = SimpleNamespace(id='cs_test_checkout_1', url='https://checkout.stripe.test/session', status='open')
 
-        class FakeSessions:
-            def create(self, params, options=None):
-                calls.append((params, options))
-                return session
+        class FakeResponse:
+            ok = True
+            status_code = 200
 
-            def retrieve(self, _session_id):
-                return session
+            def __init__(self, data):
+                self.data = data
 
-        fake_client = SimpleNamespace(v1=SimpleNamespace(checkout=SimpleNamespace(sessions=FakeSessions())))
-        monkeypatch.setattr(payment_provider_service, '_stripe_client', lambda: fake_client)
+            def json(self):
+                return self.data
+
+        def fake_request(method, url, **kwargs):
+            calls.append((method, url, kwargs))
+            if method == 'GET':
+                return FakeResponse({'checkout_id': 'chk_test_checkout_1', 'status': 'open'})
+            return FakeResponse({
+                'checkout_id': 'chk_test_checkout_1', 'checkout_url': 'https://checkout.bachs.test/c/test',
+                'status': 'open',
+            })
+
+        monkeypatch.setattr(payment_provider_service.requests, 'request', fake_request)
         monkeypatch.setattr(
             payment_provider_service, 'url_for',
             lambda endpoint, **_values: f'https://chigo.example/{endpoint}',
         )
 
         payment = initialize_payment(booking, 'customer@example.com')
-        assert payment.gateway == 'stripe'
-        assert payment.payment_reference == 'cs_test_checkout_1'
+        assert payment.gateway == 'bachs'
+        assert payment.payment_reference == 'chk_test_checkout_1'
         assert payment.amount == expected_deposit
-        assert payment.authorization_url == session.url
-        assert calls[0][0]['automatic_payment_methods'] == {'enabled': True}
-        assert 'payment_method_types' not in calls[0][0]
-        assert calls[0][0]['line_items'][0]['price_data']['currency'] == 'ngn'
-        assert calls[0][0]['line_items'][0]['price_data']['unit_amount'] == round(expected_deposit * 100)
-        assert '{CHECKOUT_SESSION_ID}' in calls[0][0]['success_url']
+        assert payment.authorization_url == 'https://checkout.bachs.test/c/test'
+        assert calls[0][0] == 'POST'
+        assert calls[0][2]['json']['pricing'] == {'currency': 'NGN', 'amount': f'{expected_deposit:.2f}'}
+        assert calls[0][2]['json']['customer'] == {'email': 'customer@example.com'}
+        assert calls[0][2]['headers']['Idempotency-Key'].startswith(f'chigo-deposit-{booking.id}-1-')
 
         reused = initialize_payment(booking, 'customer@example.com')
         assert reused.id == payment.id
-        assert len(calls) == 1
+        assert len(calls) == 2
 
 
-def test_stripe_webhook_marks_matching_paid_session_confirmed(app, monkeypatch):
-    app.config['STRIPE_SECRET_KEY'] = 'sk_test_unit_test'
-    app.config['STRIPE_WEBHOOK_SECRET'] = 'whsec_unit_test'
+def test_bachs_webhook_marks_matching_paid_session_confirmed(app, monkeypatch):
+    app.config['BACHS_WEBHOOK_SECRET'] = 'whsec_unit_test'
     with app.app_context():
-        owner = User(first_name='Stripe', last_name='Customer', email='stripe-customer@example.com', phone='')
+        owner = User(first_name='Bachs', last_name='Customer', email='bachs-customer@example.com', phone='')
         owner.set_password('password123')
         db.session.add(owner)
         db.session.flush()
@@ -1210,20 +1244,13 @@ def test_stripe_webhook_marks_matching_paid_session_confirmed(app, monkeypatch):
         complete_quote(booking)
         accept_quote(booking, owner.id)
 
-        checkout_session = {
-            'id': 'cs_test_webhook_1',
-            'mode': 'payment',
-            'payment_status': 'paid',
-            'amount_total': round(booking.deposit_amount * 100),
-            'currency': 'ngn',
-            'metadata': {'booking_request_id': booking.booking_request_id},
-        }
+        checkout_id = 'chk_test_webhook_1'
         payment = Payment(
             booking_id=booking.id,
             amount=booking.deposit_amount,
             status='Pending',
-            payment_reference=checkout_session['id'],
-            gateway='stripe',
+            payment_reference=checkout_id,
+            gateway='bachs',
             currency='NGN',
         )
         db.session.add(payment)
@@ -1232,10 +1259,15 @@ def test_stripe_webhook_marks_matching_paid_session_confirmed(app, monkeypatch):
         db.session.commit()
         booking_id = booking.id
 
-        event = {'type': 'checkout.session.completed', 'data': {'object': checkout_session}}
-        monkeypatch.setattr(payment_provider_service.stripe.Webhook, 'construct_event', lambda *_args: event)
-        assert process_stripe_webhook(b'{}', 'stripe-signature') is True
-        assert process_stripe_webhook(b'{}', 'stripe-signature') is True
+        event = {'id': 'evt_test_1', 'type': 'collection.succeeded', 'data': {
+            'checkout_id': checkout_id, 'amount': f'{booking.deposit_amount:.2f}', 'currency': 'NGN',
+        }}
+        raw_body = json.dumps(event, separators=(',', ':')).encode()
+        timestamp = str(int(time.time()))
+        signature = hmac.new(b'whsec_unit_test', f'{timestamp}.'.encode() + raw_body, hashlib.sha256).hexdigest()
+        headers = {'X-Bachs-Timestamp': timestamp, 'X-Bachs-Signature': signature}
+        assert process_bachs_webhook(raw_body, headers) is True
+        assert process_bachs_webhook(raw_body, headers) is True
 
         booking = db.session.get(Booking, booking_id)
         assert booking.payment_status == 'Paid'
@@ -1243,27 +1275,32 @@ def test_stripe_webhook_marks_matching_paid_session_confirmed(app, monkeypatch):
         assert Payment.query.filter_by(booking_id=booking_id, status='Successful').count() == 1
 
 
-def test_stripe_webhook_rejects_missing_signature(app):
-    app.config['STRIPE_WEBHOOK_SECRET'] = 'whsec_unit_test'
-    with app.app_context(), pytest.raises(ValueError, match='signature header'):
-        process_stripe_webhook(b'{}', '')
+def test_bachs_webhook_rejects_missing_signature(app):
+    app.config['BACHS_WEBHOOK_SECRET'] = 'whsec_unit_test'
+    with app.app_context(), pytest.raises(ValueError, match='signature'):
+        process_bachs_webhook(b'{}', {})
 
 
-def test_stripe_webhook_route_rejects_invalid_signature(app):
-    app.config['STRIPE_WEBHOOK_SECRET'] = 'whsec_unit_test'
+def test_bachs_webhook_route_rejects_invalid_signature(app):
+    app.config['BACHS_WEBHOOK_SECRET'] = 'whsec_unit_test'
     response = app.test_client().post(
         '/booking/payment/webhook',
         data=b'{}',
-        headers={'Stripe-Signature': 'invalid'},
+        headers={'X-Bachs-Timestamp': str(int(time.time())), 'X-Bachs-Signature': 'invalid'},
     )
     assert response.status_code == 400
     assert response.json['received'] is False
 
 
 def test_quote_retries_pending_road_route_and_uses_server_distance(app, monkeypatch):
-    monkeypatch.setattr(booking_engine_service, 'route_distance', lambda *coords: {
-        'provider': 'osrm', 'distance_km': 37.4, 'duration_minutes': 48,
-    })
+    received = {}
+
+    def route(*coords, fallback=False):
+        received['fallback'] = fallback
+        return {'provider': 'approximate', 'distance_km': 37.4, 'duration_minutes': 48,
+                'distance_source': 'approximate', 'distance_precision': 'approximate'}
+
+    monkeypatch.setattr(booking_engine_service, 'route_distance', route)
     with app.app_context():
         booking = create_request()
         booking.distance_km = 0
@@ -1273,10 +1310,27 @@ def test_quote_retries_pending_road_route_and_uses_server_distance(app, monkeypa
         calculation = complete_quote(booking)
         assert booking.distance_km == 37.4
         assert booking.route_duration_minutes == 48
-        assert booking.route_provider == 'osrm'
+        assert booking.route_provider == 'approximate'
         assert booking.route_status == 'CALCULATED'
         assert booking.route_calculated_at is not None
         assert calculation['route']['distance_km'] == 37.4
+        assert received['fallback'] is True
+
+
+def test_quote_is_saved_for_operations_review_when_route_cannot_be_resolved(app, monkeypatch):
+    monkeypatch.setattr(booking_engine_service, 'route_distance', lambda *args, **kwargs: None)
+    with app.app_context():
+        booking = create_request()
+        booking.distance_km = 0
+        booking.route_status = 'PENDING'
+
+        calculation = complete_quote(booking)
+
+        assert booking.quote_status == 'Quote Required'
+        assert booking.workflow_state == 'QUOTE_READY'
+        assert booking.route_status == 'PENDING'
+        assert calculation['estimate_type'] == 'quote_required'
+        assert 'could not verify the driving route' in calculation['manual_review_flags'][0]
 
 
 def test_customer_routes_complete_one_request_through_quote_acceptance(app):
@@ -1298,13 +1352,12 @@ def test_customer_routes_complete_one_request_through_quote_acceptance(app):
     })
     assert chosen.status_code == 302
     property_response = client.get(property_url)
-    assert b'Bedrooms' in property_response.data
+    assert b'Bedrooms' not in property_response.data
     assert b'Workstations' not in property_response.data
 
     property_saved = client.post(property_url, data={
         'csrf_token': csrf_token(property_response),
-        'property_type': 'Apartment', 'bedrooms': '2', 'bathrooms': '2',
-        'floors': '1', 'approximate_size_m2': '90',
+        'property_type': 'Apartment', 'floors': '1', 'approximate_size_m2': '90',
         'service_destination_property_type': 'Apartment',
         'service_restricted_vehicle_access': 'no',
         'service_long_carry_distance': 'no',
@@ -1411,7 +1464,7 @@ def test_property_csrf_retry_preserves_booking_and_advances_from_database(app):
     assert property_token
 
     rejected = client.post(property_url, data={
-        'property_type': 'Apartment', 'bedrooms': '2', 'bathrooms': '2', 'floors': '1',
+        'property_type': 'Apartment', 'floors': '1',
     })
     assert rejected.status_code == 302
     assert rejected.location.endswith(property_url)
@@ -1424,7 +1477,7 @@ def test_property_csrf_retry_preserves_booking_and_advances_from_database(app):
     assert refreshed_token
     saved_property = client.post(property_url, data={
         'csrf_token': refreshed_token.group(1), 'property_type': 'Apartment',
-        'bedrooms': '2', 'bathrooms': '2', 'floors': '1',
+        'floors': '1',
         'service_destination_property_type': 'Apartment',
         'service_restricted_vehicle_access': 'no',
         'service_long_carry_distance': 'no',
@@ -1435,7 +1488,7 @@ def test_property_csrf_retry_preserves_booking_and_advances_from_database(app):
     with app.app_context():
         persisted = Booking.query.filter_by(booking_request_id=request_id).one()
         assert persisted.workflow_state == 'PROPERTY_COMPLETED'
-        assert persisted.workflow_data['property']['bedrooms'] == 2
+        assert 'bedrooms' not in persisted.workflow_data['property']
 
 
 def test_booking_reference_survives_relogin_and_is_scoped_to_database_owner(app):

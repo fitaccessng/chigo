@@ -369,14 +369,17 @@
         const route = payload.route;
         if (distanceField) distanceField.value = route.distance_km;
         if (summary) {
+          const approximationNotice = route.approximate
+            ? '<p class="mt-2 text-xs font-semibold text-amber-700">Road routing is unavailable, so this is a provisional distance. Operations will verify the route before confirming your quote.</p>'
+            : '';
           summary.innerHTML = `
             <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p class="text-xs font-bold uppercase tracking-wider text-slate-500">Route distance</p>
+                <p class="text-xs font-bold uppercase tracking-wider text-slate-500">${route.approximate ? 'Provisional distance' : 'Route distance'}</p>
                 <p class="mt-1 text-2xl font-black text-slate-900">${escapeHtml(route.distance_km)} km</p>
               </div>
               <p class="text-xs font-medium text-slate-500">Estimated drive time: ${escapeHtml(route.duration_minutes)} minutes</p>
-            </div>
+            </div>${approximationNotice}
           `;
         }
       })

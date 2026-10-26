@@ -188,9 +188,12 @@ def reverse_geocode_endpoint():
     longitude = payload.get('longitude')
     if latitude is None or longitude is None:
         return jsonify({'success': False, 'error': 'Latitude and longitude are required.'}), 400
-    result = reverse_geocode(latitude, longitude)
+    coordinates = validate_coordinates(latitude, longitude)
+    if coordinates is None:
+        return jsonify({'success': False, 'error': 'Coordinates are invalid.'}), 400
+    result = reverse_geocode(*coordinates)
     if not result:
-        return jsonify({'success': False, 'error': 'Unable to reverse geocode, fallback=True this point.'}), 404
+        return jsonify({'success': False, 'error': 'Unable to name this location. Please enter the address manually.'}), 404
     return jsonify({'success': True, 'location': result})
 
 
@@ -209,7 +212,10 @@ def route():
     if pickup_coordinates is None or destination_coordinates is None:
         return jsonify({'success': False, 'error': 'Pickup and destination coordinates are required.'}), 400
 
-    route_data = route_distance(*pickup_coordinates, *destination_coordinates)
+    # OSRM is an enhancement, not a customer-flow gate.  The location service
+    # returns a clearly marked conservative estimate when the road provider is
+    # unavailable, which lets the customer save the move for operations review.
+    route_data = route_distance(*pickup_coordinates, *destination_coordinates, fallback=True)
     if not route_data:
         return jsonify({'success': False, 'error': 'Road distance is temporarily unavailable.'}), 503
     route_data['status'] = 'CALCULATED'

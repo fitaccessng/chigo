@@ -215,11 +215,20 @@
             
             <div>
               <label for="{{ kind }}_search" class="mb-1.5 block text-xs font-semibold text-stone-700">Search address or landmark</label>
-              <p class="mb-2 text-xs text-stone-500">Search for an address</p>
+              <p class="mb-2 text-xs text-stone-500">Search for an address{% if kind == 'pickup' %}, or use your phone's current location{% endif %}.</p>
               <div class="relative">
                 <input id="{{ kind }}_search" name="{{ kind }}_search" autocomplete="off" class="w-full rounded-lg border border-stone-300 bg-white px-4 py-2.5 text-sm transition placeholder:text-stone-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600" placeholder="Type street or area...">
                 <div id="{{ kind }}_suggestions" class="absolute z-30 mt-1 hidden max-h-60 w-full overflow-y-auto rounded-lg border border-stone-200 bg-white shadow-lg"></div>
               </div>
+              {% if kind == 'pickup' %}
+              <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+                <button id="pickup_current_location" type="button" class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-brand-700 bg-white px-3 py-2 text-xs font-bold text-brand-800 hover:bg-brand-50 focus:outline-none focus:ring-2 focus:ring-brand-500">
+                  <svg aria-hidden="true" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 2v3m0 14v3m10-10h-3M5 12H2m17.07-7.07-2.12 2.12M7.05 16.95l-2.12 2.12m14.14 0-2.12-2.12M7.05 7.05 4.93 4.93M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                  <span>Use my current location</span>
+                </button>
+                <p id="pickup_gps_status" class="text-xs text-stone-600" role="status" aria-live="polite"></p>
+              </div>
+              {% endif %}
             </div>
 
             <div class="grid gap-4 sm:grid-cols-2">
@@ -424,6 +433,57 @@
                 select(results[activeIndex], input.value.trim());
               }
             });
+            if (place === 'pickup') {
+              const currentLocationButton = document.getElementById('pickup_current_location');
+              const gpsStatus = document.getElementById('pickup_gps_status');
+              const setGpsStatus = (message, isError = false) => {
+                if (!gpsStatus) return;
+                gpsStatus.textContent = message;
+                gpsStatus.className = `text-xs ${isError ? 'text-amber-800' : 'text-stone-600'}`;
+              };
+              currentLocationButton?.addEventListener('click', () => {
+                if (!navigator.geolocation) {
+                  setGpsStatus('Location is not supported by this browser. Enter your pickup address manually.', true);
+                  return;
+                }
+                const label = currentLocationButton.querySelector('span');
+                const originalLabel = label?.textContent || 'Use my current location';
+                currentLocationButton.disabled = true;
+                if (label) label.textContent = 'Finding your location…';
+                setGpsStatus('Allow location access when your browser asks.');
+                navigator.geolocation.getCurrentPosition(async (position) => {
+                  try {
+                    const response = await fetch('/api/locations/reverse-geocode', {
+                      method: 'POST', headers: {'Content-Type': 'application/json'},
+                      body: JSON.stringify({latitude: position.coords.latitude, longitude: position.coords.longitude}),
+                    });
+                    const payload = await response.json();
+                    if (!response.ok || !payload?.success || !payload.location) throw new Error('reverse-geocode-failed');
+                    const location = {
+                      ...payload.location,
+                      latitude: position.coords.latitude,
+                      longitude: position.coords.longitude,
+                    };
+                    select(location, payload.location.formatted_address || 'Current location');
+                    setGpsStatus(`Pickup set to ${payload.location.formatted_address || 'your current location'}.`);
+                  } catch (_error) {
+                    setGpsStatus('We found your GPS position but could not name the address. Turn on data and try again, or enter it manually.', true);
+                  } finally {
+                    currentLocationButton.disabled = false;
+                    if (label) label.textContent = originalLabel;
+                  }
+                }, (error) => {
+                  const message = error.code === error.PERMISSION_DENIED
+                    ? 'Location access is off. Turn on GPS/location services and allow access, then try again.'
+                    : error.code === error.POSITION_UNAVAILABLE
+                      ? 'GPS location is unavailable. Turn on GPS/location services and try again.'
+                      : 'Location request timed out. Turn on GPS/location services and try again.';
+                  setGpsStatus(message, true);
+                  currentLocationButton.disabled = false;
+                  if (label) label.textContent = originalLabel;
+                }, {enableHighAccuracy: true, timeout: 15000, maximumAge: 60000});
+              });
+            }
             document.addEventListener('click', (event) => {
               if (!input.contains(event.target) && !panel.contains(event.target)) close();
             });
@@ -451,8 +511,6 @@
         <div class="grid gap-4 sm:grid-cols-2">
           {% set bedroom_property_types = ['Apartment', 'Flat / Apartment', 'Self-contained', 'Duplex', 'House', 'Detached House', 'Semi-detached House', 'Bungalow', 'Terrace House'] %}
           {% set floor_property_types = bedroom_property_types + ['Office'] %}
-          <label class="block text-xs font-semibold text-stone-800" data-question-field data-condition-key="property_type" data-condition-value="{{ bedroom_property_types|join('|') }}" {% if property_data.get('property_type', booking.property_type) not in bedroom_property_types %}hidden{% endif %}>Bedrooms at pickup<input type="number" name="bedrooms" min="0" max="100" step="1" value="{{ property_data.get('bedrooms', booking.number_of_bedrooms or 0) }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm"></label>
-          <label class="block text-xs font-semibold text-stone-800" data-question-field data-condition-key="property_type" data-condition-value="{{ bedroom_property_types|join('|') }}" {% if property_data.get('property_type', booking.property_type) not in bedroom_property_types %}hidden{% endif %}>Bathrooms at pickup<input type="number" name="bathrooms" min="0" max="100" step="1" value="{{ property_data.get('bathrooms', booking.number_of_bathrooms or 0) }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm"></label>
           <label class="block text-xs font-semibold text-stone-800" data-question-field data-condition-key="property_type" data-condition-value="{{ floor_property_types|join('|') }}" {% if property_data.get('property_type', booking.property_type) not in floor_property_types %}hidden{% endif %}>Floors or storeys at pickup<input type="number" name="floors" min="1" max="100" step="1" value="{{ property_data.get('floors', booking.number_of_floors or 1) }}" aria-describedby="pickup-floors-help" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm"><span id="pickup-floors-help" class="mt-1 block font-normal text-stone-500">Enter 1 for a single-level property. For a flat, count the building's levels, not your apartment's floor.</span></label>
           <label class="block text-xs font-semibold text-stone-800">Approximate pickup property size (m²), if known<input type="number" name="approximate_size_m2" min="1" max="100000" step="0.1" value="{{ property_data.get('approximate_size_m2', '') }}" class="mt-1.5 w-full rounded-lg border border-stone-300 bg-white px-3.5 py-2.5 text-sm"></label>
         </div>
@@ -636,7 +694,7 @@
           <legend class="text-lg font-bold text-stone-900">Vehicle recommendation from confirmed inventory</legend>
           <p class="mt-1 text-sm text-stone-600">Based on {{ inventory_summary.item_count }} confirmed items, {{ inventory_summary.volume_m3 }} m³ and {{ inventory_summary.weight_kg }} kg. Return to inventory if these details have changed.</p>
           {% if inventory_summary.review_reasons %}<ul class="mt-3 list-disc border-l-4 border-amber-500 bg-amber-50 py-3 pl-8 pr-4 text-sm text-amber-950">{% for reason in inventory_summary.review_reasons %}<li>{{ reason }}</li>{% endfor %}</ul>{% endif %}
-          {% if vehicle_options %}<div class="mt-4 grid gap-3 lg:grid-cols-2">{% for vehicle in vehicle_options %}<label class="flex cursor-pointer items-start gap-3 border border-stone-200 bg-white p-3 {% if vehicle.recommended %}border-brand-600 ring-1 ring-brand-600{% endif %} {% if not vehicle.fits %}opacity-70{% endif %}"><input type="radio" name="vehicle_type_id" value="{{ vehicle.id }}" required {% if vehicle.selected %}checked{% endif %} class="mt-1 h-4 w-4 text-brand-700"><span class="min-w-0 flex-1">{% if vehicle.image %}<img src="{{ url_for('static', filename=vehicle.image) }}" alt="" class="mb-2 h-12 w-16 object-contain">{% endif %}<span class="block text-sm font-bold text-stone-900">{{ vehicle.name }}{% if vehicle.recommended %} · Recommended{% endif %}</span><span class="mt-1 block text-xs text-stone-600">{{ vehicle.capacity_m3 }} m³ · {{ vehicle.max_payload_kg }} kg capacity{% if vehicle.quantity > 1 %} · {{ vehicle.quantity }} vehicles required{% endif %}</span>{% if vehicle.recommendation_reason %}<span class="mt-1 block text-xs text-stone-600">{{ vehicle.recommendation_reason }}</span>{% endif %}{% if vehicle.capacity_exceeded %}<span class="mt-1 block text-xs font-semibold text-amber-800">Multiple vehicles required to fit the confirmed load.</span>{% endif %}</span></label>{% endfor %}</div>{% else %}<p class="mt-3 border-l-4 border-amber-500 bg-amber-50 p-3 text-sm text-amber-950">No active vehicle is configured. Operations must review this inventory before the booking can continue.</p>{% endif %}
+          {% if vehicle_options %}<div class="mt-4 grid gap-3 lg:grid-cols-2">{% for vehicle in vehicle_options %}<label class="flex cursor-pointer items-start gap-3 border border-stone-200 bg-white p-3 {% if vehicle.recommended %}border-brand-600 ring-1 ring-brand-600{% endif %} {% if not vehicle.fits %}opacity-70{% endif %}"><input type="radio" name="vehicle_type_id" value="{{ vehicle.id }}" required {% if vehicle.selected %}checked{% endif %} class="mt-1 h-4 w-4 text-brand-700"><span class="min-w-0 flex-1">{% if vehicle.truck_image %}<img src="{{ url_for('booking.vehicle_image', truck_id=vehicle.truck_image.truck_id, filename=vehicle.truck_image.filename) }}" alt="" class="mb-2 h-12 w-16 object-cover">{% elif vehicle.image %}<img src="{{ url_for('static', filename=vehicle.image) }}" alt="" class="mb-2 h-12 w-16 object-contain">{% endif %}<span class="block text-sm font-bold text-stone-900">{{ vehicle.name }}{% if vehicle.recommended %} · Recommended{% endif %}</span><span class="mt-1 block text-xs text-stone-600">{{ vehicle.capacity_m3 }} m³ · {{ vehicle.max_payload_kg }} kg capacity{% if vehicle.quantity > 1 %} · {{ vehicle.quantity }} vehicles required{% endif %}</span>{% if vehicle.recommendation_reason %}<span class="mt-1 block text-xs text-stone-600">{{ vehicle.recommendation_reason }}</span>{% endif %}{% if vehicle.capacity_exceeded %}<span class="mt-1 block text-xs font-semibold text-amber-800">Multiple vehicles required to fit the confirmed load.</span>{% endif %}</span></label>{% endfor %}</div>{% else %}<p class="mt-3 border-l-4 border-amber-500 bg-amber-50 p-3 text-sm text-amber-950">No active vehicle is configured. Operations must review this inventory before the booking can continue.</p>{% endif %}
         </fieldset>
         {% endif %}
         <h2 class="text-lg font-bold text-stone-900">Choose additional services</h2>
@@ -711,7 +769,7 @@
             <div class="mt-3 space-y-3">
               {% for vehicle in vehicle_options[:3] %}
               <div class="flex items-center gap-3 rounded-lg border border-stone-200 bg-white p-2">
-                {% if vehicle.image %}<img src="{{ url_for('static', filename=vehicle.image) }}" alt="{{ vehicle.name }}" class="h-12 w-12 rounded-md object-cover">{% endif %}
+                {% if vehicle.truck_image %}<img src="{{ url_for('booking.vehicle_image', truck_id=vehicle.truck_image.truck_id, filename=vehicle.truck_image.filename) }}" alt="{{ vehicle.name }}" class="h-12 w-12 rounded-md object-cover">{% elif vehicle.image %}<img src="{{ url_for('static', filename=vehicle.image) }}" alt="{{ vehicle.name }}" class="h-12 w-12 rounded-md object-cover">{% endif %}
                 <div class="flex-1">
                   <p class="text-sm font-semibold text-stone-900">{{ vehicle.name }}</p>
                   <p class="text-xs text-stone-600">{{ vehicle.best_for or 'Right-sized for this move' }}</p>

@@ -6,7 +6,7 @@ from flask_login import current_user, login_required
 
 from ..extensions import csrf, db
 from ..forms import BookingLocationForm
-from ..models import Booking, BookingInventory, BookingItem, BookingPhoto, BookingQuoteLine, InventoryItem, ServicePricing
+from ..models import Booking, BookingInventory, BookingItem, BookingPhoto, BookingQuoteLine, InventoryItem, ServicePricing, VehicleImage
 from ..services.booking_engine_service import (
     BULK_ITEM_OPTIONS, STAGES, accept_quote, calculate_quote, confirm_inventory, create_booking_request,
     catalogue_items_for_service, inventory_fingerprint, inventory_requirements, invalidate_from, preview_move_duration, record_event,
@@ -28,7 +28,7 @@ from ..services.location_service import (
     resolve_nearest_postgis_references, route_distance, validate_coordinates,
     validate_service_area,
 )
-from ..services.payment_provider_service import initialize_payment, process_stripe_webhook, verify_payment
+from ..services.payment_provider_service import initialize_payment, process_bachs_webhook, verify_payment
 from ..services.seo_analytics import queue_analytics_event, queue_booking_conversion
 from ..services.ai_assistance_service import AIAssistanceUnavailable, suggest_booking_details
 
@@ -368,6 +368,9 @@ def _location_payload(form, service_type, places=None):
         route = route_distance(
             data['pickup_latitude'], data['pickup_longitude'],
             data['destination_latitude'], data['destination_longitude'],
+            # A road-router outage must not prevent a customer from saving a
+            # complete move request.  The fallback is explicitly marked
+            # approximate and is reviewed before a quote is confirmed.
             fallback=True,
         )
     data['distance_km'] = float(route['distance_km']) if route else 0.0
@@ -653,18 +656,12 @@ def workflow(request_id, stage):
                 if requires_property_type:
                     values['property_type'] = property_type
                     if booking.primary_service == 'residential':
-                        has_bedrooms = property_type in {
-                            'Apartment', 'Flat / Apartment', 'Self-contained', 'Duplex', 'House',
-                            'Detached House', 'Semi-detached House', 'Bungalow', 'Terrace House',
-                        }
-                        values['bedrooms'] = request.form.get('bedrooms', type=int, default=0) if has_bedrooms else 0
-                        values['bathrooms'] = request.form.get('bathrooms', type=int, default=0) if has_bedrooms else 0
                         values['floors'] = request.form.get('floors', type=int, default=1)
                         values['approximate_size_m2'] = request.form.get('approximate_size_m2', type=float)
                     else:
                         values['business_work_areas'] = service_answers['business_work_areas']
                 values['service_answers'] = service_answers
-                if any(values.get(key, 0) < 0 for key in ('bedrooms', 'bathrooms', 'business_work_areas')):
+                if values.get('business_work_areas', 0) < 0:
                     raise ValueError('Property and business work-area counts must be non-negative.')
                 if booking.primary_service == 'residential' and values.get('floors', 1) < 1:
                     raise ValueError('Pickup property floors or storeys must be at least 1.')
@@ -1367,6 +1364,16 @@ def inventory_photo(request_id, filename):
     return send_from_directory(current_app.config['UPLOAD_FOLDER'], filename)
 
 
+@booking_bp.route('/vehicle-images/<int:truck_id>/<path:filename>')
+@login_required
+def vehicle_image(truck_id, filename):
+    """Serve a fleet photo used as a representative booking vehicle image."""
+    image = VehicleImage.query.filter_by(
+        truck_id=truck_id, file_name=f'vehicles/{truck_id}/{filename}',
+    ).first_or_404()
+    return send_from_directory(current_app.config['UPLOAD_FOLDER'], image.file_name)
+
+
 @booking_bp.route('/<request_id>/payment', methods=['GET', 'POST'])
 @login_required
 def payment(request_id):
@@ -1389,7 +1396,7 @@ def payment(request_id):
 @booking_bp.route('/payment/callback')
 def payment_callback():
     try:
-        booking = verify_payment(request.args.get('session_id') or '')
+        booking = verify_payment(request.args.get('checkout_id') or '')
     except ValueError as error:
         flash(str(error), 'error')
         return redirect(url_for('customer.bookings'))
@@ -1400,12 +1407,9 @@ def payment_callback():
 
 @csrf.exempt
 @booking_bp.route('/payment/webhook', methods=['POST'])
-def stripe_payment_webhook():
+def bachs_payment_webhook():
     try:
-        process_stripe_webhook(
-            request.get_data(cache=False),
-            request.headers.get('Stripe-Signature', ''),
-        )
+        process_bachs_webhook(request.get_data(cache=False), request.headers)
     except ValueError as error:
         return jsonify({'received': False, 'error': str(error)}), 400
     return jsonify({'received': True}), 200
@@ -1483,7 +1487,6 @@ def api_update_property(request_id):
         if requires_property_type:
             values['property_type'] = property_type
             if booking.primary_service == 'residential':
-                values.update({key: payload.get(key, 0) for key in ('bedrooms', 'bathrooms')})
                 values['approximate_size_m2'] = payload.get('approximate_size_m2')
         answers = payload.get('service_answers') or {}
         if not isinstance(answers, dict):
@@ -1494,11 +1497,6 @@ def api_update_property(request_id):
         values['service_answers'] = service_answers
         if booking.primary_service == 'commercial':
             values['business_work_areas'] = service_answers['business_work_areas']
-        for key in ('bedrooms', 'bathrooms'):
-            if key in values:
-                values[key] = int(values.get(key) or 0)
-                if values[key] < 0:
-                    raise ValueError('Property counts must be non-negative.')
         save_workflow_section(booking, 'property', values, current_user.id if current_user.is_authenticated else None)
         return jsonify({'success': True, 'booking_request_id': request_id, 'state': booking.workflow_state})
     except (TypeError, ValueError) as error:

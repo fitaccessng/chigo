@@ -10,10 +10,10 @@
       <p class="badge-pill">Chigo Relocations</p>
       <h1 class="mt-5 text-4xl font-extrabold leading-tight text-slate-900 sm:text-5xl">{{ title }} Services</h1>
       <p class="mt-5 text-lg leading-8 text-slate-600">
-        Chigo Relocations coordinates {{ title|lower }} support for moves in Abuja around your move date, locations, property and inventory. Plan residential house moves, office relocation, packing, loading and transport details together.
+        {{ description or ('Chigo Relocations coordinates ' ~ title|lower ~ ' support for moves in Abuja and its surrounding areas.') }}
       </p>
       <div class="mt-8 flex flex-wrap gap-3">
-        <a href="{{ url_for('booking.start') }}" class="rounded-lg bg-brand-700 px-5 py-3 font-bold text-white hover:bg-brand-800">Add to your move plan</a>
+        <a href="{{ start_url or url_for('booking.start', service_type=service_type or 'residential') }}" class="rounded-lg bg-brand-700 px-5 py-3 font-bold text-white hover:bg-brand-800">Start this service</a>
         <a href="{{ url_for('public.contact') }}" class="rounded-lg border border-slate-300 bg-white px-5 py-3 font-bold text-slate-800 hover:border-brand-600">Contact our team</a>
       </div>
     </div>

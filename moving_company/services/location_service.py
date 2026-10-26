@@ -1706,9 +1706,12 @@ def reverse_geocode(latitude, longitude):
     if not isinstance(payload, dict) or not payload:
         return None
     address = payload.get('address') or {}
+    street = ' '.join(filter(None, (address.get('house_number'), address.get('road')))).strip()
+    name = street or address.get('amenity') or address.get('building') or address.get('neighbourhood') or address.get('suburb') or payload.get('name') or payload.get('display_name')
     return {
         'provider': 'nominatim',
         'provider_place_id': payload.get('place_id'),
+        'name': name,
         'formatted_address': payload.get('display_name'),
         'latitude': latitude,
         'longitude': longitude,

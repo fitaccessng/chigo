@@ -77,6 +77,58 @@ def test_unavailable_postgres_fails_startup_instead_of_using_sqlite(monkeypatch)
         moving_company.validate_database_connection(app)
 
 
+def test_empty_production_bootstrap_installs_required_postgres_extensions():
+    import moving_company
+
+    statements = []
+
+    class Connection:
+        def execute(self, statement):
+            statements.append(str(statement))
+
+    class Transaction:
+        def __enter__(self):
+            return Connection()
+
+        def __exit__(self, *_args):
+            return False
+
+    class Engine:
+        def begin(self):
+            return Transaction()
+
+    moving_company.ensure_postgresql_extensions(Engine())
+
+    assert statements == [
+        'CREATE EXTENSION IF NOT EXISTS postgis',
+        'CREATE EXTENSION IF NOT EXISTS pg_trgm',
+    ]
+
+
+def test_initial_super_admin_bootstrap_creates_only_the_first_account(app, monkeypatch):
+    monkeypatch.setenv('CHIGO_INITIAL_SUPER_ADMIN_BOOTSTRAP', 'true')
+    monkeypatch.setenv('CHIGO_INITIAL_SUPER_ADMIN_NAME', 'Kelvin Admin')
+    monkeypatch.setenv('CHIGO_INITIAL_SUPER_ADMIN_EMAIL', 'kelvin@example.com')
+    monkeypatch.setenv('CHIGO_INITIAL_SUPER_ADMIN_PASSWORD', 'StrongPassphrase9!')
+
+    with app.app_context():
+        User.query.filter_by(role='super_admin').delete()
+        db.session.commit()
+
+    runner = app.test_cli_runner()
+    result = runner.invoke(args=['bootstrap-initial-super-admin'])
+
+    assert result.exit_code == 0
+    with app.app_context():
+        user = User.query.filter_by(email='kelvin@example.com').one()
+        assert user.role == 'super_admin'
+        assert user.check_password('StrongPassphrase9!')
+
+    repeated = runner.invoke(args=['bootstrap-initial-super-admin'])
+    assert repeated.exit_code == 0
+    assert repeated.output == 'Initial super-admin already exists.\n'
+
+
 def test_google_oauth_schema_bootstrap_is_gated_and_targets_one_table(monkeypatch):
     import moving_company
     from moving_company.models import OAuthIdentity
@@ -2626,10 +2678,12 @@ def test_public_services_page_renders():
     response = client.get('/services')
     assert response.status_code == 200
     assert b'Our Services' in response.data
-    assert b'href="/booking/start/commercial"' in response.data
-    assert b'href="/booking/home-decor"' in response.data
-    assert b'href="/booking/start/cleaning"' in response.data
-    assert b'href="/booking/start/support"' in response.data
+    assert b'href="/services/commercial"' in response.data
+    assert b'href="/services/home-decor"' in response.data
+    assert b'href="/services/cleaning"' in response.data
+    assert b'href="/services/support"' in response.data
+    assert b'Logistics' in response.data
+    assert b'Coming soon' in response.data
     assert b'Home Decor' in response.data
     assert b'Cleaning' in response.data
     for path, title in (
@@ -2638,6 +2692,9 @@ def test_public_services_page_renders():
         ('/services/cleaning', b'Cleaning'),
         ('/services/unpacking', b'Unpacking'),
         ('/services/storage', b'Storage'),
+        ('/services/commercial', b'Commercial Moving'),
+        ('/services/home-decor', b'Home D'),
+        ('/services/support', b'24/7 Support'),
     ):
         detail_response = client.get(path)
         assert detail_response.status_code == 200
@@ -2776,7 +2833,44 @@ def test_osrm_route_endpoint_returns_distance_and_duration():
     assert payload['route']['duration_minutes'] == 30.0
 
 
-def test_route_endpoint_returns_retryable_failure_when_provider_unavailable(monkeypatch):
+def test_reverse_geocode_endpoint_returns_a_pickup_ready_location(monkeypatch):
+    from moving_company.routes import locations as locations_route
+
+    app = create_app(testing=True)
+    monkeypatch.setattr(locations_route, 'reverse_geocode', lambda latitude, longitude: {
+        'name': '12 Example Road',
+        'formatted_address': '12 Example Road, Wuse, Abuja, Nigeria',
+        'latitude': latitude,
+        'longitude': longitude,
+        'city': 'Abuja',
+        'state': 'Federal Capital Territory',
+        'country': 'Nigeria',
+        'provider': 'nominatim',
+    })
+
+    client = app.test_client()
+    response = client.post('/api/locations/reverse-geocode', json={'latitude': 9.0765, 'longitude': 7.3986})
+    invalid = client.post('/api/locations/reverse-geocode', json={'latitude': 999, 'longitude': 7.3986})
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        'success': True,
+        'location': {
+            'name': '12 Example Road',
+            'formatted_address': '12 Example Road, Wuse, Abuja, Nigeria',
+            'latitude': 9.0765,
+            'longitude': 7.3986,
+            'city': 'Abuja',
+            'state': 'Federal Capital Territory',
+            'country': 'Nigeria',
+            'provider': 'nominatim',
+        },
+    }
+    assert invalid.status_code == 400
+    assert invalid.get_json()['error'] == 'Coordinates are invalid.'
+
+
+def test_route_endpoint_returns_approximate_distance_when_provider_unavailable(monkeypatch):
     from moving_company.services import location_service
 
     app = create_app(testing=True)
@@ -2786,8 +2880,11 @@ def test_route_endpoint_returns_retryable_failure_when_provider_unavailable(monk
         'pickup': {'latitude': 9.09, 'longitude': 7.48},
         'destination': {'latitude': 9.07, 'longitude': 7.49},
     })
-    assert response.status_code == 503
-    assert response.get_json()['success'] is False
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['success'] is True
+    assert payload['route']['approximate'] is True
+    assert payload['route']['distance_source'] == 'approximate'
 
 
 def test_assignment_conflict_and_payment_review_flow():

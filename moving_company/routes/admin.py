@@ -914,10 +914,17 @@ def upload_truck_image(truck_id):
         flash('This vehicle has reached its image limit.', 'error')
         return redirect(url_for('admin.trucks'))
     try:
+        has_primary = VehicleImage.query.filter_by(truck_id=truck.id, is_primary=True).first() is not None
         for index, file_storage in enumerate(files):
             if file_storage.filename:
                 saved = save_image(file_storage, f'vehicles/{truck.id}', current_app.config['MAX_IMAGE_SIZE'])
-                db.session.add(VehicleImage(truck_id=truck.id, file_name=saved['file_url'], original_filename=saved['original_filename'], mime_type=saved['mime_type'], file_size=saved['file_size'], sort_order=count + index))
+                db.session.add(VehicleImage(
+                    truck_id=truck.id, file_name=saved['file_url'], original_filename=saved['original_filename'],
+                    mime_type=saved['mime_type'], file_size=saved['file_size'], sort_order=count + index,
+                    # A new truck should show its first uploaded image without
+                    # requiring a separate "Set primary" action.
+                    is_primary=not has_primary and index == 0,
+                ))
     except (ValueError, OSError) as error:
         db.session.rollback()
         flash(str(error), 'error')

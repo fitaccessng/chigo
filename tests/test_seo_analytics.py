@@ -140,26 +140,19 @@ def test_payment_conversion_only_follows_verified_provider_confirmation():
         booking.deposit_amount = 1500
         db.session.commit()
         payment = Payment(
-            booking_id=booking.id, amount=1500, status='Pending', payment_reference='cs_validated',
-            gateway='stripe', currency='NGN',
+            booking_id=booking.id, amount=1500, status='Pending', payment_reference='chk_validated',
+            gateway='bachs', currency='NGN',
         )
         db.session.add(payment)
         db.session.commit()
-        session = {
-            'id': 'cs_validated', 'mode': 'payment', 'payment_status': 'unpaid',
-            'amount_total': 150000, 'currency': 'ngn',
-            'metadata': {'booking_request_id': booking.booking_request_id},
-        }
-
         with pytest.raises(ValueError, match='could not confirm'):
-            _record_payment_success(payment, session)
+            _record_payment_success(payment, 'chk_invalid', '1500.00', 'NGN')
         assert BookingEvent.query.filter(BookingEvent.action.in_([
             'analytics.payment_success', 'analytics.booking_completed',
         ])).count() == 0
 
-        session['payment_status'] = 'paid'
-        _record_payment_success(payment, session)
-        _record_payment_success(payment, session)
+        _record_payment_success(payment, 'chk_validated', '1500.00', 'NGN')
+        _record_payment_success(payment, 'chk_validated', '1500.00', 'NGN')
         assert BookingEvent.query.filter_by(booking_id=booking.id, action='analytics.payment_success').count() == 1
         assert BookingEvent.query.filter_by(booking_id=booking.id, action='analytics.booking_completed').count() == 1
         assert Booking.query.filter_by(id=booking.id).one().workflow_state == 'CONFIRMED'
