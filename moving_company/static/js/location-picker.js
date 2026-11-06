@@ -45,11 +45,16 @@
   function buildSelection(result, originalQuery) {
     const address = result.address || result.address_components || {};
     const formatted = result.formatted_address || result.display_name || result.name || 'Selected location';
+    const coordinate = (value) => (
+      value === null || value === undefined || value === '' || !Number.isFinite(Number(value))
+        ? null
+        : Number(value)
+    );
     return {
       name: result.name || formatted.split(',')[0].trim() || 'Selected location',
       formatted_address: formatted,
-      latitude: Number(result.latitude ?? result.lat),
-      longitude: Number(result.longitude ?? result.lon),
+      latitude: coordinate(result.latitude ?? result.lat),
+      longitude: coordinate(result.longitude ?? result.lon),
       provider: result.provider || 'nominatim',
       provider_place_id: result.provider_place_id || result.place_id || result.id || '',
       address,
@@ -102,6 +107,7 @@
         <div class="min-w-0">
           <div class="font-bold text-[11px]">Selected location</div>
           <div class="mt-1 leading-5">${escapeHtml(selection.formatted_address)}</div>
+          ${Number.isFinite(selection.latitude) && Number.isFinite(selection.longitude) ? '' : '<div class="mt-1 text-amber-800">Exact coordinates are not verified; operations may need to confirm this route.</div>'}
         </div>
         <button type="button" class="shrink-0 rounded-lg border border-white/60 bg-white/70 px-2 py-1 text-[10px] font-bold text-slate-600 hover:bg-white" data-clear-location="${kind}">Clear</button>
       </div>
@@ -136,9 +142,31 @@
     }
   }
 
-  function selectLocation(kind, result, originalQuery) {
-    const selection = buildSelection(result, originalQuery);
-    if (!Number.isFinite(selection.latitude) || !Number.isFinite(selection.longitude)) return;
+  async function selectLocation(kind, result, originalQuery) {
+    let selection = buildSelection(result, originalQuery);
+    if (!Number.isFinite(selection.latitude) || !Number.isFinite(selection.longitude)) {
+      const dropdown = getField(`${kind}_dropdown`);
+      if (dropdown) {
+        dropdown.innerHTML = '<div class="px-4 py-3 text-[11px] text-slate-500">Checking this area for map coordinates...</div>';
+        dropdown.classList.remove('hidden');
+      }
+      try {
+        const response = await fetch('/api/locations/geocode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address: selection.formatted_address || selection.name || originalQuery }),
+        });
+        const payload = await response.json();
+        if (response.ok && payload && payload.success && payload.location) {
+          const geocoded = buildSelection(payload.location, originalQuery);
+          if (Number.isFinite(geocoded.latitude) && Number.isFinite(geocoded.longitude)) {
+            selection = geocoded;
+          }
+        }
+      } catch (_error) {
+        // Keep the listed area selectable; the booking flow will send unresolved routes for review.
+      }
+    }
 
     state[kind].selected = selection;
     const input = getField(`${kind}_search`);
@@ -344,6 +372,17 @@
     if (!state.pickup.selected || !state.destination.selected) return;
     const summary = getField('route_summary');
     const distanceField = getField('distance_km');
+    const hasCoordinates = (location) => (
+      Number.isFinite(location.latitude) && Number.isFinite(location.longitude)
+    );
+    if (!hasCoordinates(state.pickup.selected) || !hasCoordinates(state.destination.selected)) {
+      if (distanceField) distanceField.value = '';
+      if (summary) {
+        summary.classList.remove('hidden');
+        summary.innerHTML = '<p class="text-xs font-semibold text-amber-800">Exact coordinates are unavailable for one or both areas. You can continue with the address; operations will verify the route before confirming distance-based pricing.</p>';
+      }
+      return;
+    }
     if (summary) {
       summary.classList.remove('hidden');
       summary.innerHTML = '<p class="text-xs font-semibold text-slate-600">Calculating driving distance...</p>';
@@ -369,13 +408,16 @@
         const route = payload.route;
         if (distanceField) distanceField.value = route.distance_km;
         if (summary) {
+          const routeNeedsReview = route.approximate || route.requires_review;
           const approximationNotice = route.approximate
             ? '<p class="mt-2 text-xs font-semibold text-amber-700">Road routing is unavailable, so this is a provisional distance. Operations will verify the route before confirming your quote.</p>'
-            : '';
+            : route.requires_review
+             ? '<p class="mt-2 text-xs font-semibold text-amber-700">This vehicle profile is not fully validated by the routing data. Operations will review access before confirming your quote.</p>'
+             : '';
           summary.innerHTML = `
             <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p class="text-xs font-bold uppercase tracking-wider text-slate-500">${route.approximate ? 'Provisional distance' : 'Route distance'}</p>
+                <p class="text-xs font-bold uppercase tracking-wider text-slate-500">${routeNeedsReview ? 'Provisional route distance' : 'Route distance'}</p>
                 <p class="mt-1 text-2xl font-black text-slate-900">${escapeHtml(route.distance_km)} km</p>
               </div>
               <p class="text-xs font-medium text-slate-500">Estimated drive time: ${escapeHtml(route.duration_minutes)} minutes</p>

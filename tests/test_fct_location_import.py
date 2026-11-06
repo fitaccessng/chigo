@@ -3,6 +3,7 @@ import json
 from moving_company import create_app
 from moving_company.extensions import db
 from moving_company.models import LocalPlace
+from moving_company.services import location_service
 from moving_company.services.location_service import clear_location_search_cache, search_places
 from scripts.import_fct_locations import (
     SIX_COUNCILS,
@@ -196,3 +197,97 @@ def test_local_autocomplete_postcode_alias_ranking_context_and_limits():
         assert partial[0]['name'] == canonical.name
 
     clear_location_search_cache()
+
+
+def test_fct_directory_seed_searches_major_axes_without_claiming_coordinates():
+    app = create_app(testing=True)
+    clear_location_search_cache()
+
+    with app.app_context():
+        for name, council in (
+            ('Pyakasa', 'Abuja Municipal Area Council'),
+            ('Dobi', 'Gwagwalada Area Council'),
+            ('Chibiri', 'Kuje Area Council'),
+            ('Yangoji', 'Kwali Area Council'),
+            ('Nuku', 'Abaji Area Council'),
+            ('Dutse Alhaji', 'Bwari Area Council'),
+        ):
+            matches = search_places(name, limit=8)
+            place = next(result for result in matches if result['name'] == name)
+            assert place['area_council'] == council
+            assert place['latitude'] is None and place['longitude'] is None
+            assert place['verified'] is False
+            assert place['verification_status'] == 'source_listed'
+
+    clear_location_search_cache()
+
+
+def test_curated_import_preserves_source_listed_status_and_null_geometry():
+    from moving_company.services.postgis_ingestion import _curated_records, normalize_location_payload
+
+    record = next(item for item in _curated_records() if item['name'] == 'Pyakasa')
+    normalized = normalize_location_payload(record)
+
+    assert record['verified'] is False
+    assert record['verification_status'] == 'source_listed'
+    assert normalized['latitude'] is None
+    assert normalized['longitude'] is None
+    assert normalized['centroid'] is None
+    assert normalized['source_attributes']['coordinate_status'] == 'not_geocoded'
+
+
+def test_fct_location_seed_cli_is_repeatable_and_keeps_source_listed_places_unverified():
+    app = create_app(testing=True)
+    runner = app.test_cli_runner()
+
+    first = runner.invoke(args=['seed-fct-locations'])
+    second = runner.invoke(args=['seed-fct-locations'])
+
+    assert first.exit_code == 0
+    assert second.exit_code == 0
+    assert 'Upserted' in first.output
+    with app.app_context():
+        pyakasa = LocalPlace.query.filter_by(normalized_name='pyakasa').one()
+        assert pyakasa.latitude is None and pyakasa.longitude is None
+        assert pyakasa.verified is False
+        assert pyakasa.verification_status == 'source_listed'
+
+
+def test_geocoder_ignores_coordinate_free_entries_and_out_of_fct_results(monkeypatch):
+    clear_location_search_cache()
+    monkeypatch.setattr(location_service, '_search_local_abuja_places', lambda *_args, **_kwargs: [{
+        'name': 'Ungeocoded Settlement',
+        'formatted_address': 'Ungeocoded Settlement, Abuja Municipal Area Council, Nigeria',
+        'latitude': None,
+        'longitude': None,
+    }])
+    provider_calls = []
+
+    def nominatim(path, params=None):
+        provider_calls.append((path, params))
+        return [
+            {
+                'name': 'Wrong-city match', 'display_name': 'Wrong-city match, Lagos, Nigeria',
+                'lat': '6.45', 'lon': '3.39',
+                'address': {'city': 'Lagos', 'state': 'Lagos', 'country': 'Nigeria'},
+            },
+            {
+                'name': 'Ungeocoded Settlement', 'display_name': 'Ungeocoded Settlement, Abuja, Nigeria',
+                'lat': '9.10', 'lon': '7.40',
+                'address': {'city': 'Abuja', 'state': 'Federal Capital Territory', 'country': 'Nigeria'},
+            },
+        ]
+
+    monkeypatch.setattr(location_service, '_nominatim_request', nominatim)
+    monkeypatch.setattr(
+        location_service, '_photon_request',
+        lambda *_args, **_kwargs: pytest.fail('Nominatim returned an in-FCT match'),
+    )
+
+    result = location_service.geocode_address('Ungeocoded Settlement')
+
+    assert result['latitude'] == 9.1
+    assert result['longitude'] == 7.4
+    assert provider_calls[0][0] == '/search'
+    assert provider_calls[0][1]['q'] == 'Ungeocoded Settlement, Abuja, Nigeria'
+    assert provider_calls[0][1]['bounded'] == 1

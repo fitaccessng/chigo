@@ -107,6 +107,7 @@ def create_booking_request(customer_id=None, location=None, user_id=None, servic
             'property': {'service_answers': dict(initial_service_answers or {})},
             'services': dict(initial_services or {}), 'schedule': {},
             'location_access': dict(location_access or {}),
+            'route': dict(location.get('route_metadata') or {}),
         }, calculation_data={},
         **{field: location[field] for field in location_fields if field in location},
     )
@@ -1196,6 +1197,25 @@ def _logistics_indicative_total(booking: Booking):
     return round(sum(line['amount'] for line in lines), 2), None, lines
 
 
+def _route_profile_for_booking(booking):
+    vehicle_data = (booking.workflow_data or {}).get('vehicle') or {}
+    selected_vehicle_id = vehicle_data.get('selected_type_id')
+    if not selected_vehicle_id:
+        return ((booking.workflow_data or {}).get('route') or {}).get('vehicle_profile') or 'standard_car'
+    try:
+        selected_vehicle_id = int(selected_vehicle_id)
+    except (TypeError, ValueError):
+        return None
+    selected_vehicle = db.session.get(VehicleType, selected_vehicle_id)
+    if selected_vehicle is None:
+        return None
+    if selected_vehicle.slug in {'small-van', 'pickup', 'hiace-large-van'}:
+        return 'light_commercial'
+    if selected_vehicle.slug == 'canter':
+        return 'medium_truck'
+    return 'heavy_truck'
+
+
 def calculate_quote(booking: Booking, user_id=None):
     if booking.workflow_state not in {'SCHEDULE_COMPLETED', 'QUOTE_READY'}:
         raise ValueError('Complete location, property, inventory, services, and schedule before requesting a quote.')
@@ -1310,27 +1330,66 @@ def calculate_quote(booking: Booking, user_id=None):
                      user_id=user_id)
         db.session.commit()
         return booking.calculation_data
-    if booking.distance_km is None or float(booking.distance_km) <= 0:
+    route_metadata = dict((booking.workflow_data or {}).get('route') or {})
+    vehicle_profile = _route_profile_for_booking(booking)
+    route_source_is_road = booking.distance_source in {
+        'osrm-road-network', 'valhalla-road-network',
+    }
+    route_needs_refresh = (
+        booking.distance_km is None or float(booking.distance_km) <= 0
+        or booking.route_status != 'CALCULATED'
+        or not route_source_is_road
+        or route_metadata.get('vehicle_profile') != vehicle_profile
+        or route_metadata.get('network_version') != current_app.config.get('ROUTING_NETWORK_VERSION', 'unmanaged')
+        or route_metadata.get('requires_review')
+    )
+    if route_needs_refresh:
+        if vehicle_profile is None:
+            booking.route_status = 'MANUAL_REVIEW_REQUIRED'
+            return _save_quote_required(
+                booking,
+                'The selected vehicle profile could not be verified. Operations must confirm a route-compatible vehicle.',
+                user_id=user_id,
+            )
         pickup = validate_coordinates(booking.pickup_latitude, booking.pickup_longitude)
         destination = validate_coordinates(booking.destination_latitude, booking.destination_longitude)
-        # Keep a previously saved request moving when the external road router
-        # is down.  The fallback is explicitly stored as approximate so it is
-        # never represented as a verified road distance to operations.
-        route = route_distance(*pickup, *destination, fallback=True) if pickup and destination else None
+        route = route_distance(
+            *pickup, *destination, fallback=False, vehicle_profile=vehicle_profile,
+        ) if pickup and destination else None
         if route:
             booking.distance_km = route['distance_km']
             booking.route_duration_minutes = route['duration_minutes']
             booking.route_provider = route['provider']
             booking.distance_source = route.get('distance_source')
-            booking.distance_precision = route.get('distance_precision', 'fares')
-            booking.route_status = 'CALCULATED'
+            booking.distance_precision = route.get('distance_precision', 'unresolved')
+            booking.route_status = (
+                'ESTIMATED' if route.get('approximate')
+                else 'MANUAL_REVIEW_REQUIRED' if route.get('requires_review')
+                else route.get('route_status', 'CALCULATED')
+            )
             booking.route_calculated_at = datetime.utcnow()
-        else:
-            booking.route_status = 'PENDING'
+            booking.workflow_data = {
+                **(booking.workflow_data or {}),
+                'route': {
+                    key: route.get(key)
+                    for key in (
+                        'vehicle_profile', 'network_version', 'provider',
+                        'vehicle_restriction_status', 'requires_review', 'route_status',
+                    )
+                },
+            }
+        if not route or booking.route_status != 'CALCULATED':
+            if not route and booking.distance_source not in {'approximate', 'approximate-landmark-or-district'}:
+                booking.route_status = 'PENDING'
             return _save_quote_required(
                 booking,
-                'We could not verify the driving route from the supplied locations. '
-                'Your move request is saved; operations will confirm the route and prepare your quote.',
+                (
+                    'The route could not be verified for the selected vehicle. '
+                    'Your move request is saved; operations will confirm vehicle access and prepare your quote.'
+                    if route else
+                    'We could not verify the driving route from the supplied locations. '
+                    'Your move request is saved; operations will confirm the route and prepare your quote.'
+                ),
                 user_id=user_id,
             )
     if not booking.items:
@@ -1479,7 +1538,13 @@ def calculate_quote(booking: Booking, user_id=None):
             'selected_is_recommended': vehicle.id == recommended_vehicle.id,
         },
         'workforce': {'movers': crew}, 'duration_minutes': duration_minutes,
-        'route': {'distance_km': booking.distance_km}, 'availability': availability,
+        'route': {
+            'distance_km': booking.distance_km,
+            'duration_minutes': booking.route_duration_minutes,
+            'provider': booking.route_provider,
+            'source': booking.distance_source,
+            **(booking.workflow_data or {}).get('route', {}),
+        }, 'availability': availability,
         'subtotal': subtotal, 'tax': tax, 'total': total,
         'original_total': gross_total, 'referral_discount': discount,
         'deposit': deposit, 'balance': booking.balance_amount,

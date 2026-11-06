@@ -1,6 +1,72 @@
 # Location Intelligence Status
 
-Status date: 2026-10-22
+Status date: 2026-11-05
+
+## Current phased-delivery checkpoint (2026-11-05)
+
+### Implemented and locally verified in this checkpoint
+
+- Added a Valhalla-first route adapter with OSRM fallback, GeoJSON route geometry, supported vehicle-profile validation, a profile/network-version-aware in-process cache, and explicit `CALCULATED`, `ESTIMATED`, and manual-review outcomes.
+- Approximate straight-line previews remain available for saving a booking, but are no longer treated as road routes or used to produce a distance-priced final quote. Dispatch continues to require `CALCULATED`.
+- Added versioned route-calculation and administrator-only, bounded route-matrix endpoints while preserving the existing route API.
+- Added routing configuration examples and documented the actual route behavior and current limitations. Diagnostics no longer print the configured database hostname or database name.
+- Added searchable FCT directory references from the supplied Abuja locality list, an idempotent `seed-fct-locations` CLI command, FCT-bounded geocoding, and booking-time geocoding for selected directory entries that have no coordinates. New directory-only names remain unverified and coordinate-free; disputed Mpape council placement requires review.
+- `.venv/bin/python -m pytest -q --tb=short -W ignore::DeprecationWarning`: **339 passed, 0 failed, 7 warnings** in 300.70 seconds. Focused location/routing tests, JavaScript syntax, and `git diff --check` passed.
+- No production database write, geodata import, production deployment, payment, or dispatch operation was performed.
+
+### Phase-gate status
+
+| Phase | Status | Evidence / blocker |
+|---|---|---|
+| 0 — Repository audit | Complete | Existing Flask, SQLAlchemy/Alembic, booking, pricing, admin, and location flows are documented below. |
+| 1 — Database foundation | Blocked | The configured database is remote PostgreSQL 15, while the brief requires PostgreSQL 16/PostGIS. The workstation connection times out; its firewall defaults to deny. `APP_ENV=development`; staging identity and backup/restore evidence are absent. No schema or migration change was attempted. |
+| 2 — Location data | Partial | Supplied localities are seeded as searchable, unverified references; the explicit seed command and remote PostGIS import have not been run. |
+| 3 — Geocoding | Partial | Coordinate-free directory selections now trigger FCT-bounded geocoding; live geocoder and customer map-pin acceptance remain unverified. |
+| 4 — OSM road import | Blocked | Existing OSM directory import is not a routable road graph. A router-built network and remote PostGIS import/coverage validation are unavailable. |
+| 5 — Valhalla | Blocked | Adapter and tests are implemented, but no managed Valhalla endpoint/network or vehicle-restriction verification is configured. |
+| 6 — OSRM fallback | Partial | OSRM fallback is implemented and mocked failover tests pass; the public default is not production certification. Truck restrictions remain unverified and require review. |
+| 7 — Cache/matrix | Partial | Cache keys include vehicle profile and network version; the route matrix is bounded and tested. Cache is process-local, not Redis-backed; no production matrix or load validation is available. |
+| 8 — Pricing | Partial | Approximate distances cannot silently drive a final distance quote; route/provider metadata is included in quote snapshots. Real rates and infrastructure-backed quote integrity are not certified. |
+| 9 — APIs | Partial | Existing location APIs remain, with versioned route calculation and protected matrix additions. Full API auth/rate-limit/schema coverage and health APIs remain outstanding. |
+| 10 — Admin monitoring | Partial | Existing location import, alias, merge, and observation review tools remain. Routing/geocoding/pricing metrics dashboards and full service health remain outstanding. |
+| 11 — Frontend | Partial | Existing booking location selection displays provisional status. MapLibre property-pin/route visualization and a browser staging journey are not verified. |
+| 12 — Reliability | Partial | Provider fallback, bounded caching, approximate-vs-road status separation, and dispatch gating are covered by tests. Redis, worker health, and live failure simulation remain unavailable. |
+| 13 — Automated tests | Local verification complete | 339 passed, 0 failed, 7 warnings on SQLite. This does not verify PostgreSQL/PostGIS, live routing, or browser acceptance. |
+| 14 — Performance | Blocked | No PostGIS dataset, configured route services, or representative staging load is available for acceptance benchmarks. |
+| 15 — Deployment | Blocked | No deployment was performed. The configured database target is not an identified staging resource; the live Chigo deployment was left untouched. |
+| 16 — Documentation | Partial | README and this report describe the new behavior and actual infrastructure blockers; full operations runbooks, service-specific install steps, and OSM distribution/licensing review remain. |
+
+## Initial implementation audit (2026-11-05)
+
+### Architecture and workflow
+
+- The application is an existing Flask app factory with SQLAlchemy/Flask-Migrate, location and booking blueprints, and a multi-stage booking engine. Location resolution lives in `moving_company/services/location_service.py`; booking route and quote integration lives in `moving_company/services/booking_engine_service.py`. Existing admin permissions and pricing configuration are in place.
+- Location selection persists addresses, provider identifiers, locality metadata, and optional coordinates on the booking. Residential, commercial, and logistics bookings require pickup and destination; other service workflows have service-specific location requirements. Quotes are calculated or routed to operations review through the existing quote workflow.
+- Existing location APIs cover autocomplete/search, save, place details, forward and reverse geocoding, route calculation, and service-area validation. Search combines the canonical PostGIS index and the SQLite-compatible `LocalPlace` index before provider fallback. Nominatim and Photon support geocoding; the route adapter added in this checkpoint tries configured Valhalla and then OSRM.
+
+### Database and location-data findings
+
+- The repository Alembic head is `20261022_fct_location_directory`. The earlier local SQLite audit reported revision `20261006_upgrade_booking_location_schema` and `PRAGMA quick_check=ok`; that local revision is not evidence about the configured remote database.
+- The current `.env` labels the application `development` and configures a remote PostgreSQL 15 database. A read-only connection attempt timed out, and the managed database firewall uses default deny. The target has not been identified as staging; PostGIS, schema/revision state, current data, and backup/restore status remain unverified. No migration or import was attempted.
+- Earlier read-only local SQLite counts: `local_places` has 1,104 rows, 1,011 active; 50 active rows have non-zero coordinates and 961 do not. No active row is missing an area-council value. Council labels are not consistently canonicalized (for example, both `AMAC` and `Abuja Municipal Area Council` occur); avoid automatic merges or reassignment.
+- Existing location readiness evidence reports duplicate normalized-name groups and a source directory with no verified coordinates. Directory entries and locality centroids must not be presented as verified property pins.
+
+### Routing, pricing, tests, and blockers
+
+- At initial audit, the route API and booking integration marked approximate results `CALCULATED` while dispatch checked that status. This checkpoint corrects that behavior: estimates are labeled `ESTIMATED` and cannot produce a distance-priced final quote or dispatch. Valhalla is not configured in the inspected application environment, and no actual self-hosted Valhalla/OSRM route or vehicle-restriction verification was possible.
+- Existing pricing and booking logic is integrated and preserves service-specific quoting/review workflows. Existing route metadata is persisted, but the verified production quote snapshot and real routed-distance behavior cannot be certified without the appropriate database and router.
+- Current test baseline: `.venv/bin/python -m pytest -q --tb=short -W ignore::DeprecationWarning` completed with **327 passed, 0 failed, 7 warnings** in 157.42 seconds. A focused location/booking/import run passed **79 tests**. These are local SQLite tests and do not verify PostgreSQL/PostGIS, live providers, or a browser booking journey.
+- The worktree already contains user changes in `location_service.py`, the booking engine template, and two test files. Those changes were left intact. `.env.example` also contains duplicate `DATABASE_URL` and Google OAuth entries; it has no Valhalla setting.
+- **Phase 1 is blocked**: no authoritative staging database/resource identity, configured staging target, or current recoverable staging backup was provided. Do not apply migrations/imports or deploy based on the local SQLite database. No migration, import, live write, deployment, charge, or dispatch was performed for this audit.
+
+### Recommended phase sequence
+
+1. Establish the staging target through the secure environment, confirm `APP_ENV=staging` and production isolation, and verify a current backup with an isolated restore.
+2. Reconcile the target schema/migration state and verify PostgreSQL 16/PostGIS before any approved migration.
+3. Validate and import location sources; keep unverified coordinates and uncertain council assignments explicitly flagged.
+4. Configure and validate road data and the primary Valhalla/secondary OSRM services, then verify route results and failover with real infrastructure.
+5. Integrate route status/profile/network metadata with existing pricing and dispatch gating; unavailable routing must result in assisted review, not a road-distance claim.
+6. Complete API, admin, frontend, failure, performance, deployment, and acceptance verification in the brief's phase order.
 
 ## Staging readiness checkpoint (2026-10-22)
 
@@ -119,6 +185,9 @@ The autocomplete service is local-first. It searches PostGIS when configured, th
 
 ## Changes in this update
 
+- `moving_company/services/fct_location_data.py` and `moving_company/__init__.py`: added the supplied Abuja area names as coordinate-free references where the existing seed did not have a place. They retain source-listing/boundary status and are imported into an existing local-place store with the idempotent `flask --app run.py seed-fct-locations` command. Existing boundary-uncertain assignments are not duplicated as confirmed alternatives.
+- `moving_company/services/location_service.py`, `moving_company/services/postgis_ingestion.py`, and `moving_company/routes/booking_engine.py`: missing coordinates remain null through local search and PostGIS normalization; a directory match no longer blocks geocoding; Nominatim searches are FCT-bounded and out-of-FCT results are discarded; selected coordinate-free directory records are geocoded before route calculation when a provider can resolve them. If geocoding or routing is unavailable, the request remains for operations review rather than receiving fabricated coordinates or a final distance quote.
+- Existing location and route endpoints were already registered by the app factory. The route calculation and matrix tests verify the registered paths; no route graph was imported or built in this update.
 - `moving_company/routes/locations.py`: replaced the broad result spread with an explicit public projection. Existing picker fields, canonical IDs, provider references, display/address values, and query context remain available. Internal ranking or provider payload fields are not serialized. Address objects are restricted to recognized public address components. Coordinate presence is checked with the existing coordinate validator; unknown precision stays `unknown` instead of being inferred.
 - `moving_company/static/js/location-picker.js`: aborts a superseded autocomplete request using `AbortController` and reduces the debounce interval to 200 ms. Existing request-sequence protection remains.
 - `tests/test_app.py`: verifies legacy fields are retained and arbitrary internal score/provider payload fields are excluded.
@@ -148,6 +217,7 @@ When PostGIS is available, apply migrations first with `flask --app run.py db up
 
 - `pytest tests/test_app.py -k autocomplete -q`: 7 passed.
 - `.venv/bin/python -m pytest tests/test_app.py tests/test_fct_location_import.py tests/test_location_learning.py -q`: 110 passed, 1 failed. The only failure is the independently reproduced dashboard assertion `test_dashboard_uses_live_booking_payment_and_resource_data` expecting `₦100`; it does not touch location/import code.
+- Current continuation check, superseding the earlier partial/failed suite entries below: `.venv/bin/python -m pytest -q --tb=short -W ignore::DeprecationWarning`: 339 passed, 0 failed, 7 warnings in 300.70 seconds, including the newly added directory, geocoding, booking-route, and importer regression tests.
 - `pytest tests/test_booking_engine.py -k 'location or route or quote' -q`: 18 passed.
 - `pytest tests/test_app.py -k 'geodata_coverage_summary or boundary_ingestion_dry_run' -q`: 2 passed.
 - `node --check moving_company/static/js/location-picker.js`: passed.
@@ -168,4 +238,4 @@ No representative PostGIS load test was run. Cold/warm latency percentiles, thro
 5. Decide on production geocoder/router services and set their usage policies, timeouts, caching, and availability controls.
 6. Add shared rate limiting and provider circuit-breaking if required by the production traffic model.
 7. Benchmark local search with representative PostGIS data and concurrency; separately measure warm-cache behavior.
-8. Resolve the unrelated admin dashboard payment-total assertion, run the complete regression suite to completion, and verify staging migration/rollback before production deployment.
+8. Complete staging-only route/geocoder acceptance, verify migration/rollback, then repeat the launch checks against the production configuration before rollout.

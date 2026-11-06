@@ -2,6 +2,7 @@ import argparse
 import http.client
 import json
 import logging
+import math
 import os
 import re
 import socket
@@ -57,8 +58,19 @@ def normalize_location_payload(payload):
     name = str(payload.get('name') or payload.get('display_name') or '').strip()
     if not name:
         raise ValueError('location payload is missing a name')
-    latitude = float(payload.get('latitude') or payload.get('lat') or 0)
-    longitude = float(payload.get('longitude') or payload.get('lon') or payload.get('lng') or 0)
+    raw_latitude = payload.get('latitude', payload.get('lat'))
+    raw_longitude = payload.get('longitude', payload.get('lon', payload.get('lng')))
+    if raw_latitude in (None, '') and raw_longitude in (None, ''):
+        latitude = longitude = None
+    elif raw_latitude in (None, '') or raw_longitude in (None, ''):
+        raise ValueError(f'{name} must provide both latitude and longitude, or neither.')
+    else:
+        try:
+            latitude, longitude = float(raw_latitude), float(raw_longitude)
+        except (TypeError, ValueError):
+            raise ValueError(f'{name} has invalid coordinates.') from None
+        if not math.isfinite(latitude) or not math.isfinite(longitude):
+            raise ValueError(f'{name} has invalid coordinates.')
     aliases = payload.get('aliases') or []
     keywords = payload.get('keywords') or payload.get('search_keywords') or []
     if isinstance(aliases, str):
@@ -73,7 +85,10 @@ def normalize_location_payload(payload):
         'area_council': payload.get('area_council') or payload.get('council'),
         'latitude': latitude,
         'longitude': longitude,
-        'centroid': {'type': 'Point', 'coordinates': [longitude, latitude]},
+        'centroid': (
+            {'type': 'Point', 'coordinates': [longitude, latitude]}
+            if latitude is not None and longitude is not None else None
+        ),
         'aliases': list(dict.fromkeys(_TOKEN_RE.sub(' ', str(alias).casefold()).strip() for alias in aliases if str(alias).strip())),
         'keywords': list(dict.fromkeys(_TOKEN_RE.sub(' ', str(word).casefold()).strip() for word in keywords if str(word).strip())),
         'source': payload.get('source') or 'chigo',
@@ -492,8 +507,10 @@ def _curated_records():
         record['source_id'] = str(record.get('provider_place_id') or normalize_location_name(record['name']))
         record['source_url'] = None
         record['confidence'] = 1.0
-        record['verification_status'] = 'verified'
-        record['verified'] = True
+        record['verification_status'] = record.get('verification_status') or (
+            'verified' if record.get('verified') else 'source_listed'
+        )
+        record['verified'] = bool(record.get('verified'))
         record['place_type'] = str(record.get('place_type') or 'poi').lower()
         record['keywords'] = record.pop('search_keywords', [])
         records.append(record)
@@ -618,7 +635,11 @@ def _insert_records(engine, records, *, force=False, dry_run=False):
                 'metadata': json.dumps(source_metadata),
             }).scalar_one()
         for record in records:
-            point = f"SRID=4326;POINT({record['longitude']} {record['latitude']})"
+            point = (
+                f"SRID=4326;POINT({record['longitude']} {record['latitude']})"
+                if record.get('latitude') is not None and record.get('longitude') is not None
+                else None
+            )
             existing_id = connection.execute(text("""
                 SELECT id FROM location_records
                 WHERE normalized_name = :normalized_name
@@ -631,7 +652,7 @@ def _insert_records(engine, records, *, force=False, dry_run=False):
                 'normalized_name': normalize_location_name(record['name']),
                 'area_council': record.get('area_council'),
                 'place_type': record['place_type'],
-                'geog': f"SRID=4326;POINT({record['longitude']} {record['latitude']})",
+                'geog': point,
                 'geom': point,
             }).scalar_one_or_none()
             if existing_id is None:

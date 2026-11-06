@@ -182,7 +182,8 @@ def main():
     report('PASS', 'Database URL configuration', 'configured (credentials hidden)')
     report('INFO', 'Application environment', str(Config.APP_ENV or 'unknown'))
     target_url = make_url(database_url)
-    report('INFO', 'Database target', f'backend={target_url.get_backend_name()}, host={target_url.host or "local-file"}, database={target_url.database}, port={target_url.port or "default"}')
+    endpoint_kind = 'local' if target_url.host in {None, 'localhost', '127.0.0.1', '::1'} else 'remote'
+    report('INFO', 'Database target', f'backend={target_url.get_backend_name()}, endpoint={endpoint_kind}')
 
     engine = readonly_engine(database_url)
     endpoint_ready = False
@@ -356,6 +357,7 @@ def main():
         '/route/v1/driving/7.3986,9.0765;7.4951,9.0578?overview=false',
         'OSRM',
     )
+    check_provider(Config.VALHALLA_BASE_URL, '/status', 'Valhalla')
     endpoint_ok = run_endpoint_check(database_url, args.benchmark) if endpoint_ready else False
     check_recent_errors(args.log_file)
     report('PASS' if endpoint_ok and FAILURE_COUNT == 0 else 'FAIL', 'Overall diagnostics', 'read-only checks complete')

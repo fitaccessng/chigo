@@ -615,23 +615,43 @@ def test_autocomplete_endpoint_returns_search_results_without_crashing():
     assert isinstance(payload['results'], list)
 
 
-def test_autocomplete_reports_database_failure_without_provider_fallback(monkeypatch):
+def test_autocomplete_uses_provider_when_location_indexes_fail(monkeypatch):
     from sqlalchemy.exc import SQLAlchemyError
 
     app = create_app(testing=True)
     calls = []
-    monkeypatch.setattr(location_service, '_search_postgis_locations', lambda *args, **kwargs: (_ for _ in ()).throw(SQLAlchemyError('db failure')))
-    monkeypatch.setattr(location_service, '_search_local_abuja_places', lambda *args, **kwargs: calls.append('local') or [])
-    monkeypatch.setattr(location_service, '_photon_request', lambda *args, **kwargs: calls.append('provider') or {'hits': []})
+    monkeypatch.setattr(location_service, '_search_postgis_locations', lambda *args, **kwargs: (_ for _ in ()).throw(location_service.LocationSearchUnavailable('database')))
+    monkeypatch.setattr(location_service, '_search_local_abuja_places', lambda *args, **kwargs: calls.append('local') or (_ for _ in ()).throw(SQLAlchemyError('db failure')))
+    monkeypatch.setattr(location_service, '_photon_request', lambda *args, **kwargs: calls.append('provider') or {'features': []})
 
     response = app.test_client().get('/api/locations/autocomplete?q=Gwarinpa')
 
-    assert response.status_code == 503
-    assert response.get_json() == {
-        'success': False,
-        'error': 'Location search is temporarily unavailable. Please retry.',
-    }
-    assert calls == []
+    assert response.status_code == 200
+    assert response.get_json() == {'success': True, 'results': []}
+    assert calls == ['local', 'provider']
+
+
+def test_manual_geocoding_uses_fct_photon_fallback(monkeypatch):
+    location_service.clear_location_search_cache()
+    monkeypatch.setattr(location_service, '_search_local_abuja_places', lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(location_service, '_nominatim_request', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(location_service, '_photon_request', lambda *_args, **_kwargs: {
+        'features': [{
+            'type': 'Feature',
+            'geometry': {'type': 'Point', 'coordinates': [7.49, 9.07]},
+            'properties': {
+                'name': 'Gwarinpa', 'city': 'Abuja',
+                'state': 'Federal Capital Territory', 'country': 'Nigeria',
+                'countrycode': 'NG', 'osm_type': 'W', 'osm_id': 123,
+            },
+        }],
+    })
+
+    result = location_service.geocode_address('Gwarinpa, Abuja')
+
+    assert result['provider'] == 'photon'
+    assert result['latitude'] == 9.07
+    assert result['longitude'] == 7.49
 
 
 def test_autocomplete_logs_safe_postgres_error_without_sql_or_parameters(monkeypatch, caplog):
@@ -1227,8 +1247,87 @@ def test_route_distance_uses_validated_road_network_provider(monkeypatch):
     assert route['distance_km'] == 18.4
     assert route['duration_minutes'] == 32
     assert route['provider'] == 'osrm'
+    assert route['route_status'] == 'CALCULATED'
     assert len(calls) == 1
     assert invalid is None
+
+
+def test_route_distance_prefers_valhalla_and_caches_by_profile(monkeypatch):
+    app = create_app(testing=True)
+    app.config['VALHALLA_BASE_URL'] = 'http://valhalla.test'
+    calls = []
+    monkeypatch.setattr(
+        location_service, '_valhalla_request',
+        lambda path, payload, timeout=5: calls.append((path, payload)) or {
+            'trip': {
+                'summary': {'length': 12.5, 'time': 1800},
+                'legs': [{'shape': '_p~iF~ps|U_ulLnnqC_mqNvxq`@'}],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        location_service, '_osrm_request',
+        lambda *args, **kwargs: pytest.fail('OSRM should not run after a valid Valhalla route'),
+    )
+
+    with app.app_context():
+        location_service.clear_location_search_cache()
+        car_route = location_service.route_distance(9.118, 7.423, 9.056, 7.487)
+        truck_route = location_service.route_distance(
+            9.118, 7.423, 9.056, 7.487, vehicle_profile='medium_truck',
+        )
+
+    assert car_route['provider'] == 'valhalla'
+    assert car_route['distance_km'] == 12.5
+    assert car_route['geometry']['type'] == 'LineString'
+    assert car_route['requires_review'] is False
+    assert truck_route['vehicle_profile'] == 'medium_truck'
+    assert truck_route['requires_review'] is True
+    assert len(calls) == 2
+    assert calls[0][1]['costing'] == 'auto'
+    assert calls[1][1]['costing'] == 'truck'
+
+
+def test_route_distance_fails_over_to_osrm_when_valhalla_is_unavailable(monkeypatch):
+    app = create_app(testing=True)
+    app.config['VALHALLA_BASE_URL'] = 'http://valhalla.test'
+    monkeypatch.setattr(location_service, '_valhalla_request', lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        location_service, '_osrm_request',
+        lambda *args, **kwargs: {'routes': [{'distance': 9200, 'duration': 900, 'geometry': None}]},
+    )
+
+    with app.app_context():
+        location_service.clear_location_search_cache()
+        route = location_service.route_distance(9.118, 7.423, 9.056, 7.487)
+
+    assert route['provider'] == 'osrm'
+    assert route['distance_km'] == 9.2
+    assert route['route_status'] == 'CALCULATED'
+
+
+def test_cached_route_failure_uses_estimated_preview_without_retrying_providers(monkeypatch):
+    app = create_app(testing=True)
+    calls = []
+    monkeypatch.setattr(
+        location_service, '_valhalla_request',
+        lambda *args, **kwargs: calls.append('valhalla') or None,
+    )
+    monkeypatch.setattr(
+        location_service, '_osrm_request',
+        lambda *args, **kwargs: calls.append('osrm') or None,
+    )
+
+    with app.app_context():
+        location_service.clear_location_search_cache()
+        unavailable = location_service.route_distance(9.118, 7.423, 9.056, 7.487)
+        estimate = location_service.route_distance(
+            9.118, 7.423, 9.056, 7.487, fallback=True,
+        )
+
+    assert unavailable is None
+    assert estimate['route_status'] == 'ESTIMATED'
+    assert calls == ['valhalla', 'osrm']
 
 
 def test_location_save_resolves_local_references_and_allows_pending_route(monkeypatch):
@@ -1274,7 +1373,7 @@ def test_location_save_resolves_local_references_and_allows_pending_route(monkey
         assert booking.distance_km > 0
         assert booking.distance_source == 'approximate-landmark-or-district'
         assert booking.distance_precision == 'approximate'
-        assert booking.route_status == 'CALCULATED'
+        assert booking.route_status == 'ESTIMATED'
 
 
 def test_unresolved_moving_addresses_require_customer_city_and_state(monkeypatch):
@@ -2805,6 +2904,61 @@ def test_location_search_and_coordinate_persistence_workflow(monkeypatch):
         assert booking.pickup_normalized_location == 'Maitama, Abuja Municipal Area Council'
 
 
+def test_source_listed_local_place_is_geocoded_before_route_calculation(monkeypatch):
+    from types import SimpleNamespace
+    from moving_company.routes import booking_engine
+
+    app = create_app(testing=True)
+    with app.app_context():
+        pyakasa = LocalPlace.query.filter_by(normalized_name='pyakasa').one()
+        wuse = LocalPlace.query.filter_by(normalized_name='wuse').one()
+        fields = {
+            'pickup_address': 'Pyakasa',
+            'pickup_city': 'Abuja',
+            'pickup_state': 'Federal Capital Territory',
+            'pickup_formatted_address': 'Pyakasa, Abuja Municipal Area Council, FCT, Nigeria',
+            'pickup_provider': 'local-reference',
+            'pickup_place_id': f'local-{pyakasa.id}',
+            'pickup_provider_raw_id': f'local-{pyakasa.id}',
+            'pickup_latitude': '',
+            'pickup_longitude': '',
+            'destination_address': 'Wuse',
+            'destination_city': 'Abuja',
+            'destination_state': 'Federal Capital Territory',
+            'destination_formatted_address': 'Wuse, Abuja Municipal Area Council, FCT, Nigeria',
+            'destination_provider': 'local-reference',
+            'destination_place_id': f'local-{wuse.id}',
+            'destination_provider_raw_id': f'local-{wuse.id}',
+            'destination_latitude': str(wuse.latitude),
+            'destination_longitude': str(wuse.longitude),
+        }
+        form = SimpleNamespace(**{
+            name: SimpleNamespace(data=value) for name, value in fields.items()
+        })
+
+        monkeypatch.setattr(booking_engine, 'geocode_address', lambda _address: {
+            'provider': 'nominatim', 'provider_place_id': 'osm:pyakasa',
+            'formatted_address': 'Pyakasa, Abuja, Nigeria',
+            'latitude': 9.0, 'longitude': 7.4,
+            'city': 'Abuja', 'state': 'Federal Capital Territory', 'country': 'Nigeria',
+        })
+        monkeypatch.setattr(booking_engine, 'route_distance', lambda *_args, **_kwargs: {
+            'distance_km': 11.2, 'duration_minutes': 24,
+            'provider': 'osrm', 'distance_source': 'osrm-road-network',
+            'distance_precision': 'street', 'route_status': 'CALCULATED',
+            'requires_review': False,
+        })
+
+        with app.test_request_context('/booking/location', method='POST', data={}):
+            payload = booking_engine._location_payload(form, 'residential')
+
+        assert payload['pickup_local_place_id'] == pyakasa.id
+        assert payload['pickup_latitude'] == 9.0
+        assert payload['pickup_route_resolution'] == 'geocoded'
+        assert payload['route_status'] == 'CALCULATED'
+        assert payload['distance_km'] == 11.2
+
+
 def test_osrm_route_endpoint_returns_distance_and_duration():
     from moving_company.services import location_service
 
@@ -2884,7 +3038,76 @@ def test_route_endpoint_returns_approximate_distance_when_provider_unavailable(m
     payload = response.get_json()
     assert payload['success'] is True
     assert payload['route']['approximate'] is True
+    assert payload['route']['status'] == 'ESTIMATED'
     assert payload['route']['distance_source'] == 'approximate'
+
+
+def test_route_matrix_rejects_more_than_ten_pairs():
+    app = create_app(testing=True)
+    with app.app_context():
+        admin = User(
+            first_name='Location', last_name='Operator',
+            email='location-operator@example.test', phone='',
+            role='operations_manager',
+        )
+        admin.set_password('test-password')
+        db.session.add(admin)
+        db.session.commit()
+        admin_id = admin.id
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session['_user_id'] = str(admin_id)
+        session['_fresh'] = True
+    origins = [{'latitude': 9.0, 'longitude': 7.0}] * 4
+    destinations = [{'latitude': 9.1, 'longitude': 7.1}] * 3
+
+    response = client.post(
+        '/api/v1/routes/matrix',
+        json={'origins': origins, 'destinations': destinations},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()['success'] is False
+
+
+def test_route_matrix_returns_routes_for_each_pair(monkeypatch):
+    import moving_company.routes.locations as location_routes
+
+    app = create_app(testing=True)
+    with app.app_context():
+        admin = User(
+            first_name='Location', last_name='Operator',
+            email='location-operator@example.test', phone='',
+            role='operations_manager',
+        )
+        admin.set_password('test-password')
+        db.session.add(admin)
+        db.session.commit()
+        admin_id = admin.id
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session['_user_id'] = str(admin_id)
+        session['_fresh'] = True
+    monkeypatch.setattr(
+        location_routes, 'route_distance',
+        lambda *args, **kwargs: {
+            'distance_km': 3.2, 'duration_minutes': 8,
+            'route_status': 'CALCULATED', 'vehicle_profile': kwargs['vehicle_profile'],
+        },
+    )
+    response = client.post('/api/v1/routes/matrix', json={
+        'origins': [{'latitude': 9.0, 'longitude': 7.0}],
+        'destinations': [
+            {'latitude': 9.1, 'longitude': 7.1},
+            {'latitude': 9.2, 'longitude': 7.2},
+        ],
+    })
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert len(payload['routes']) == 1
+    assert len(payload['routes'][0]) == 2
+    assert payload['routes'][0][0]['distance_km'] == 3.2
 
 
 def test_assignment_conflict_and_payment_review_flow():

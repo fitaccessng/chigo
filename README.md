@@ -11,9 +11,9 @@ A Flask-based moving and relocation platform MVP for a professional relocation c
 - Customer dashboard and booking detail views
 - Admin dashboard and booking listings
 - Pricing calculation service with configurable defaults
-- OpenStreetMap + Leaflet map visualization for booking locations
+- Abuja/FCT location autocomplete, forward/reverse geocoding, and booking coordinate handling
 - Nominatim-based autocomplete and geocoding for Abuja/FCT and wider Nigeria searches
-- OSRM route calculation for road-based driving distance and duration
+- Valhalla-primary and OSRM-fallback road-route adapter with explicit approximate/review statuses
 - Notification storage for customer updates
 - Error pages and project-level app factory
 
@@ -91,7 +91,10 @@ Optional:
 - `STRIPE_SECRET_KEY` for Stripe Checkout
 - `STRIPE_WEBHOOK_SECRET` for verifying Stripe webhook signatures
 - `NOMINATIM_BASE_URL`
+- `VALHALLA_BASE_URL` (primary road router; leave unset until a managed Valhalla service is available)
 - `OSRM_BASE_URL`
+- `ROUTING_NETWORK_VERSION` (invalidate route cache when the active road graph changes)
+- `ROUTING_CACHE_TTL_SECONDS`
 - `OSM_TILE_URL`
 - `OSM_USER_AGENT`
 - `FLASK_ENV`
@@ -246,9 +249,9 @@ python -m pytest -q
 
 ## Location system
 
-Location search is local-first: curated Abuja/FCT records in `local_places` are searched by indexed normalized name and bounded alias/keyword queries before a single short-timeout Nominatim fallback is attempted. Results are ranked and cached briefly. The curated hierarchy includes all six FCT Area Councils and common Abuja districts, estates, roads, destinations, institutions, and the international airport. Local place records and admin imports are maintained in the database, not in frontend code.
+Location search is local-first: Abuja/FCT records in `local_places` are searched by indexed normalized name and bounded alias/keyword queries before short-timeout provider fallbacks are attempted. Results are ranked and cached briefly. The directory includes all six FCT Area Councils and the named districts and settlements listed below in addition to curated roads, estates, destinations, institutions, and the international airport. Names from the supplied directory without independently verified coordinates are searchable as `source_listed` references; they never receive invented coordinates and require geocoding or operations review before a route can be treated as precise. Local place records and admin imports are maintained in the database, not in frontend code.
 
-- Local Chigo location database: immediate autocomplete and authoritative coordinates for curated entries
+- Local Chigo location database: immediate autocomplete; coordinates are available only for records that actually have them
 - Nominatim: bounded fallback geocoding/search when no local result matches
 - OSRM: road-network distance and driving duration, cached for repeat requests
 - Map UI: not required for readable route details; route summary is displayed directly in the booking form
@@ -257,7 +260,7 @@ An unavailable route provider leaves a saved booking with `route_status=PENDING`
 
 ### FCT geodata ingestion
 
-PostgreSQL/PostGIS ingestion is an explicit operations task; the web app never downloads or parses source datasets at startup. The importer caches source files under `POSTGIS_DATA_DIR`, uses the geoBoundaries Nigeria ADM1/ADM2 polygons to clip data to the actual FCT and resolve its Area Councils, and upserts source provenance without deleting existing records. OSM uses a disk-backed node-location index. Imported public records remain `imported`; existing Chigo-curated records remain verified. Repeated free-form booking inputs are kept in a separate, noncanonical observation queue for admin review.
+PostgreSQL/PostGIS ingestion is an explicit operations task; the web app never downloads or parses source datasets at startup. The importer caches source files under `POSTGIS_DATA_DIR`, uses the geoBoundaries Nigeria ADM1/ADM2 polygons to clip data to the actual FCT and resolve its Area Councils, and upserts source provenance without deleting existing records. OSM uses a disk-backed node-location index. Its directory import is not a routable road graph: production driving routes still require a configured Valhalla or OSRM routing service built from an appropriate road-network extract. Imported public records remain `imported`; directory names without coordinates remain `source_listed`; existing Chigo-curated records remain verified. Repeated free-form booking inputs are kept in a separate, noncanonical observation queue for admin review.
 
 Large source downloads retain a `.part` file and retry interrupted reads. When the server supports HTTP byte ranges, a retry resumes at the saved offset; incomplete files are never treated as valid downloads. OSM imports record © OpenStreetMap contributors / ODbL attribution, GeoNames is CC BY 4.0, and geoBoundaries is CC BY 4.0.
 
@@ -304,11 +307,19 @@ python -m moving_company.services.postgis_ingestion --all --rebuild-index
 
 Individual source operations are available with `--import-osm`, `--import-geonames`, and `--import-boundaries`. Use `--force` to redownload cached sources and refresh unverified external records. The importer prints counts measured from the downloaded data and database; it does not generate estimated import totals.
 
+Upsert the autocomplete directory into the app's local-place store after deploying the code (safe to repeat):
+
+```bash
+flask --app run.py seed-fct-locations
+```
+
+This command does not download data or create the road graph. A road-network import/build and a reachable Valhalla or OSRM service must be completed separately and verified before enabling distance-based launch pricing.
+
 The database migration enables PostGIS and `pg_trgm`, creates GiST spatial indexes and trigram autocomplete indexes, and adds the canonical-location, alias, source provenance, administrative boundary, and pending-observation tables. PostgreSQL autocomplete queries those tables first; the existing `LocalPlace` search remains as a compatibility fallback.
 
 Admins can inspect pending inputs at `GET /admin/locations/observations`, approve/reject/promote an observation at `POST /admin/locations/observations/<id>/<approve|reject|promote>`, add aliases at `POST /admin/locations/<id>/aliases`, and merge nearby same-council/same-type canonical locations at `POST /admin/locations/merge`. Merge rejects records that fail coordinate proximity, type, or council checks and preserves source provenance and local booking references.
 
-On this development machine, DNS resolves the PostgreSQL hostname to `104.207.65.190`, but TCP to port `10001` times out. This is before PostgreSQL authentication, so `SELECT version()` and `PostGIS_Full_Version()` cannot run here; no PostgreSQL/PostGIS version is claimed. The provider must permit inbound access from the deployment/client egress IP and the service must be active. Therefore no OSM/GeoNames records have been imported into the production database. The verified public-source dry-runs found 76,332 GeoNames Nigeria rows with 541 points inside FCT, plus the FCT outline and six Area Council boundaries; those are parsed source counts, not database-imported records. The 677 MB Nigeria OSM PBF is cached locally; a complete FCT parse report has not yet been produced.
+The configured remote PostgreSQL database could not be reached from this development workstation (TCP connection timeout), so PostgreSQL/PostGIS version, schema, migration state, and data counts are unverified. No migration or source import was run against it. The provider must permit inbound access from the deployment/client egress IP and the service must be active. Local source-file parse counts are not evidence that records have been imported into that database.
 
 ### API endpoints
 
@@ -317,6 +328,8 @@ On this development machine, DNS resolves the PostgreSQL hostname to `104.207.65
 - `POST /api/locations/reverse-geocode` with `{"latitude": 9.0, "longitude": 7.0}`
 - `POST /api/locations/validate` with location payload
 - `POST /api/locations/route` with pickup/destination coordinates
+- `POST /api/v1/routes/calculate` with pickup, destination, and optional `vehicle_profile`
+- `POST /api/v1/routes/matrix` with up to 10 origin/destination pairs (locations-permission admin only)
 - `POST /admin/locations/import` (admin/super_admin only) with `{"locations": [{"name":"...","place_type":"estate","area_council":"Abuja Municipal Area Council","parent_name":"Gwarinpa","latitude":9.12,"longitude":7.42,"aliases":["..."],"search_keywords":["..."]}]}`
 
 ### Local development
@@ -329,7 +342,9 @@ python run.py
 
 ### Provider notes
 
-Nominatim is used only as a search/geocoding fallback. OSRM provides actual road-distance routing for the booking and quoting flow. If either external provider is unavailable, local matches still work, location details are saved, and a route is marked pending for retry before authoritative quote calculation.
+Nominatim is used only as a search/geocoding fallback and geocode results are bounded to the FCT. Routing tries configured Valhalla first and OSRM second. The public OSRM demo endpoint is shared best-effort infrastructure, not a launch-grade availability commitment; configure and monitor a managed or self-hosted router before launch. OSRM's car profile does not validate truck restrictions; non-car profiles are marked for operations review. A straight-line-derived preview is explicitly `ESTIMATED`, never treated as a road route or used for a final distance-based quote. Routing cache entries are scoped by vehicle profile and `ROUTING_NETWORK_VERSION`; the matrix endpoint is bounded and administrator-only.
+
+The local route preview can return approximate distance data so customers can save their request, but it does not display a road geometry or certify an exact route. MapLibre integration and live vehicle-restricted route verification remain deployment prerequisites, not implemented capabilities.
 
 ## Known limitations
 

@@ -301,6 +301,22 @@ def _location_payload(form, service_type, places=None):
                 raise ValueError(f"The selected {place} location is no longer available. Search and choose it again.")
         if local_place:
             result = local_place
+            local_coordinates = validate_coordinates(
+                local_place.get('latitude'), local_place.get('longitude'),
+            )
+            if local_coordinates is None:
+                geocoded = geocode_address(
+                    data.get(f'{place}_original_input') or data[f'{place}_address'],
+                )
+                geocoded_coordinates = validate_coordinates(
+                    geocoded.get('latitude'), geocoded.get('longitude'),
+                ) if geocoded else None
+                if geocoded_coordinates:
+                    result = {**local_place, **geocoded}
+                    for field in ('area', 'area_council', 'district', 'neighborhood', 'location_type'):
+                        result[field] = local_place.get(field) or geocoded.get(field)
+                    result['latitude'], result['longitude'] = geocoded_coordinates
+                    result['local_place_id'] = local_place.get('local_place_id')
             data[f'{place}_local_place_id'] = local_place.get('local_place_id')
             data[f'{place}_provider'] = local_place.get('provider') or data.get(f'{place}_provider')
             for target, source in (
@@ -312,7 +328,13 @@ def _location_payload(form, service_type, places=None):
                 data[f'{place}_{target}'] = result.get(source) or data.get(f'{place}_{target}')
             data[f'{place}_nearest_landmark'] = result.get('nearest_landmark')
             data[f'{place}_nearest_road'] = result.get('nearest_road')
-            data[f'{place}_route_resolution'] = 'exact' if result.get('source') != 'cached-user-location' else 'geocoded'
+            resolved_coordinates = validate_coordinates(result.get('latitude'), result.get('longitude'))
+            data[f'{place}_route_resolution'] = (
+                'geocoded' if local_coordinates is None and resolved_coordinates
+                else 'exact' if result.get('source') != 'cached-user-location' and resolved_coordinates
+                else 'geocoded' if resolved_coordinates
+                else 'unresolved'
+            )
         else:
             result = geocode_address(data.get(f'{place}_original_input') or data[f'{place}_address'] or '')
             if result:
@@ -380,7 +402,17 @@ def _location_payload(form, service_type, places=None):
     if route and route.get('distance_source') == 'approximate':
         data['distance_source'] = 'approximate-landmark-or-district'
     data['distance_precision'] = route.get('distance_precision') if route else 'unresolved'
-    data['route_status'] = 'CALCULATED' if route else 'NOT_REQUIRED' if service_type in {'support', 'storage'} else 'PENDING'
+    data['route_status'] = (
+        route.get('route_status', 'CALCULATED') if route
+        else 'NOT_REQUIRED' if service_type in {'support', 'storage'} else 'PENDING'
+    )
+    data['route_metadata'] = {
+        key: route.get(key)
+        for key in (
+            'vehicle_profile', 'network_version', 'provider',
+            'vehicle_restriction_status', 'requires_review', 'route_status',
+        )
+    } if route else {}
     data['route_calculated_at'] = datetime.utcnow() if route else None
     data['service_area_status'] = 'SERVICEABLE' if needs_route and all(
         validate_service_area(data[f'{place}_latitude'], data[f'{place}_longitude']) == 'SERVICEABLE'

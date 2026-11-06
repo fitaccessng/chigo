@@ -1,7 +1,9 @@
 from flask import Blueprint, current_app, jsonify, request
+from flask_login import login_required
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..extensions import csrf
+from .admin import admin_required
 from ..services.location_service import (
     canonical_area_council,
     geocode_address,
@@ -9,6 +11,7 @@ from ..services.location_service import (
     LocationSearchUnavailable,
     reverse_geocode,
     route_distance,
+    normalize_vehicle_profile,
     save_customer_location,
     search_places,
     validate_coordinates,
@@ -24,6 +27,7 @@ _AUTOCOMPLETE_LEGACY_FIELDS = (
     'state', 'country', 'latitude', 'longitude', 'postal_code', 'place_id',
     'provider_place_id', 'provider', 'provider_raw_id', 'source',
     'source_provenance', 'coordinate_precision', 'original_query', 'normalized_query', 'confidence',
+    'verification_status',
 )
 _PUBLIC_ADDRESS_FIELDS = (
     'house_number', 'road', 'street', 'suburb', 'neighbourhood', 'city_district',
@@ -198,11 +202,14 @@ def reverse_geocode_endpoint():
 
 
 @csrf.exempt
+@locations_bp.route('/api/v1/routes/calculate', methods=['POST'])
 @locations_bp.route('/api/locations/route', methods=['POST'])
 def route():
     payload = request.get_json(silent=True) or {}
     pickup = payload.get('pickup') or payload.get('origin') or {}
     destination = payload.get('destination') or payload.get('dropoff') or {}
+    if not isinstance(pickup, dict) or not isinstance(destination, dict):
+        return jsonify({'success': False, 'error': 'Pickup and destination must be coordinate objects.'}), 400
     pickup_latitude = pickup.get('latitude')
     pickup_longitude = pickup.get('longitude')
     destination_latitude = destination.get('latitude')
@@ -211,15 +218,75 @@ def route():
     destination_coordinates = validate_coordinates(destination_latitude, destination_longitude)
     if pickup_coordinates is None or destination_coordinates is None:
         return jsonify({'success': False, 'error': 'Pickup and destination coordinates are required.'}), 400
+    vehicle_profile = normalize_vehicle_profile(payload.get('vehicle_profile'))
+    if vehicle_profile is None:
+        return jsonify({'success': False, 'error': 'Choose a supported vehicle profile.'}), 400
 
-    # OSRM is an enhancement, not a customer-flow gate.  The location service
-    # returns a clearly marked conservative estimate when the road provider is
-    # unavailable, which lets the customer save the move for operations review.
-    route_data = route_distance(*pickup_coordinates, *destination_coordinates, fallback=True)
+    route_data = route_distance(
+        *pickup_coordinates, *destination_coordinates, fallback=True,
+        vehicle_profile=vehicle_profile,
+    )
     if not route_data:
-        return jsonify({'success': False, 'error': 'Road distance is temporarily unavailable.'}), 503
-    route_data['status'] = 'CALCULATED'
+        return jsonify({
+            'success': False,
+            'error': 'Road routing is temporarily unavailable. The request can be saved for operations review.',
+            'code': 'ROUTE_UNAVAILABLE',
+            'route_status': 'ASSISTED_QUOTE_REQUIRED',
+        }), 503
+    route_data['status'] = (
+        'ESTIMATED' if route_data.get('approximate')
+        else 'MANUAL_REVIEW_REQUIRED' if route_data.get('requires_review')
+        else 'CALCULATED'
+    )
+    route_data['route_status'] = route_data['status']
     return jsonify({'success': True, 'route': route_data})
+
+
+@locations_bp.route('/api/v1/routes/matrix', methods=['POST'])
+@csrf.exempt
+@login_required
+@admin_required('locations')
+def route_matrix():
+    payload = request.get_json(silent=True) or {}
+    origins = payload.get('origins')
+    destinations = payload.get('destinations')
+    if not isinstance(origins, list) or not isinstance(destinations, list):
+        return jsonify({'success': False, 'error': 'Origins and destinations must be coordinate lists.'}), 400
+    if not origins or not destinations or len(origins) * len(destinations) > 10:
+        return jsonify({'success': False, 'error': 'Provide between 1 and 10 total origin-destination pairs.'}), 400
+    normalized_origins = [validate_coordinates(point.get('latitude'), point.get('longitude')) if isinstance(point, dict) else None for point in origins]
+    normalized_destinations = [validate_coordinates(point.get('latitude'), point.get('longitude')) if isinstance(point, dict) else None for point in destinations]
+    if any(point is None for point in (*normalized_origins, *normalized_destinations)):
+        return jsonify({'success': False, 'error': 'Every origin and destination must have valid coordinates.'}), 400
+    vehicle_profile = normalize_vehicle_profile(payload.get('vehicle_profile'))
+    if vehicle_profile is None:
+        return jsonify({'success': False, 'error': 'Choose a supported vehicle profile.'}), 400
+
+    matrix = []
+    for origin in normalized_origins:
+        row = []
+        for destination in normalized_destinations:
+            result = route_distance(
+                *origin, *destination, fallback=False, vehicle_profile=vehicle_profile,
+            )
+            row.append(result)
+        matrix.append(row)
+    results = [result for row in matrix for result in row]
+    complete = all(result is not None for result in results)
+    requires_review = any(result and result.get('requires_review') for result in results)
+    route_status = (
+        'PARTIAL' if not complete
+        else 'MANUAL_REVIEW_REQUIRED' if requires_review
+        else 'CALCULATED'
+    )
+    return jsonify({
+        'success': True,
+        'complete': complete,
+        'route_status': route_status,
+        'vehicle_profile': vehicle_profile,
+        'network_version': current_app.config.get('ROUTING_NETWORK_VERSION', 'unmanaged'),
+        'routes': matrix,
+    })
 
 
 @csrf.exempt

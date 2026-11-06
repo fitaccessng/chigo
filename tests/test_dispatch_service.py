@@ -140,6 +140,19 @@ def test_missing_partner_service_configuration_routes_to_manual_review(app):
         assert ResourceReservation.query.filter_by(dispatch_request_id=dispatch.id).count() == 0
 
 
+def test_estimated_route_cannot_be_dispatched(app):
+    with app.app_context():
+        booking = confirmed_paid_booking()
+        booking.route_status = 'ESTIMATED'
+        add_partner_and_resources(booking)
+
+        dispatch = start_dispatch(booking.id)
+
+        assert dispatch.status == 'MANUAL_REVIEW'
+        assert 'A calculated road route is required' in dispatch.last_error
+        assert DispatchOffer.query.filter_by(dispatch_request_id=dispatch.id).count() == 0
+
+
 def test_active_reservations_cannot_double_book_vehicle_or_mover(app):
     with app.app_context():
         booking = confirmed_paid_booking()

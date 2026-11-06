@@ -46,6 +46,12 @@ def create_request():
         'destination_address': 'Plot 405 Constitution Avenue', 'destination_city': 'Abuja', 'destination_state': 'FCT',
         'destination_latitude': 9.08, 'destination_longitude': 7.45, 'destination_formatted_address': 'Plot 405 Constitution Avenue, Abuja',
         'distance_km': 20, 'pickup_floor': 'Ground', 'destination_floor': 'Ground',
+        'distance_source': 'osrm-road-network', 'distance_precision': 'street',
+        'route_status': 'CALCULATED',
+        'route_metadata': {
+            'vehicle_profile': 'standard_car', 'network_version': 'unmanaged',
+            'provider': 'osrm', 'requires_review': False, 'route_status': 'CALCULATED',
+        },
     })
 
 
@@ -358,7 +364,17 @@ def test_catalogue_and_custom_duplicate_inventory_lines_are_combined(app):
         assert booking.inventory[0].quantity == 5
 
 
-def test_vehicle_override_changes_server_quote_and_service_changes_duration(app):
+def test_vehicle_override_changes_server_quote_and_service_changes_duration(app, monkeypatch):
+    monkeypatch.setattr(
+        booking_engine_service, 'route_distance',
+        lambda *args, vehicle_profile='standard_car', **kwargs: {
+            'provider': 'valhalla', 'source': 'valhalla',
+            'distance_source': 'valhalla-road-network', 'distance_precision': 'street',
+            'distance_km': 20, 'duration_minutes': 30, 'vehicle_profile': vehicle_profile,
+            'network_version': 'unmanaged', 'vehicle_restriction_status': 'verified',
+            'requires_review': False, 'route_status': 'CALCULATED',
+        },
+    )
     with app.app_context():
         booking = create_request()
         save_workflow_section(booking, 'property', {
@@ -706,6 +722,9 @@ def test_residential_inventory_is_saved_reviewed_then_vehicle_is_recommended(app
         f'inventory_item_quantity_{television_id}': '2',
     })
     assert saved_draft.status_code == 302
+    review_html = client.get(f'/booking/{request_id}/inventory').get_data(as_text=True)
+    assert 'overflow-x-auto divide-y divide-stone-200 border-y border-stone-200' in review_html
+    assert 'grid min-w-[22rem] grid-cols-[minmax(0,1fr)_5.5rem_2.75rem]' in review_html
     with app.app_context():
         booking = Booking.query.filter_by(booking_request_id=request_id).one()
         assert len(booking.inventory) == 1
@@ -1292,13 +1311,15 @@ def test_bachs_webhook_route_rejects_invalid_signature(app):
     assert response.json['received'] is False
 
 
-def test_quote_retries_pending_road_route_and_uses_server_distance(app, monkeypatch):
+def test_quote_requires_review_instead_of_pricing_an_approximate_fallback(app, monkeypatch):
     received = {}
 
-    def route(*coords, fallback=False):
+    def route(*coords, fallback=False, vehicle_profile='standard_car'):
         received['fallback'] = fallback
+        received['vehicle_profile'] = vehicle_profile
         return {'provider': 'approximate', 'distance_km': 37.4, 'duration_minutes': 48,
-                'distance_source': 'approximate', 'distance_precision': 'approximate'}
+                'distance_source': 'approximate', 'distance_precision': 'approximate',
+                'route_status': 'ESTIMATED', 'requires_review': True, 'approximate': True}
 
     monkeypatch.setattr(booking_engine_service, 'route_distance', route)
     with app.app_context():
@@ -1311,10 +1332,40 @@ def test_quote_retries_pending_road_route_and_uses_server_distance(app, monkeypa
         assert booking.distance_km == 37.4
         assert booking.route_duration_minutes == 48
         assert booking.route_provider == 'approximate'
-        assert booking.route_status == 'CALCULATED'
+        assert booking.route_status == 'ESTIMATED'
         assert booking.route_calculated_at is not None
-        assert calculation['route']['distance_km'] == 37.4
-        assert received['fallback'] is True
+        assert booking.quote_status == 'Quote Required'
+        assert calculation['estimate_type'] == 'quote_required'
+        assert received['fallback'] is False
+        assert received['vehicle_profile'] == 'standard_car'
+
+
+def test_unverified_truck_route_cannot_produce_a_final_quote(app, monkeypatch):
+    monkeypatch.setattr(
+        booking_engine_service, 'route_distance',
+        lambda *args, vehicle_profile='standard_car', **kwargs: {
+            'provider': 'osrm', 'distance_km': 37.4, 'duration_minutes': 48,
+            'distance_source': 'osrm-road-network', 'distance_precision': 'street',
+            'vehicle_profile': vehicle_profile, 'network_version': 'unmanaged',
+            'vehicle_restriction_status': 'unverified', 'requires_review': True,
+            'route_status': 'CALCULATED',
+        },
+    )
+    with app.app_context():
+        booking = create_request()
+        booking.workflow_data = {
+            **booking.workflow_data,
+            'route': {
+                'vehicle_profile': 'heavy_truck', 'network_version': 'unmanaged',
+                'provider': 'osrm', 'requires_review': True,
+            },
+        }
+        calculation = complete_quote(booking)
+
+        assert booking.route_status == 'MANUAL_REVIEW_REQUIRED'
+        assert booking.quote_status == 'Quote Required'
+        assert booking.estimated_total == 0
+        assert calculation['estimate_type'] == 'quote_required'
 
 
 def test_quote_is_saved_for_operations_review_when_route_cannot_be_resolved(app, monkeypatch):
@@ -1333,7 +1384,7 @@ def test_quote_is_saved_for_operations_review_when_route_cannot_be_resolved(app,
         assert 'could not verify the driving route' in calculation['manual_review_flags'][0]
 
 
-def test_customer_routes_complete_one_request_through_quote_acceptance(app):
+def test_customer_routes_complete_one_request_through_quote_acceptance(app, monkeypatch):
     app.config['WTF_CSRF_ENABLED'] = True
     client = app.test_client()
     login_customer(app, client)
@@ -1411,6 +1462,16 @@ def test_customer_routes_complete_one_request_through_quote_acceptance(app):
         assert scheduled.distance_km == 20
         assert scheduled.workflow_data['services']['packing'] == 'partial'
         assert scheduled.workflow_data['vehicle']['selected_type_id'] == selected_vehicle_id
+    monkeypatch.setattr(
+        booking_engine_service, 'route_distance',
+        lambda *args, **kwargs: {
+            'provider': 'valhalla', 'source': 'valhalla',
+            'distance_source': 'valhalla-road-network', 'distance_precision': 'street',
+            'distance_km': 20, 'duration_minutes': 30, 'vehicle_profile': 'heavy_truck',
+            'network_version': 'unmanaged', 'vehicle_restriction_status': 'verified',
+            'requires_review': False, 'route_status': 'CALCULATED',
+        },
+    )
     quote_response = client.get(schedule_response.location)
     assert quote_response.status_code == 200
     with app.app_context():

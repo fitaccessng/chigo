@@ -32,6 +32,12 @@ _ROUTE_CACHE = {}
 _ROUTE_CACHE_TTL = 300
 _REQUEST_FAILED = object()
 _PHOTON_AUTOCOMPLETE_TIMEOUT = 1.2
+ROUTE_VEHICLE_PROFILES = {
+    'standard_car': 'auto',
+    'light_commercial': 'truck',
+    'medium_truck': 'truck',
+    'heavy_truck': 'truck',
+}
 
 ABUJA_ALIAS_MAP = {
     'gwarimpa': 'gwarinpa',
@@ -112,6 +118,88 @@ def _osrm_request(path, params=None, timeout=5):
     headers = {'User-Agent': _get_config_value('OSM_USER_AGENT') or 'ChigoRelocations/1.0'}
     payload = _request_json(f'{request_path}?{query_string}', headers=headers, timeout=timeout)
     return None if payload is _REQUEST_FAILED else payload
+
+
+def _valhalla_request(path, payload, timeout=5):
+    base_url = _get_config_value('VALHALLA_BASE_URL')
+    if not base_url:
+        return None
+    request = urllib.request.Request(
+        f'{base_url.rstrip("/")}{path}',
+        data=json.dumps(payload).encode('utf-8'),
+        headers={
+            'Content-Type': 'application/json',
+            'User-Agent': _get_config_value('OSM_USER_AGENT') or 'ChigoRelocations/1.0',
+        },
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = response.read().decode('utf-8')
+        return json.loads(body) if body else None
+    except (OSError, ValueError):
+        return None
+
+
+def normalize_vehicle_profile(value):
+    profile = str(value or 'standard_car').strip().casefold()
+    return profile if profile in ROUTE_VEHICLE_PROFILES else None
+
+
+def _decode_valhalla_shape(encoded):
+    if not isinstance(encoded, str) or not encoded:
+        return None
+    coordinates = []
+    latitude = longitude = index = 0
+    factor = 1_000_000
+    try:
+        while index < len(encoded):
+            deltas = []
+            for _ in range(2):
+                result = shift = 0
+                while True:
+                    value = ord(encoded[index]) - 63
+                    index += 1
+                    result |= (value & 0x1F) << shift
+                    shift += 5
+                    if value < 0x20:
+                        break
+                deltas.append(~(result >> 1) if result & 1 else result >> 1)
+            latitude += deltas[0]
+            longitude += deltas[1]
+            coordinates.append([longitude / factor, latitude / factor])
+    except (IndexError, ValueError):
+        return None
+    return {'type': 'LineString', 'coordinates': coordinates} if len(coordinates) >= 2 else None
+
+
+def _approximate_route_result(start, end, profile, network_version):
+    start_latitude, start_longitude = start
+    end_latitude, end_longitude = end
+    latitude_delta = math.radians(start_latitude - end_latitude)
+    longitude_delta = math.radians(start_longitude - end_longitude)
+    latitude_average = math.radians((start_latitude + end_latitude) / 2)
+    haversine = 111.195 * math.sqrt(
+        latitude_delta ** 2
+        + longitude_delta ** 2 * math.cos(latitude_average) ** 2
+    )
+    return {
+        'provider': 'approximate',
+        'source': 'approximate',
+        'distance_source': 'approximate',
+        'distance_precision': 'approximate',
+        'distance_km': round(max(0.1, haversine * 1.15), 2),
+        'duration_minutes': round(max(1, haversine * 0.32), 2),
+        'distance_meters': round(max(100, haversine * 1150), 0),
+        'duration_seconds': round(max(60, haversine * 19), 0),
+        'geometry': None,
+        'vehicle_profile': profile,
+        'vehicle_restriction_status': 'unverified',
+        'requires_review': True,
+        'network_version': network_version,
+        'route_status': 'ESTIMATED',
+        'approximate': True,
+    }
 
 
 def normalize_location_name(value):
@@ -312,6 +400,12 @@ def normalize_query(query):
 def _normalise_result(raw_result):
     address = raw_result.get('address') or {}
     provider_place_id = raw_result.get('provider_place_id') or raw_result.get('place_id') or raw_result.get('osm_id') or raw_result.get('id') or raw_result.get('name') or ''
+    coordinates = validate_coordinates(
+        raw_result.get('latitude') if raw_result.get('latitude') is not None else raw_result.get('lat'),
+        raw_result.get('longitude') if raw_result.get('longitude') is not None else (
+            raw_result.get('lng') if raw_result.get('lng') is not None else raw_result.get('lon')
+        ),
+    )
     result = {
         'id': raw_result.get('id'),
         'local_place_id': raw_result.get('local_place_id'),
@@ -326,8 +420,8 @@ def _normalise_result(raw_result):
         'city': raw_result.get('city') or address.get('city') or address.get('town') or address.get('village') or raw_result.get('town') or raw_result.get('village') or raw_result.get('municipality') or '',
         'state': raw_result.get('state') or address.get('state') or address.get('state_district') or raw_result.get('state_district') or raw_result.get('administrative_area_level_1') or '',
         'country': raw_result.get('country') or address.get('country') or raw_result.get('country_name') or '',
-        'latitude': float(raw_result.get('latitude') or raw_result.get('lat') or 0),
-        'longitude': float(raw_result.get('longitude') or raw_result.get('lng') or raw_result.get('lon') or 0),
+        'latitude': coordinates[0] if coordinates else None,
+        'longitude': coordinates[1] if coordinates else None,
         'postal_code': raw_result.get('postal_code') or address.get('postcode') or '',
         'place_id': provider_place_id,
         'provider_place_id': provider_place_id,
@@ -340,6 +434,8 @@ def _normalise_result(raw_result):
         'original_query': raw_result.get('original_query') or '',
         'normalized_query': raw_result.get('normalized_query') or '',
         'source': raw_result.get('source') or raw_result.get('provider') or 'nominatim',
+        'verified': bool(raw_result.get('verified')),
+        'verification_status': raw_result.get('verification_status') or 'unverified',
     }
     if result['formatted_address'] and result['formatted_address'] != result['name']:
         result['name'] = result['name'] or result['formatted_address'].split(',')[0].strip()
@@ -605,6 +701,9 @@ def _search_local_abuja_places(query, limit=8):
             'postal_code': place.postal_code,
             'provider_place_id': result_id, 'provider': 'local-reference',
             'provider_raw_id': result_id, 'source': place.provider or 'chigo-curated',
+            'verified': bool(place.verified),
+            'verification_status': place.verification_status or 'unverified',
+            'coordinate_precision': place.coordinate_precision or 'unknown',
             'popularity_score': place.popularity_score or 0,
         })
     return results
@@ -1285,9 +1384,14 @@ def search_places(query, session_token=None, latitude=None, longitude=None, limi
         return [dict(result) for result in cached[1]]
 
     candidate_limit = min(50, result_limit * 5) if canonical_council or latitude is not None else result_limit
-    postgis_results = _search_postgis_locations(
-        raw_query, limit=candidate_limit, area_council=area_council,
-    )
+    try:
+        postgis_results = _search_postgis_locations(
+            raw_query, limit=candidate_limit, area_council=area_council,
+        )
+    except LocationSearchUnavailable:
+        if has_app_context():
+            current_app.logger.warning('PostGIS location search failed; continuing with fallback sources.')
+        postgis_results = []
     try:
         curated_results = _search_local_abuja_places(raw_query, limit=candidate_limit)
     except SQLAlchemyError as error:
@@ -1295,11 +1399,9 @@ def search_places(query, session_token=None, latitude=None, longitude=None, limi
 
         db.session.rollback()
         missing_relation = _missing_location_relation(error, {'local_places'})
-        if not missing_relation:
-            raise LocationSearchUnavailable('database') from error
         current_app.logger.warning(
             'Local place index unavailable (missing optional relation=%s); using provider fallback.',
-            missing_relation,
+            missing_relation or 'unknown',
         )
         curated_results = []
     local_results = _merge_results([*postgis_results, *curated_results])
@@ -1479,7 +1581,7 @@ def upsert_location_records(records, commit=True):
         normalized = normalize_location_name(name)
         if not name or len(name) > 160 or not normalized:
             raise ValueError('Each imported location needs a name no longer than 160 characters.')
-        if place_type not in {'area_council', 'district', 'neighborhood', 'estate', 'landmark', 'road', 'airport', 'hotel', 'school', 'university', 'hospital', 'shopping_centre', 'commercial', 'residential', 'address', 'point_of_interest'}:
+        if place_type not in {'area_council', 'district', 'neighborhood', 'village', 'estate', 'landmark', 'road', 'airport', 'hotel', 'school', 'university', 'hospital', 'shopping_centre', 'commercial', 'residential', 'address', 'point_of_interest'}:
             raise ValueError(f'Unsupported location type for {name}.')
         if council not in FCT_AREA_COUNCILS and place_type != 'area_council':
             raise ValueError(f'Choose one of the six FCT Area Councils for {name}.')
@@ -1664,29 +1766,99 @@ def geocode_address(address):
     query = (address or '').strip()
     if not query:
         return None
-    local = _search_local_abuja_places(query, limit=5)
+    try:
+        local = _search_local_abuja_places(query, limit=5)
+    except SQLAlchemyError:
+        from ..extensions import db
+
+        db.session.rollback()
+        local = []
     normalized = normalize_location_name(query)
     for result in local:
+        coordinates = validate_coordinates(result.get('latitude'), result.get('longitude'))
+        if coordinates is None:
+            continue
+        latitude, longitude = coordinates
+        if not (
+            FCT_BOUNDS['min_latitude'] <= latitude <= FCT_BOUNDS['max_latitude']
+            and FCT_BOUNDS['min_longitude'] <= longitude <= FCT_BOUNDS['max_longitude']
+        ):
+            continue
         if normalize_location_name(result['name']) == normalized or normalize_location_name(result['formatted_address']) == normalized:
             return result
-    payload = _nominatim_request('/search', {'q': query, 'limit': 1, 'countrycodes': 'ng'})
-    if not isinstance(payload, list) or not payload:
+    normalized_with_spaces = f' {normalized} '
+    has_fct_context = any(
+        token in normalized_with_spaces
+        for token in (' abuja ', ' fct ', ' federal capital territory ')
+    )
+    external_query = query if has_fct_context else f'{query}, Abuja, Nigeria'
+    viewbox = ','.join(str(FCT_BOUNDS[key]) for key in (
+        'min_longitude', 'max_latitude', 'max_longitude', 'min_latitude',
+    ))
+    payload = _nominatim_request('/search', {
+        'q': external_query, 'limit': 5, 'countrycodes': 'ng',
+        'viewbox': viewbox, 'bounded': 1,
+    })
+    if isinstance(payload, list):
+        for item in payload:
+            result = _nominatim_to_location(item)
+            coordinates = validate_coordinates(result.get('latitude'), result.get('longitude'))
+            if coordinates is None:
+                continue
+            latitude, longitude = coordinates
+            state = normalize_location_name(result.get('state'))
+            country = normalize_location_name(result.get('country'))
+            if not (
+                FCT_BOUNDS['min_latitude'] <= latitude <= FCT_BOUNDS['max_latitude']
+                and FCT_BOUNDS['min_longitude'] <= longitude <= FCT_BOUNDS['max_longitude']
+            ):
+                continue
+            if state and state not in {'fct', 'federal capital territory', 'abuja federal capital territory'}:
+                continue
+            if country and country != 'nigeria':
+                continue
+            break
+        else:
+            result = None
+    else:
+        result = None
+    if result:
+        return {
+            'provider': result['provider'],
+            'provider_place_id': result['place_id'],
+            'formatted_address': result['formatted_address'],
+            'latitude': result['latitude'],
+            'longitude': result['longitude'],
+            'country': result['country'],
+            'state': result['state'],
+            'city': result['city'],
+            'area': result['area'],
+            'district': result['district'] or result['area'],
+            'postal_code': result['postal_code'],
+            'address_components': result['address'],
+        }
+
+    external_query = query if 'abuja' in query.casefold() or 'fct' in query.casefold() else f'{query}, Abuja, Nigeria'
+    bbox = ','.join(str(FCT_BOUNDS[key]) for key in (
+        'min_longitude', 'min_latitude', 'max_longitude', 'max_latitude',
+    ))
+    try:
+        photon_payload = _photon_request('/api/', {
+            'q': external_query, 'limit': 5, 'bbox': bbox,
+        }, timeout=_PHOTON_AUTOCOMPLETE_TIMEOUT)
+    except LocationSearchUnavailable:
         return None
-    result = _nominatim_to_location(payload[0])
-    return {
-        'provider': result['provider'],
-        'provider_place_id': result['place_id'],
-        'formatted_address': result['formatted_address'],
-        'latitude': result['latitude'],
-        'longitude': result['longitude'],
-        'country': result['country'],
-        'state': result['state'],
-        'city': result['city'],
-        'area': result['area'],
-        'district': result['area'],
-        'postal_code': None,
-        'address_components': payload[0].get('address', {}),
-    }
+    if not isinstance(photon_payload, dict):
+        return None
+    candidates = []
+    for item in photon_payload.get('features') or photon_payload.get('hits') or []:
+        if not _photon_result_is_fct_candidate(item):
+            continue
+        result = _photon_to_location(item)
+        if result:
+            candidates.append(result)
+    ranked = _rank_location_results(candidates, query)
+    return ranked[0] if ranked else None
 
 
 def reverse_geocode(latitude, longitude):
@@ -1726,71 +1898,124 @@ def reverse_geocode(latitude, longitude):
     }
 
 
-def route_distance(start_latitude, start_longitude, end_latitude, end_longitude, fallback=False):
+def route_distance(
+    start_latitude, start_longitude, end_latitude, end_longitude,
+    fallback=False, vehicle_profile='standard_car',
+):
     start = validate_coordinates(start_latitude, start_longitude)
     end = validate_coordinates(end_latitude, end_longitude)
     if start is None or end is None:
         return None
+    profile = normalize_vehicle_profile(vehicle_profile)
+    if profile is None:
+        raise ValueError('Choose a supported vehicle profile.')
     start_latitude, start_longitude = start
     end_latitude, end_longitude = end
-    route_key = tuple(round(value, 5) for value in (start_latitude, start_longitude, end_latitude, end_longitude))
+    network_version = _get_config_value('ROUTING_NETWORK_VERSION') or 'unmanaged'
+    route_key = (
+        *(round(value, 5) for value in (start_latitude, start_longitude, end_latitude, end_longitude)),
+        profile,
+        network_version,
+    )
     cached = _ROUTE_CACHE.get(route_key)
     now = time.monotonic()
-    cache_ttl = _ROUTE_CACHE_TTL if cached and cached[1] else 10
+    configured_ttl = _get_config_value('ROUTING_CACHE_TTL_SECONDS')
+    cache_ttl = int(configured_ttl) if configured_ttl else _ROUTE_CACHE_TTL
+    if cached and (cached[1] is None or cached[1].get('approximate')):
+        cache_ttl = min(cache_ttl, 10)
     if cached and now - cached[0] < cache_ttl:
-        return dict(cached[1]) if cached[1] else None
+        if cached[1] and (fallback or not cached[1].get('approximate')):
+            return dict(cached[1])
+        if cached[1] is None:
+            if not fallback:
+                return None
+            result = _approximate_route_result(start, end, profile, network_version)
+            _ROUTE_CACHE[route_key] = (now, result)
+            return result
 
-    payload = _osrm_request(
-        f"/route/v1/driving/{start_longitude},{start_latitude};{end_longitude},{end_latitude}",
-        {'geometries': 'geojson'},
+    costing = ROUTE_VEHICLE_PROFILES[profile]
+    valhalla = _valhalla_request(
+        '/route',
+        {
+            'locations': [
+                {'lat': start_latitude, 'lon': start_longitude},
+                {'lat': end_latitude, 'lon': end_longitude},
+            ],
+            'costing': costing,
+            'directions_options': {'units': 'kilometers'},
+        },
     )
-    if not isinstance(payload, dict):
-        if fallback:
-            latitude_delta = math.radians(start_latitude - end_latitude)
-            longitude_delta = math.radians(start_longitude - end_longitude)
-            latitude_average = math.radians((start_latitude + end_latitude) / 2)
-            haversine = 111.195 * math.sqrt(
-                latitude_delta ** 2
-                + longitude_delta ** 2 * math.cos(latitude_average) ** 2
-            )
+    trip = valhalla.get('trip') if isinstance(valhalla, dict) else None
+    summary = trip.get('summary') if isinstance(trip, dict) else None
+    legs = trip.get('legs') if isinstance(trip, dict) else None
+    if isinstance(summary, dict) and isinstance(legs, list) and legs:
+        try:
+            distance_km = float(summary.get('length', 0))
+            duration_seconds = float(summary.get('time', 0))
+        except (TypeError, ValueError):
+            distance_km = duration_seconds = 0
+        geometry = _decode_valhalla_shape(legs[0].get('shape')) if isinstance(legs[0], dict) else None
+        if (
+            math.isfinite(distance_km) and math.isfinite(duration_seconds)
+            and distance_km > 0 and duration_seconds >= 0 and geometry
+        ):
             result = {
-                'provider': 'approximate',
-                'source': 'approximate',
-                'distance_source': 'approximate',
-                'distance_precision': 'approximate',
-                'distance_km': round(max(0.1, haversine * 1.15), 2),
-                'duration_minutes': round(max(1, haversine * 0.32), 2),
-                'distance_meters': round(max(100, haversine * 1150), 0),
-                'duration_seconds': round(max(60, haversine * 19), 0),
-                'approximate': True,
+                'provider': 'valhalla',
+                'source': 'valhalla',
+                'distance_source': 'valhalla-road-network',
+                'distance_precision': 'street',
+                'distance_km': round(distance_km, 2),
+                'duration_minutes': round(duration_seconds / 60, 2),
+                'distance_meters': round(distance_km * 1000, 0),
+                'duration_seconds': round(duration_seconds, 0),
+                'geometry': geometry,
+                'vehicle_profile': profile,
+                'vehicle_restriction_status': 'unverified' if profile != 'standard_car' else 'standard_car',
+                'requires_review': profile != 'standard_car',
+                'network_version': network_version,
+                'route_status': 'CALCULATED',
             }
             _ROUTE_CACHE[route_key] = (now, result)
             return dict(result)
-        _ROUTE_CACHE[route_key] = (now, None)
-        return None
 
-    routes = payload.get('routes') or []
-    if not routes:
-        _ROUTE_CACHE[route_key] = (now, None)
-        return None
-    route = routes[0]
-    distance_km = round(float(route.get('distance', 0)) / 1000.0, 2)
-    duration_minutes = round(float(route.get('duration', 0)) / 60.0, 2)
-    if distance_km <= 0 or duration_minutes < 0:
-        _ROUTE_CACHE[route_key] = (now, None)
-        return None
-    result = {
-        'provider': 'osrm',
-        'source': 'osrm',
-        'distance_source': 'osrm-road-network',
-        'distance_precision': 'street',
-        'distance_km': distance_km,
-        'duration_minutes': duration_minutes,
-        'distance_meters': float(route.get('distance', 0)),
-        'duration_seconds': float(route.get('duration', 0)),
-    }
-    _ROUTE_CACHE[route_key] = (now, result)
-    return dict(result)
+    osrm = _osrm_request(
+        f"/route/v1/driving/{start_longitude},{start_latitude};{end_longitude},{end_latitude}",
+        {'geometries': 'geojson', 'overview': 'simplified'},
+    )
+    routes = osrm.get('routes') or [] if isinstance(osrm, dict) else []
+    if routes:
+        route = routes[0]
+        try:
+            distance_meters = float(route.get('distance', 0))
+            duration_seconds = float(route.get('duration', 0))
+        except (TypeError, ValueError):
+            distance_meters = duration_seconds = 0
+        if math.isfinite(distance_meters) and math.isfinite(duration_seconds) and distance_meters > 0 and duration_seconds >= 0:
+            result = {
+                'provider': 'osrm',
+                'source': 'osrm',
+                'distance_source': 'osrm-road-network',
+                'distance_precision': 'street',
+                'distance_km': round(distance_meters / 1000, 2),
+                'duration_minutes': round(duration_seconds / 60, 2),
+                'distance_meters': distance_meters,
+                'duration_seconds': duration_seconds,
+                'geometry': route.get('geometry'),
+                'vehicle_profile': profile,
+                'vehicle_restriction_status': 'unverified' if profile != 'standard_car' else 'standard_car',
+                'requires_review': profile != 'standard_car',
+                'network_version': network_version,
+                'route_status': 'CALCULATED',
+            }
+            _ROUTE_CACHE[route_key] = (now, result)
+            return dict(result)
+
+    if fallback:
+        result = _approximate_route_result(start, end, profile, network_version)
+        _ROUTE_CACHE[route_key] = (now, result)
+        return dict(result)
+    _ROUTE_CACHE[route_key] = (now, None)
+    return None
 
 
 def validate_location(location):

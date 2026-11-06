@@ -242,6 +242,19 @@ def create_app(testing=False):
                 f"{report['movers']} movers, and {report['teams']} teams."
             )
 
+    @app.cli.command('seed-fct-locations')
+    def seed_fct_locations_command():
+        """Upsert the curated and source-listed FCT locations into the configured database."""
+        from .services.location_service import seed_fct_locations
+
+        with app.app_context():
+            try:
+                imported = seed_fct_locations()
+            except SQLAlchemyError:
+                db.session.rollback()
+                raise
+            click.echo(f'Upserted {imported} FCT location directory records.')
+
     @app.cli.command('clear-demo')
     def clear_demo_command():
         """Remove only records explicitly marked as demo data."""

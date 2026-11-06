@@ -596,9 +596,9 @@
           {% if saved_inventory %}
           <form method="post" class="mt-4 space-y-5" data-question-form data-confirm-inventory data-cleaning-category="{{ property_answers.get('morph_cleaning_category', '') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="delete_selection_id" value="">
-            <div class="divide-y divide-stone-200 border-y border-stone-200">
+            <div class="overflow-x-auto divide-y divide-stone-200 border-y border-stone-200">
               {% for item in saved_inventory %}
-              <div class="grid items-center gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_8rem_auto]">
+              <div class="grid min-w-[22rem] grid-cols-[minmax(0,1fr)_5.5rem_2.75rem] items-center gap-2 py-2.5 sm:min-w-0 sm:gap-3">
                 <input type="hidden" name="selection_id" value="{{ item.id }}">
                 <div><p class="font-semibold text-stone-900">{{ item.display_name }}</p><p class="text-xs text-stone-500">{{ item.category }}{% if item.fragile %} · Fragile{% endif %}{% if item.special_handling %} · Special handling{% endif %}</p></div>
                 <label class="text-xs font-semibold text-stone-700">Quantity<input type="number" name="quantity[]" value="{{ item.quantity }}" min="1" max="500" step="1" required class="mt-1 w-full rounded border border-stone-300 px-2 py-1.5 text-right tabular-nums"></label>
