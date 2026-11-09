@@ -1,8 +1,7 @@
-from datetime import datetime
-
 from flask import Blueprint, abort, render_template, request
 
 from ..services.dispatch_service import respond_to_offer, token_offer
+from ..time_utils import utc_now_naive
 
 
 partner_dispatch_bp = Blueprint('partner_dispatch', __name__)
@@ -13,7 +12,7 @@ def respond(token):
     offer = token_offer(token)
     if offer is None:
         abort(404)
-    if offer.status != 'OFFERED' or offer.expires_at <= datetime.utcnow():
+    if offer.status != 'OFFERED' or offer.expires_at <= utc_now_naive():
         return render_template('partner/offer_expired.html'), 410
 
     if request.method == 'POST':

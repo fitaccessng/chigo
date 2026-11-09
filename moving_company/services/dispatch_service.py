@@ -11,6 +11,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
 from ..extensions import db
+from ..time_utils import utc_now_naive
 from ..models import (
     Booking, BookingAssignment, DispatchEvent, DispatchOffer, DispatchRequest,
     Mover, Notification, PartnerVehicle, ResourceReservation, TruckPartner,
@@ -24,7 +25,7 @@ SUPPORTED_DISPATCH_SERVICES = {'residential', 'commercial'}
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    return utc_now_naive()
 
 
 def _serializer() -> URLSafeSerializer:

@@ -38,8 +38,15 @@ class Config:
     SQLITE_DATABASE_URI = f'sqlite:///{BASE_DIR / "moving_company.db"}'
     POSTGIS_DATA_DIR = os.getenv('POSTGIS_DATA_DIR', str(BASE_DIR / 'data' / 'geodata'))
     DATABASE_URL = os.getenv('DATABASE_URL')
-    DATABASE_FALLBACK_TO_SQLITE = os.getenv('DATABASE_FALLBACK_TO_SQLITE', 'true').lower() == 'true'
-    REQUIRE_POSTGRES_DATABASE_URL = os.getenv('CHIGO_REQUIRE_DATABASE_URL', 'false').lower() == 'true'
+    DATABASE_FALLBACK_TO_SQLITE = os.getenv(
+        'DATABASE_FALLBACK_TO_SQLITE', 'false' if APP_ENV == 'production' else 'true',
+    ).lower() == 'true'
+    REQUIRE_POSTGRES_DATABASE_URL = (
+        APP_ENV == 'production'
+        or os.getenv('CHIGO_REQUIRE_DATABASE_URL', 'false').lower() == 'true'
+    )
+    if APP_ENV == 'production' and DATABASE_FALLBACK_TO_SQLITE:
+        raise RuntimeError('SQLite fallback is disabled in production.')
     if REQUIRE_POSTGRES_DATABASE_URL and not DATABASE_URL:
         raise RuntimeError('Container deployments require a PostgreSQL DATABASE_URL.')
     if DATABASE_URL:

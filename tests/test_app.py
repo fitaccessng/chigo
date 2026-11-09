@@ -1,5 +1,6 @@
 from moving_company import create_app
 from moving_company.extensions import db
+from moving_company.time_utils import utc_now_naive
 from datetime import date, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 from sqlalchemy import func
@@ -970,11 +971,49 @@ def test_autocomplete_falls_back_to_photon_for_unseeded_abuja_streets(monkeypatc
     assert result['formatted_address'] == 'Example Street, Abuja, Federal Capital Territory, Nigeria'
     assert result['latitude'] == 9.07
     assert result['longitude'] == 7.49
-    assert calls[0][0] == '/api/?q=Example%20Street%2C%20Nigeria'
+    assert calls[0][0] == '/api/?q=example%20street%2C%20Nigeria'
     assert calls[0][1] == {
         'limit': 8,
         'bbox': '6.6,8.2,7.85,9.85',
     }
+
+
+def test_photon_autocomplete_matches_partial_street_names_and_abuja_phrases(monkeypatch):
+    app = create_app(testing=True)
+    location_service.clear_location_search_cache()
+    photon_queries = []
+    monkeypatch.setattr(location_service, '_search_postgis_locations', lambda *args, **kwargs: [])
+    monkeypatch.setattr(location_service, '_search_local_abuja_places', lambda *args, **kwargs: [])
+
+    def photon_request(path, params=None, timeout=3.5):
+        photon_queries.append(path)
+        return {
+            'features': [{
+                'type': 'Feature',
+                'geometry': {'type': 'Point', 'coordinates': [7.49, 9.07]},
+                'properties': {
+                    'name': 'Example Street', 'street': 'Example Street',
+                    'state': 'Federal Capital Territory', 'country': 'Nigeria',
+                    'osm_type': 'W', 'osm_id': 124,
+                },
+            }],
+        }
+
+    monkeypatch.setattr(location_service, '_photon_request', photon_request)
+
+    response = app.test_client().get(
+        '/api/locations/autocomplete?q=Example%20Stre%20in%20Abuja'
+    )
+
+    assert response.status_code == 200
+    results = response.get_json()['results']
+    assert len(results) == 1
+    assert results[0]['name'] == 'Example Street'
+    assert photon_queries[0] == '/api/?q=example%20stre%2C%20Nigeria'
+
+    broad_response = app.test_client().get('/api/locations/autocomplete?q=Abuja')
+    assert broad_response.status_code == 200
+    assert broad_response.get_json()['results'][0]['name'] == 'Example Street'
 
 
 def test_photon_fallback_keeps_only_results_verified_as_nigerian_fct(monkeypatch):
@@ -1832,7 +1871,7 @@ def test_dashboard_uses_live_booking_payment_and_resource_data():
     app = create_app(testing=True)
     app.config['WTF_CSRF_ENABLED'] = False
     today = date.today()
-    now = datetime.utcnow()
+    now = utc_now_naive()
     with app.app_context():
         admin = User.query.filter_by(email='admin@chigo.com').one()
         customer = User(first_name='Rae', last_name='Customer', email='rae-metrics@example.com', phone='+2348000000099')

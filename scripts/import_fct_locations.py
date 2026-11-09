@@ -753,13 +753,15 @@ def import_to_postgis(records, *, dry_run):
                 if inserted:
                     existing_id = connection.execute(text('''
                         INSERT INTO location_records (
-                            name, normalized_name, place_type, area_council, district, parent_name,
-                            state, country, latitude, longitude, geom, aliases, search_keywords,
+                            name, normalized_name, place_type, area_council, lga, service_region,
+                            district, parent_name, state, country, latitude, longitude, geom,
+                            aliases, search_keywords,
                             source, source_id, source_url, raw_input, confidence, verification_status,
                             verified, active, postal_code, raw_source_name, first_seen_at, last_seen_at,
                             created_at, updated_at
                         ) VALUES (
-                            :name, :normalized, :type, :council, :district, :parent,
+                            :name, :normalized, :type, :council, :lga, 'abuja_fct_metro',
+                            :district, :parent,
                             'Federal Capital Territory', 'Nigeria', NULL, NULL, NULL,
                             CAST(:aliases AS json), CAST(:keywords AS json), 'fct-directory', :source_id,
                             :source_url, :raw_name, 0.75, :verification_status, FALSE, :active,
@@ -768,6 +770,7 @@ def import_to_postgis(records, *, dry_run):
                     '''), {
                         'name': record['name'], 'normalized': record['normalized_name'],
                         'type': record['place_type'], 'council': record['area_council'],
+                        'lga': record.get('lga') or record['area_council'],
                         'district': record.get('district'), 'parent': record.get('parent_name'),
                         'aliases': json.dumps(record.get('aliases') or []),
                         'keywords': json.dumps([record.get('postal_code'), *record.get('postal_code_conflicts', [])]),

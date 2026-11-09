@@ -17,6 +17,7 @@ from ..models import AuditLog, Booking, BookingAssignment, BookingEvent, Booking
 from ..services.assignment_service import save_assignment
 from ..services.booking_engine_service import apply_price_override, calculate_quote, record_event
 from ..services.booking_policy_service import utc_now
+from ..time_utils import utc_now_naive
 from ..services.image_upload_service import delete_image, save_image
 from ..services.referral_service import expire_referral_rewards, get_campaign, issue_referral_reward, reverse_referral_reward
 from ..services.dispatch_service import expire_dispatch_offers, release_booking_reservations, retry_failed_dispatch_notifications, start_dispatch
@@ -294,7 +295,7 @@ def dashboard():
     tomorrow = today + timedelta(days=1)
     start_of_day = datetime.combine(today, time.min)
     start_of_tomorrow = datetime.combine(tomorrow, time.min)
-    utc_today = datetime.utcnow().date()
+    utc_today = utc_now_naive().date()
     utc_start_of_day = datetime.combine(utc_today, time.min)
     utc_start_of_tomorrow = datetime.combine(utc_today + timedelta(days=1), time.min)
     active_statuses = ('In Progress', 'Loading', 'In Transit', 'Unloading')
@@ -873,7 +874,7 @@ def prepare_home_decor_quote(request_id):
     booking.manually_overridden_total = booking.estimated_total
     booking.price_override_reason = reason[:1000]
     booking.overridden_by = current_user.id
-    booking.overridden_at = datetime.utcnow()
+    booking.overridden_at = utc_now_naive()
     booking.quote_status = 'Ready'
     booking.workflow_state = 'QUOTE_READY'
     booking.calculation_data = {
@@ -1013,7 +1014,7 @@ def override_booking(booking_id):
             booking.recommended_vehicle_type_id = vehicle.id
             booking.vehicle_override_reason = reason[:1000]
             booking.overridden_by = current_user.id
-            booking.overridden_at = datetime.utcnow()
+            booking.overridden_at = utc_now_naive()
             record_event(booking, 'vehicle.recommendation_overridden', previous=previous, new=vehicle.name, user_id=current_user.id)
             if booking.quote_status in {'Ready', 'Accepted'}:
                 booking.workflow_state = 'SCHEDULE_COMPLETED'
@@ -1123,7 +1124,7 @@ def confirm_service_capacity(booking_id):
     calculation['availability_confirmed'] = True
     calculation['availability_confirmation_note'] = reason
     calculation['availability_confirmed_by'] = current_user.id
-    calculation['availability_confirmed_at'] = datetime.utcnow().isoformat()
+    calculation['availability_confirmed_at'] = utc_now_naive().isoformat()
     booking.calculation_data = calculation
     if booking.manually_overridden_total is not None and booking.manually_overridden_total > 0:
         booking.quote_status = 'Ready'

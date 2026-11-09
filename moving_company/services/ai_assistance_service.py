@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 import json
 
 import requests
@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ..extensions import db
 from ..models import AIUsageCounter
+from ..time_utils import utc_now_naive
 
 
 ALLOWED_SERVICES = {'residential', 'commercial', 'packing', 'storage', 'logistics'}
@@ -49,7 +50,7 @@ def _claim_daily_usage(user_id: int) -> None:
             AIUsageCounter.id == row.id,
             AIUsageCounter.request_count < limit,
         )
-        .values(request_count=AIUsageCounter.request_count + 1, updated_at=datetime.utcnow())
+        .values(request_count=AIUsageCounter.request_count + 1, updated_at=utc_now_naive())
     )
     db.session.commit()
     if result.rowcount != 1:

@@ -59,9 +59,16 @@
       provider_place_id: result.provider_place_id || result.place_id || result.id || '',
       address,
       area: result.area || address.suburb || address.neighbourhood || address.city_district || address.quarter || '',
-      city: result.city || address.city || address.town || address.village || 'Abuja',
-      state: result.state || address.state || address.state_district || 'Federal Capital Territory',
+      city: result.city || address.city || address.town || address.village || '',
+      state: result.state || address.state || address.state_district || '',
+      area_council: result.area_council || address.area_council || '',
+      lga: result.lga || address.lga || '',
+      district: result.district || address.city_district || '',
+      neighborhood: result.neighborhood || address.neighbourhood || address.suburb || '',
+      service_region: result.service_region || '',
+      location_type: result.location_type || result.feature_type || result.type || '',
       postal_code: result.postal_code || address.postcode || '',
+      verification_status: result.verification_status || '',
       original_query: result.original_query || originalQuery || '',
       normalized_query: result.normalized_query || originalQuery || '',
     };
@@ -86,8 +93,6 @@
     state[kind].selected = null;
     const ids = fieldIds(kind);
     Object.values(ids).forEach((id) => setValue(id, ''));
-    setValue(ids.city, 'Abuja');
-    setValue(ids.state, 'FCT');
     const input = getField(`${kind}_search`);
     if (input) input.value = '';
     const summary = getField(`${kind}_selected_summary`);
@@ -102,11 +107,18 @@
     const summary = getField(`${kind}_selected_summary`);
     if (!summary) return;
 
+    const administrativeContext = [
+      selection.neighborhood || selection.district || selection.lga || selection.area,
+      selection.area_council || selection.lga,
+      selection.state,
+    ].filter((value, index, values) => value && values.indexOf(value) === index).join(' · ');
     summary.innerHTML = `
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
           <div class="font-bold text-[11px]">Selected location</div>
           <div class="mt-1 leading-5">${escapeHtml(selection.formatted_address)}</div>
+          ${administrativeContext ? `<div class="mt-1 text-[10px] text-slate-500">${escapeHtml(administrativeContext)}</div>` : ''}
+          ${selection.service_region ? `<div class="mt-1 text-[10px] text-slate-500">Service region: ${escapeHtml(selection.service_region)}</div>` : ''}
           ${Number.isFinite(selection.latitude) && Number.isFinite(selection.longitude) ? '' : '<div class="mt-1 text-amber-800">Exact coordinates are not verified; operations may need to confirm this route.</div>'}
         </div>
         <button type="button" class="shrink-0 rounded-lg border border-white/60 bg-white/70 px-2 py-1 text-[10px] font-bold text-slate-600 hover:bg-white" data-clear-location="${kind}">Clear</button>
@@ -207,7 +219,12 @@
     deduped.slice(0, 8).forEach((item, index) => {
       const address = item.address || {};
       const area = item.area || address.suburb || address.neighbourhood || address.city_district || '';
-      const cityLine = [item.city || address.city || address.town || 'Abuja', item.state || address.state || 'FCT', item.postal_code ? `Postal code ${item.postal_code}` : ''].filter(Boolean).join(', ');
+      const locationContext = [
+        item.neighborhood || item.district || item.lga || area,
+        item.area_council || item.lga,
+        item.state || address.state,
+        item.country || address.country,
+      ].filter((value, valueIndex, values) => value && values.indexOf(value) === valueIndex).join(' · ');
       const option = document.createElement('button');
       option.type = 'button';
       option.className = [
@@ -218,7 +235,9 @@
         <div class="min-w-0">
           <div class="truncate text-[13px] font-bold text-slate-900">${escapeHtml(item.name || item.formatted_address || 'Location')}</div>
           <div class="mt-1 text-[11px] leading-4 text-slate-500">${escapeHtml(item.formatted_address || item.display_name || 'Address unavailable')}</div>
-          ${area || cityLine ? `<div class="mt-1 text-[10px] font-semibold text-indigo-600">${escapeHtml([area, cityLine].filter(Boolean).join(' · '))}</div>` : ''}
+          ${locationContext ? `<div class="mt-1 text-[10px] font-semibold text-indigo-600">${escapeHtml(locationContext)}</div>` : ''}
+          ${item.location_type || item.feature_type ? `<div class="mt-1 text-[9px] uppercase tracking-wide text-slate-400">${escapeHtml(item.location_type || item.feature_type)}</div>` : ''}
+          ${item.service_region ? `<div class="mt-1 text-[9px] text-slate-500">Service region: ${escapeHtml(item.service_region)}</div>` : ''}
         </div>
       `;
       option.addEventListener('click', () => onSelect(item));

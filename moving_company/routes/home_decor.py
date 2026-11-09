@@ -1,5 +1,5 @@
 import secrets
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, send_file, session, url_for
@@ -8,6 +8,7 @@ from werkzeug.datastructures import MultiDict
 
 from ..extensions import db
 from ..models import Booking, BookingEvent, HomeDecorAttachment, HomeDecorRequest, Notification
+from ..time_utils import utc_now_naive
 from ..services.booking_engine_service import create_booking_request
 from ..services.home_decor_service import (
     ATTACHMENT_CATEGORIES, CONTACT_METHODS, DECOR_SERVICES, DESIGN_STYLES,
@@ -184,7 +185,7 @@ def _create_draft():
     active_drafts = HomeDecorRequest.query.filter_by(customer_id=current_user.id, status='Draft').count()
     if active_drafts >= current_app.config['MAX_DECOR_DRAFTS_PER_CUSTOMER']:
         abort(429, description='You have several unfinished décor requests. Resume or submit one before starting another.')
-    reference = f"HD-{datetime.utcnow():%Y}-{secrets.token_hex(4).upper()}"
+    reference = f"HD-{utc_now_naive():%Y}-{secrets.token_hex(4).upper()}"
     draft = HomeDecorRequest(
         customer_id=current_user.id, public_reference=reference,
         idempotency_key=secrets.token_urlsafe(24), status='Draft', draft_step=1,
@@ -341,7 +342,7 @@ def _submit_request(decor_request, data):
     decor_request.status = 'New'
     decor_request.draft_data = complete
     decor_request.draft_step = 6
-    decor_request.submitted_at = datetime.utcnow()
+    decor_request.submitted_at = utc_now_naive()
     db.session.add(Notification(
         user_id=current_user.id, booking=booking,
         message=f"Home Décor enquiry {decor_request.public_reference} was received for operations review.",

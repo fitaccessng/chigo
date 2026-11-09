@@ -10,6 +10,7 @@ from flask import abort, current_app
 from sqlalchemy.exc import IntegrityError
 
 from ..extensions import db
+from ..time_utils import utc_now_naive
 from ..models import (
     Booking, BookingAssignment, BookingEvent, BookingInventory, BookingItem, BookingPhoto,
     BookingQuoteLine, Cleaner, InventoryItem, Mover, ServicePricing, Truck, VehicleType,
@@ -78,7 +79,7 @@ def create_booking_request(customer_id=None, location=None, user_id=None, servic
             raise ValueError(f'Complete both addresses and their city and state before continuing: {", ".join(missing)}.')
         raise ValueError('Enter the service location before continuing.')
 
-    request_id = f"BR-{datetime.utcnow():%Y}-{token_hex(4).upper()}"
+    request_id = f"BR-{utc_now_naive():%Y}-{token_hex(4).upper()}"
     location_fields = (
         'pickup_address', 'pickup_unit', 'pickup_area', 'pickup_city', 'pickup_state', 'pickup_country',
         'pickup_area_council', 'pickup_district', 'pickup_neighborhood', 'pickup_location_type', 'pickup_original_input', 'pickup_normalized_location',
@@ -992,7 +993,7 @@ def _save_quote_required(booking: Booking, reason: str | list[str], *, indicativ
     quote_history = list(previous_calculation.get('quote_history') or [])
     if previous_calculation.get('estimate_type') or previous_calculation.get('indicative_total') is not None:
         quote_history.append({
-            'saved_at': datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+            'saved_at': utc_now_naive().isoformat(timespec='seconds') + 'Z',
             'quote_status': booking.quote_status,
             'estimate_type': previous_calculation.get('estimate_type'),
             'indicative_total': previous_calculation.get('indicative_total'),
@@ -1367,7 +1368,7 @@ def calculate_quote(booking: Booking, user_id=None):
                 else 'MANUAL_REVIEW_REQUIRED' if route.get('requires_review')
                 else route.get('route_status', 'CALCULATED')
             )
-            booking.route_calculated_at = datetime.utcnow()
+            booking.route_calculated_at = utc_now_naive()
             booking.workflow_data = {
                 **(booking.workflow_data or {}),
                 'route': {
@@ -1613,7 +1614,7 @@ def apply_price_override(booking: Booking, amount: float, reason: str, user_id):
     booking.manually_overridden_total = gross_amount
     booking.price_override_reason = reason.strip()[:1000]
     booking.overridden_by = user_id
-    booking.overridden_at = datetime.utcnow()
+    booking.overridden_at = utc_now_naive()
     discount = apply_referral_discount(booking, booking.customer_id, gross_amount) if booking.customer_id else 0.0
     booking.referral_discount_amount = discount
     booking.estimated_total = round(gross_amount - discount, 2)

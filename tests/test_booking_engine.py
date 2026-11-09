@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from moving_company.time_utils import utc_now_naive
 import hashlib
 import hmac
 from io import BytesIO
@@ -1694,7 +1695,7 @@ def test_referral_discount_uses_server_quote_and_is_ledgered_once(app):
         referral = Referral(
             referral_code_id=code.id, campaign_id=campaign.id,
             referrer_user_id=referrer.id, referred_user_id=referred.id,
-            attributed_at=datetime.utcnow(), status='registered',
+            attributed_at=utc_now_naive(), status='registered',
             terms_snapshot={
                 'reward_amount_kobo': 200000, 'discount_amount_kobo': 200000,
                 'minimum_booking_value_kobo': 1, 'minimum_payable_kobo': 100000,
@@ -1736,7 +1737,7 @@ def test_referral_reward_requires_paid_completion_and_is_idempotent(app):
         referral = Referral(
             referral_code_id=code.id, campaign_id=campaign.id,
             referrer_user_id=referrer.id, referred_user_id=referred.id,
-            attributed_at=datetime.utcnow(), status='booking_qualified',
+            attributed_at=utc_now_naive(), status='booking_qualified',
             terms_snapshot={'reward_amount_kobo': 200000, 'reward_expiration_days': 365},
         )
         db.session.add(referral)
@@ -1766,7 +1767,7 @@ def test_referral_reward_requires_paid_completion_and_is_idempotent(app):
         assert reward.status == 'available'
         assert ReferralReward.query.filter_by(referral_id=referral.id).count() == 1
         assert RewardTransaction.query.filter_by(reward_id=reward.id, transaction_type='credit_issued').count() == 1
-        expiration_time = datetime.utcnow() + timedelta(days=366)
+        expiration_time = utc_now_naive() + timedelta(days=366)
         assert expire_referral_rewards(expiration_time) == 1
         assert expire_referral_rewards(expiration_time) == 0
         assert reward.status == 'expired'
@@ -1788,7 +1789,7 @@ def test_referral_credit_reversal_is_append_only_and_requires_a_reason(app):
             referral_code_id=code.id, campaign_id=campaign.id,
             referrer_user_id=referrer.id, referred_user_id=referred.id,
             qualifying_booking_id=booking.id, status='rewarded',
-            attributed_at=datetime.utcnow(), terms_snapshot={},
+            attributed_at=utc_now_naive(), terms_snapshot={},
         )
         db.session.add(referral)
         db.session.flush()

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from flask_login import UserMixin
 
 from .extensions import bcrypt, db
+from .time_utils import utc_now_naive
 
 
 class User(UserMixin, db.Model):
@@ -18,7 +19,7 @@ class User(UserMixin, db.Model):
     is_active = db.Column(db.Boolean, nullable=False, default=True, server_default='1')
     account_status = db.Column(db.String(20), nullable=False, default='active', server_default='active')
     disabled_services = db.Column(db.JSON, nullable=False, default=list, server_default='[]')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now_naive)
 
     bookings = db.relationship('Booking', back_populates='customer', foreign_keys='Booking.customer_id')
     notifications = db.relationship('Notification', back_populates='user')
@@ -56,7 +57,7 @@ class OAuthIdentity(db.Model):
     subject = db.Column(db.String(255), nullable=False)
     email = db.Column(db.String(255), nullable=False)
     email_verified = db.Column(db.Boolean, nullable=False, default=False)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive)
 
     user = db.relationship('User', backref=db.backref('oauth_identities', cascade='all, delete-orphan'))
 
@@ -71,8 +72,8 @@ class SupportConversation(db.Model):
     status = db.Column(db.String(30), nullable=False, default='AI_ASSISTED', index=True)
     human_requested = db.Column(db.Boolean, nullable=False, default=False)
     human_requested_at = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
     closed_at = db.Column(db.DateTime)
 
     customer = db.relationship(
@@ -92,7 +93,7 @@ class SupportMessage(db.Model):
     sender_type = db.Column(db.String(20), nullable=False)
     sender_id = db.Column(db.Integer, nullable=True)
     message = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive)
 
     conversation = db.relationship('SupportConversation', back_populates='messages', foreign_keys=[conversation_id])
 
@@ -109,7 +110,7 @@ class SupportRequest(db.Model):
     status = db.Column(db.String(30), nullable=False, default='WAITING_FOR_AGENT', index=True)
     assigned_at = db.Column(db.DateTime)
     resolved_at = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive)
     email_status = db.Column(db.String(20), nullable=False, default='pending')
 
     customer = db.relationship('User', back_populates='support_requests', foreign_keys=[customer_id])
@@ -232,8 +233,8 @@ class Booking(db.Model):
     referral_id = db.Column(db.Integer, db.ForeignKey('referrals.id'), nullable=True, index=True)
     referral_discount_amount = db.Column(db.Float, nullable=False, default=0.0)
     payment_status = db.Column(db.String(30), default='Pending')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now_naive)
+    updated_at = db.Column(db.DateTime, default=utc_now_naive, onupdate=utc_now_naive)
 
     customer = db.relationship('User', back_populates='bookings', foreign_keys=[customer_id])
     items = db.relationship('BookingItem', back_populates='booking', cascade='all, delete-orphan')
@@ -272,7 +273,7 @@ class InventoryItem(db.Model):
     active = db.Column(db.Boolean, nullable=False, default=True, index=True)
     sort_order = db.Column(db.Integer, nullable=False, default=0)
     is_demo = db.Column(db.Boolean, nullable=False, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now_naive, nullable=False)
 
     selections = db.relationship('BookingInventory', back_populates='catalogue_item', cascade='all, delete-orphan')
 
@@ -295,8 +296,8 @@ class BookingInventory(db.Model):
     special_handling = db.Column(db.Boolean, nullable=False, default=False)
     details = db.Column(db.JSON, nullable=False, default=dict)
     dimensions_cm = db.Column(db.JSON)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now_naive, nullable=False)
+    updated_at = db.Column(db.DateTime, default=utc_now_naive, onupdate=utc_now_naive)
 
     booking = db.relationship('Booking', back_populates='inventory')
     catalogue_item = db.relationship('InventoryItem', back_populates='selections')
@@ -341,7 +342,7 @@ class BookingQuoteLine(db.Model):
     unit_amount = db.Column(db.Float, nullable=False)
     amount = db.Column(db.Float, nullable=False)
     source = db.Column(db.String(20), nullable=False, default='system')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now_naive)
 
     booking = db.relationship('Booking', back_populates='quote_lines')
 
@@ -359,7 +360,7 @@ class BookingEvent(db.Model):
     idempotency_key = db.Column(db.String(160), nullable=True)
     previous_value = db.Column(db.JSON)
     new_value = db.Column(db.JSON)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now_naive, nullable=False)
 
     booking = db.relationship('Booking', back_populates='events')
     user = db.relationship('User')
@@ -380,8 +381,8 @@ class HomeDecorRequest(db.Model):
     internal_notes = db.Column(db.Text)
     inspection_at = db.Column(db.DateTime)
     consultation_at = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
     submitted_at = db.Column(db.DateTime)
 
     booking = db.relationship('Booking', back_populates='home_decor_request')
@@ -401,7 +402,7 @@ class HomeDecorAttachment(db.Model):
     mime_type = db.Column(db.String(120), nullable=False)
     file_size = db.Column(db.Integer, nullable=False)
     category = db.Column(db.String(30), nullable=False)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive)
 
     request = db.relationship('HomeDecorRequest', back_populates='attachments')
     uploaded_by = db.relationship('User')
@@ -422,7 +423,7 @@ class BookingPhoto(db.Model):
     category = db.Column(db.String(60), default='inventory', nullable=False)
     sort_order = db.Column(db.Integer, nullable=False, default=0)
     is_primary = db.Column(db.Boolean, nullable=False, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now_naive, nullable=False)
 
     booking = db.relationship('Booking', back_populates='photos')
     booking_item = db.relationship('BookingItem', back_populates='photos')
@@ -442,7 +443,7 @@ class Payment(db.Model):
     authorization_url = db.Column(db.Text)
     currency = db.Column(db.String(3), nullable=False, default='NGN')
     transaction_status = db.Column(db.String(30))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now_naive)
 
     booking = db.relationship('Booking', back_populates='payments')
 
@@ -455,7 +456,7 @@ class Notification(db.Model):
     booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id'), nullable=True)
     message = db.Column(db.String(255), nullable=False)
     is_read = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now_naive)
 
     user = db.relationship('User', back_populates='notifications')
     booking = db.relationship('Booking', back_populates='notifications')
@@ -483,8 +484,8 @@ class ReferralCampaign(db.Model):
     allow_promotion_stacking = db.Column(db.Boolean, nullable=False, default=False)
     created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'))
     updated_by_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
 
 
 class ReferralCode(db.Model):
@@ -494,7 +495,7 @@ class ReferralCode(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, unique=True, index=True)
     code = db.Column(db.String(24), nullable=False, unique=True, index=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive)
 
 
 class ReferralAttribution(db.Model):
@@ -505,7 +506,7 @@ class ReferralAttribution(db.Model):
     referral_code_id = db.Column(db.Integer, db.ForeignKey('referral_codes.id'), nullable=False, index=True)
     campaign_id = db.Column(db.Integer, db.ForeignKey('referral_campaigns.id'), nullable=False, index=True)
     source = db.Column(db.String(24), nullable=False, default='link')
-    captured_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    captured_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive)
 
 
 class Referral(db.Model):
@@ -522,12 +523,12 @@ class Referral(db.Model):
     referred_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, unique=True, index=True)
     qualifying_booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id'), nullable=True, unique=True)
     attribution_source = db.Column(db.String(24), nullable=False, default='link')
-    attributed_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    attributed_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive)
     status = db.Column(db.String(32), nullable=False, default='registered', index=True)
     terms_snapshot = db.Column(db.JSON, nullable=False, default=dict)
     rejection_reason = db.Column(db.String(500))
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
 
 
 class ReferralReward(db.Model):
@@ -549,7 +550,7 @@ class ReferralReward(db.Model):
     earned_at = db.Column(db.DateTime)
     available_at = db.Column(db.DateTime)
     expires_at = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive)
 
 
 class RewardTransaction(db.Model):
@@ -570,7 +571,7 @@ class RewardTransaction(db.Model):
     description = db.Column(db.String(500), nullable=False)
     idempotency_key = db.Column(db.String(140), nullable=False, unique=True)
     actor_user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive)
     processed_at = db.Column(db.DateTime)
 
 
@@ -592,7 +593,7 @@ class Review(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     rating = db.Column(db.Integer, nullable=False)
     comment = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now_naive)
 
     booking = db.relationship('Booking', back_populates='reviews')
     user = db.relationship('User', back_populates='reviews')
@@ -611,7 +612,7 @@ class IncidentReport(db.Model):
     evidence = db.Column(db.JSON, nullable=False, default=list)
     contact_snapshot = db.Column(db.JSON, nullable=False, default=dict)
     reported_by = db.Column(db.String(120), nullable=False)
-    date_time = db.Column(db.DateTime, default=datetime.utcnow)
+    date_time = db.Column(db.DateTime, default=utc_now_naive)
     noticed_at = db.Column(db.DateTime(timezone=True))
     submitted_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     status = db.Column(db.String(30), default='Open')
@@ -631,7 +632,7 @@ class AuditLog(db.Model):
     entity_id = db.Column(db.String(50), nullable=True)
     before_value = db.Column(db.Text)
     after_value = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now_naive)
 
 
 class LocalPlace(db.Model):
@@ -642,11 +643,12 @@ class LocalPlace(db.Model):
     normalized_name = db.Column(db.String(160), nullable=False, index=True)
     place_type = db.Column(db.String(60), default='AREA')
     parent_id = db.Column(db.Integer, db.ForeignKey('local_places.id'), index=True)
-    area_council = db.Column(db.String(80), default='AMAC')
+    area_council = db.Column(db.String(80))
     district = db.Column(db.String(120))
     neighborhood = db.Column(db.String(120))
     area = db.Column(db.String(120))
     lga = db.Column(db.String(80))
+    service_region = db.Column(db.String(80), index=True)
     state = db.Column(db.String(100), nullable=False, default='Federal Capital Territory')
     country = db.Column(db.String(100), nullable=False, default='Nigeria')
     city = db.Column(db.String(100))
@@ -676,8 +678,8 @@ class LocalPlace(db.Model):
     selection_count = db.Column(db.Integer, nullable=False, default=0)
     booking_count = db.Column(db.Integer, nullable=False, default=0)
     last_used_at = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now_naive)
+    updated_at = db.Column(db.DateTime, default=utc_now_naive, onupdate=utc_now_naive)
 
     parent = db.relationship('LocalPlace', remote_side=[id], back_populates='children')
     children = db.relationship('LocalPlace', back_populates='parent')
@@ -787,7 +789,7 @@ class VehicleImage(db.Model):
     file_size = db.Column(db.Integer, nullable=False)
     sort_order = db.Column(db.Integer, nullable=False, default=0)
     is_primary = db.Column(db.Boolean, nullable=False, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now_naive, nullable=False)
 
     truck = db.relationship('Truck', back_populates='images')
 
@@ -866,8 +868,8 @@ class DispatchRequest(db.Model):
     status = db.Column(db.String(32), nullable=False, default='PENDING_DISPATCH', index=True)
     attempts = db.Column(db.Integer, nullable=False, default=0)
     last_error = db.Column(db.String(500))
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
 
     booking = db.relationship('Booking')
     offers = db.relationship('DispatchOffer', back_populates='dispatch_request', cascade='all, delete-orphan')
@@ -889,7 +891,7 @@ class DispatchOffer(db.Model):
     status = db.Column(db.String(20), nullable=False, default='OFFERED', index=True)
     candidate_snapshot = db.Column(db.JSON, nullable=False, default=dict)
     rejection_reason = db.Column(db.String(500))
-    offered_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    offered_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive)
     expires_at = db.Column(db.DateTime, nullable=False, index=True)
     responded_at = db.Column(db.DateTime)
     email_status = db.Column(db.String(20), nullable=False, default='PENDING')
@@ -938,7 +940,7 @@ class ResourceReservation(db.Model):
     reservation_date = db.Column(db.Date, nullable=False, index=True)
     status = db.Column(db.String(16), nullable=False, default='HELD', index=True)
     expires_at = db.Column(db.DateTime, nullable=False)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive)
     released_at = db.Column(db.DateTime)
     release_reason = db.Column(db.String(250))
 
@@ -959,7 +961,7 @@ class DispatchEvent(db.Model):
     actor_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     event_type = db.Column(db.String(40), nullable=False, index=True)
     details = db.Column(db.JSON, nullable=False, default=dict)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive, index=True)
 
     dispatch_request = db.relationship('DispatchRequest', back_populates='events')
     offer = db.relationship('DispatchOffer')
@@ -976,6 +978,6 @@ class AIUsageCounter(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     usage_date = db.Column(db.Date, nullable=False, index=True)
     request_count = db.Column(db.Integer, nullable=False, default=0)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now_naive, onupdate=utc_now_naive)
 
     user = db.relationship('User')

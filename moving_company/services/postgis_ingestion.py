@@ -17,7 +17,7 @@ from sqlalchemy.engine import make_url
 from dotenv import load_dotenv
 import osmium
 
-from .fct_location_data import FCT_LOCATION_SEED
+from .fct_location_data import FCT_LOCATION_SEED, FCT_SERVICE_REGION
 from .location_service import normalize_location_name
 
 LOGGER = logging.getLogger('chigo.geodata')
@@ -83,6 +83,13 @@ def normalize_location_payload(payload):
         'normalized_name': normalize_location_name(name),
         'place_type': str(payload.get('place_type') or payload.get('type') or 'poi').lower(),
         'area_council': payload.get('area_council') or payload.get('council'),
+        'lga': payload.get('lga'),
+        'service_region': payload.get('service_region') or (
+            FCT_SERVICE_REGION
+            if str(payload.get('state') or 'Federal Capital Territory').casefold()
+            in {'fct', 'federal capital territory'}
+            else None
+        ),
         'latitude': latitude,
         'longitude': longitude,
         'centroid': (
@@ -658,14 +665,16 @@ def _insert_records(engine, records, *, force=False, dry_run=False):
             if existing_id is None:
                 existing_id = connection.execute(text("""
                 INSERT INTO location_records (
-                    name, normalized_name, place_type, parent_name, area_council, district,
-                    neighborhood, area, state, country, address, latitude, longitude, geom,
+                    name, normalized_name, place_type, parent_name, area_council, lga,
+                    service_region, district, neighborhood, area, state, country, address,
+                    latitude, longitude, geom,
                     aliases, search_keywords, source, source_id, source_url, description,
                     confidence, verification_status, verified, active, popularity_score,
                     created_at, updated_at
                 ) VALUES (
-                    :name, :normalized_name, :place_type, :parent_name, :area_council, :district,
-                    :neighborhood, :area, :state, :country, :address, :latitude, :longitude,
+                    :name, :normalized_name, :place_type, :parent_name, :area_council, :lga,
+                    :service_region, :district, :neighborhood, :area, :state, :country,
+                    :address, :latitude, :longitude,
                     ST_GeomFromEWKT(:geom), CAST(:aliases AS json), CAST(:keywords AS json),
                     :source, :source_id, :source_url, :description, :confidence,
                     :verification_status, :verified, TRUE, 0, NOW(), NOW()
@@ -683,6 +692,8 @@ def _insert_records(engine, records, *, force=False, dry_run=False):
                                FROM jsonb_array_elements_text(COALESCE(location_records.aliases::jsonb, '[]'::jsonb) || EXCLUDED.aliases::jsonb) AS value),
                     search_keywords = (SELECT COALESCE(jsonb_agg(DISTINCT value), '[]'::jsonb)::json
                                        FROM jsonb_array_elements_text(COALESCE(location_records.search_keywords::jsonb, '[]'::jsonb) || EXCLUDED.search_keywords::jsonb) AS value),
+                    lga = COALESCE(location_records.lga, EXCLUDED.lga),
+                    service_region = COALESCE(location_records.service_region, EXCLUDED.service_region),
                     updated_at = NOW()
                 RETURNING id
             """), {
@@ -691,6 +702,13 @@ def _insert_records(engine, records, *, force=False, dry_run=False):
                 'place_type': record['place_type'],
                 'parent_name': record.get('parent_name'),
                 'area_council': record.get('area_council'),
+                'lga': record.get('lga'),
+                'service_region': record.get('service_region') or (
+                    FCT_SERVICE_REGION
+                    if str(record.get('state') or 'Federal Capital Territory').casefold()
+                    in {'fct', 'federal capital territory'}
+                    else None
+                ),
                 'district': record.get('district'),
                 'neighborhood': record.get('neighborhood'),
                 'area': record.get('area'),

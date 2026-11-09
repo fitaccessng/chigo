@@ -222,6 +222,68 @@ def test_fct_directory_seed_searches_major_axes_without_claiming_coordinates():
     clear_location_search_cache()
 
 
+def test_user_provided_area_directory_separates_fct_geography_from_metro_service_region():
+    app = create_app(testing=True)
+    clear_location_search_cache()
+
+    with app.app_context():
+        location_service.seed_fct_locations()
+        for name, council in (
+            ('Central Secretariat', 'Abuja Municipal Area Council'),
+            ('Wuse Zone 7', 'Abuja Municipal Area Council'),
+            ('Maitama Hills', 'Abuja Municipal Area Council'),
+            ('Orozo', 'Abuja Municipal Area Council'),
+            ('Gwarinpa 14th Avenue', 'Abuja Municipal Area Council'),
+            ('Kubwa Phase 5', 'Bwari Area Council'),
+            ('Igu Extension', 'Bwari Area Council'),
+            ('Chukuku Village', 'Gwagwalada Area Council'),
+            ('Kuje Phase 2', 'Kuje Area Council'),
+            ('Pabuko Village', 'Kwali Area Council'),
+            ('Manderegi', 'Abaji Area Council'),
+        ):
+            result = next(
+                item for item in search_places(name, limit=10)
+                if item['name'] == name and item['area_council'] == council
+            )
+            assert result['latitude'] is None and result['longitude'] is None
+            assert result['verified'] is False
+            assert result['verification_status'] == 'source_listed'
+
+        assert search_places('14th Avenue Gwarinpa', limit=10)[0]['name'] == 'Gwarinpa 14th Avenue'
+        for name in ('Karu', 'Nyanya', 'Jikwoyi', 'Kurudu'):
+            fct_location = LocalPlace.query.filter_by(
+                normalized_name=name.casefold(),
+                area_council='Abuja Municipal Area Council',
+                state='Federal Capital Territory',
+            ).one()
+            assert fct_location.service_region == 'abuja_fct_metro'
+
+        for name in ('New Karu', 'Mararaba'):
+            metro = LocalPlace.query.filter_by(
+                normalized_name=name.casefold(),
+                state='Nasarawa State',
+            ).one()
+            assert metro.area_council is None
+            assert metro.lga == 'Karu LGA'
+            assert metro.service_region == 'abuja_fct_metro'
+            assert metro.latitude is None and metro.longitude is None
+            assert metro.verified is False
+            assert metro.source_metadata['source_attributes']['metro_scope'] == 'nasarawa_fct_metro'
+            result = next(
+                item for item in search_places(name, limit=10)
+                if item['state'] == 'Nasarawa State'
+            )
+            assert result['lga'] == 'Karu LGA'
+            assert result['service_region'] == 'abuja_fct_metro'
+
+        karu_results = search_places('Karu', limit=10)
+        assert {result['state'] for result in karu_results if result['name'] == 'Karu'} == {
+            'Federal Capital Territory', 'Nasarawa State',
+        }
+
+    clear_location_search_cache()
+
+
 def test_curated_import_preserves_source_listed_status_and_null_geometry():
     from moving_company.services.postgis_ingestion import _curated_records, normalize_location_payload
 

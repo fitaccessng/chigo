@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 from flask import current_app
 from sqlalchemy import desc
 
 from ..extensions import db
 from ..models import Booking, LocalPlace, SupportConversation, SupportMessage, SupportRequest, User
 from .support_email_service import send_human_escalation_email
+from ..time_utils import utc_now_naive
 
 
 SUPPORT_KNOWLEDGE = {
@@ -172,7 +171,7 @@ def respond_to_message(conversation_id, message, customer_id):
         message=answer,
     )
     db.session.add(ai_message)
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = utc_now_naive()
     if conversation.status == 'AI_ASSISTED':
         conversation.status = 'AI_ASSISTED'
     db.session.commit()
@@ -198,12 +197,12 @@ def request_human(conversation_id, customer_id, reason):
         service_type=(conversation.booking.primary_service if conversation.booking else None),
         reason=reason,
         status='WAITING_FOR_AGENT',
-        created_at=datetime.utcnow(),
+        created_at=utc_now_naive(),
     )
     conversation.human_requested = True
-    conversation.human_requested_at = datetime.utcnow()
+    conversation.human_requested_at = utc_now_naive()
     conversation.status = 'WAITING_FOR_AGENT'
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = utc_now_naive()
     db.session.add(request)
     db.session.commit()
     customer = conversation.customer
@@ -223,8 +222,8 @@ def create_conversation(customer_id, booking_id=None, service_type=None):
         booking_id=booking_id,
         status='AI_ASSISTED',
         human_requested=False,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=utc_now_naive(),
+        updated_at=utc_now_naive(),
     )
     db.session.add(conversation)
     db.session.flush()
@@ -266,11 +265,11 @@ def take_conversation(conversation_id, agent_id):
         return None
     conversation.status = 'HUMAN_ACTIVE'
     conversation.assigned_agent_id = agent_id
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = utc_now_naive()
     request = SupportRequest.query.filter_by(conversation_id=conversation_id).order_by(desc(SupportRequest.created_at)).first()
     if request:
         request.status = 'HUMAN_ACTIVE'
-        request.assigned_at = datetime.utcnow()
+        request.assigned_at = utc_now_naive()
     db.session.add(SupportMessage(
         conversation_id=conversation_id,
         sender_type='system', sender_id=agent_id,
@@ -290,7 +289,7 @@ def add_admin_message(conversation_id, agent_id, message):
         message=message[:5000],
     )
     db.session.add(item)
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = utc_now_naive()
     db.session.commit()
     return item
 
@@ -300,11 +299,11 @@ def resolve_conversation(conversation_id):
     if conversation is None:
         return None
     conversation.status = 'RESOLVED'
-    conversation.closed_at = datetime.utcnow()
-    conversation.updated_at = datetime.utcnow()
+    conversation.closed_at = utc_now_naive()
+    conversation.updated_at = utc_now_naive()
     request = SupportRequest.query.filter_by(conversation_id=conversation_id).order_by(desc(SupportRequest.created_at)).first()
     if request:
         request.status = 'RESOLVED'
-        request.resolved_at = datetime.utcnow()
+        request.resolved_at = utc_now_naive()
     db.session.commit()
     return conversation

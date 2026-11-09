@@ -354,7 +354,14 @@
                   const detail = document.createElement('span');
                   detail.className = 'mt-1 block text-xs text-stone-500';
                   const placeType = String(result.location_type || result.type || '').replace(/[_-]+/g, ' ');
-                  detail.textContent = [result.area_council, result.district || result.neighborhood, placeType, result.postal_code ? `Postal code ${result.postal_code}` : '', result.state || 'FCT'].filter(Boolean).join(' · ');
+                  detail.textContent = [
+                    result.neighborhood || result.district || result.lga || result.area,
+                    result.area_council || result.lga,
+                    placeType,
+                    result.postal_code ? `Postal code ${result.postal_code}` : '',
+                    result.state,
+                    result.service_region ? `Service region: ${result.service_region}` : '',
+                  ].filter(Boolean).join(' · ');
                   option.append(title, detail);
                   option.addEventListener('click', () => select(result, query));
                   panel.append(option);

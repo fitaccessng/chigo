@@ -6,12 +6,16 @@ FCT_AREA_COUNCILS = (
     'Kwali Area Council',
     'Abaji Area Council',
 )
+FCT_METRO_AREA_GROUP = 'Nasarawa State (FCT Metro)'
+FCT_METRO_SCOPE = 'nasarawa_fct_metro'
+FCT_SERVICE_REGION = 'abuja_fct_metro'
 
 
 def _place(name, place_type, council, parent, latitude, longitude, *, district=None,
            neighborhood=None, aliases=(), keywords=(), popularity=0, address=None,
            verified=True, verification_status=None, coordinate_precision='area',
-           source='chigo-curated', source_attributes=None):
+           source='chigo-curated', source_attributes=None, state='Federal Capital Territory',
+           lga=None, service_region=FCT_SERVICE_REGION):
     return {
         'name': name,
         'place_type': place_type,
@@ -26,8 +30,10 @@ def _place(name, place_type, council, parent, latitude, longitude, *, district=N
         'search_keywords': list(keywords),
         'popularity_score': popularity,
         'address': address or f'{name}, {council}, Federal Capital Territory, Nigeria',
-        'state': 'Federal Capital Territory',
+        'state': state,
         'country': 'Nigeria',
+        'lga': lga or council,
+        'service_region': service_region,
         'provider': source,
         'verified': verified,
         'verification_status': verification_status or ('verified' if verified else 'source_listed'),
@@ -40,25 +46,39 @@ def _place(name, place_type, council, parent, latitude, longitude, *, district=N
 def _listed_place(
     name, council, zone, parent=None, *,
     place_type='neighborhood', aliases=(), boundary_status='listed',
+    state='Federal Capital Territory', lga=None,
 ):
     parent = parent or council
-    district = parent if parent != council else None
-    return _place(
+    district = parent if parent and parent != council else None
+    address = (
+        f'{name}, {zone}, {council}, Federal Capital Territory, Nigeria'
+        if state == 'Federal Capital Territory'
+        else f'{name}, {zone}, {state}, Nigeria'
+    )
+    place = _place(
         name, place_type, council, parent, None, None,
         district=district,
         neighborhood=name if place_type == 'neighborhood' else None,
         aliases=aliases,
-        address=f'{name}, {zone}, {council}, Federal Capital Territory, Nigeria',
+        address=address,
         verified=False,
         verification_status='needs_review' if boundary_status == 'needs_review' else 'source_listed',
         coordinate_precision='unknown',
         source='chigo-user-provided-directory',
+        state=state,
+        lga=lga or (council if state == 'Federal Capital Territory' else None),
+        service_region=FCT_SERVICE_REGION,
         source_attributes={
             'directory_zone': zone,
             'coordinate_status': 'not_geocoded',
             'boundary_status': boundary_status,
+            **({'metro_scope': FCT_METRO_SCOPE} if state == 'Nasarawa State' else {}),
         },
     )
+    place['state'] = state
+    place['lga'] = lga or (council if state == 'Federal Capital Territory' else None)
+    place['service_region'] = FCT_SERVICE_REGION
+    return place
 
 
 FCT_LOCATION_SEED = [
@@ -141,7 +161,6 @@ _ABUJA_DIRECTORY_PLACES = (
     ('Lokogoma', 'Abuja Municipal Area Council', 'Airport / South / East', 'Abuja Municipal Area Council', 'district', ()),
     ('Gaduwa', 'Abuja Municipal Area Council', 'Airport / South / East', 'Abuja Municipal Area Council', 'district', ()),
     ('Dakibiyu', 'Abuja Municipal Area Council', 'Airport / South / East', 'Abuja Municipal Area Council', 'district', ()),
-    ('Kurudu', 'Abuja Municipal Area Council', 'Airport / South / East', 'Abuja Municipal Area Council', 'district', ()),
     ('Karshi', 'Abuja Municipal Area Council', 'Airport / South / East', 'Abuja Municipal Area Council', 'district', ()),
     ('Kpeyegyi', 'Abuja Municipal Area Council', 'Airport / South / East', 'Abuja Municipal Area Council', 'district', ()),
 
@@ -210,9 +229,205 @@ _ABUJA_DIRECTORY_PLACES = (
     ('Abaji town centre', 'Abaji Area Council', 'Abaji axis', 'Abaji', 'neighborhood', ('Abaji town center',)),
 )
 
+_ADDITIONAL_DIRECTORY_PLACES = (
+    # AMAC central, Wuse, Maitama, and Asokoro
+    ('Three Arms Zone', 'Abuja Municipal Area Council', 'Central Area', 'Abuja Central', 'neighborhood', ()),
+    ('Core Central', 'Abuja Municipal Area Council', 'Central Area', 'Abuja Central', 'neighborhood', ()),
+    ('Central Secretariat', 'Abuja Municipal Area Council', 'Central Area', 'Abuja Central', 'commercial', ()),
+    ('Garki Market Axis', 'Abuja Municipal Area Council', 'Garki', 'Garki', 'commercial', ('Garki Market',)),
+    ('Wuse Zone 1', 'Abuja Municipal Area Council', 'Wuse', 'Wuse', 'neighborhood', ('Zone 1 Wuse',)),
+    ('Wuse Zone 2', 'Abuja Municipal Area Council', 'Wuse', 'Wuse', 'neighborhood', ('Zone 2 Wuse',)),
+    ('Wuse Zone 3', 'Abuja Municipal Area Council', 'Wuse', 'Wuse', 'neighborhood', ('Zone 3 Wuse',)),
+    ('Wuse Zone 4', 'Abuja Municipal Area Council', 'Wuse', 'Wuse', 'neighborhood', ('Zone 4 Wuse',)),
+    ('Wuse Zone 5', 'Abuja Municipal Area Council', 'Wuse', 'Wuse', 'neighborhood', ('Zone 5 Wuse',)),
+    ('Wuse Zone 6', 'Abuja Municipal Area Council', 'Wuse', 'Wuse', 'neighborhood', ('Zone 6 Wuse',)),
+    ('Wuse Zone 7', 'Abuja Municipal Area Council', 'Wuse', 'Wuse', 'neighborhood', ('Zone 7 Wuse',)),
+    ('Wuse Market', 'Abuja Municipal Area Council', 'Wuse', 'Wuse', 'commercial', ()),
+    ('Wuse 2 Market Axis', 'Abuja Municipal Area Council', 'Wuse II', 'Wuse II', 'commercial', ('Wuse II Market',)),
+    ('Adetokunbo Ademola Crescent', 'Abuja Municipal Area Council', 'Wuse II', 'Wuse II', 'road', ()),
+    ('Wuse 2 Extension', 'Abuja Municipal Area Council', 'Wuse II', 'Wuse II', 'neighborhood', ('Wuse II Extension',)),
+    ('Old Maitama', 'Abuja Municipal Area Council', 'Maitama', 'Maitama', 'neighborhood', ()),
+    ('Maitama Extension', 'Abuja Municipal Area Council', 'Maitama', 'Maitama', 'neighborhood', ()),
+    ('Maitama Hills', 'Abuja Municipal Area Council', 'Maitama', 'Maitama', 'neighborhood', ()),
+    ('Aguiyi Ironsi Street Axis', 'Abuja Municipal Area Council', 'Maitama', 'Maitama', 'road', ('Aguiyi Ironsi Street',)),
+    ('Asokoro Extension', 'Abuja Municipal Area Council', 'Asokoro', 'Asokoro', 'neighborhood', ()),
+    ('Diplomatic Zone', 'Abuja Municipal Area Council', 'Asokoro', 'Asokoro', 'district', ()),
+    ('Aso Drive Axis', 'Abuja Municipal Area Council', 'Asokoro', 'Asokoro', 'road', ('Aso Drive',)),
+    ('Guzape Extension', 'Abuja Municipal Area Council', 'Guzape', 'Guzape', 'neighborhood', ()),
+    ('Guzape Hills', 'Abuja Municipal Area Council', 'Guzape', 'Guzape', 'neighborhood', ()),
+    ('Gudu Extension', 'Abuja Municipal Area Council', 'Gudu', 'Gudu', 'neighborhood', ()),
+    ('Gudu Market', 'Abuja Municipal Area Council', 'Gudu', 'Gudu', 'commercial', ()),
+    ('Gudu-Kubwa Road Axis', 'Abuja Municipal Area Council', 'Gudu', 'Gudu', 'road', ('Gudu Kubwa Road',)),
+    ('Utako Extension', 'Abuja Municipal Area Council', 'Utako', 'Utako', 'neighborhood', ()),
+    ('Jabi-Utako Axis', 'Abuja Municipal Area Council', 'Utako / Jabi', 'Utako', 'road', ()),
+    ('Jabi Extension', 'Abuja Municipal Area Council', 'Jabi', 'Jabi', 'neighborhood', ()),
+    ('Jabi Lake Environs', 'Abuja Municipal Area Council', 'Jabi', 'Jabi', 'neighborhood', ('Jabi Lake',)),
+    ('Jabi Mall Axis', 'Abuja Municipal Area Council', 'Jabi', 'Jabi', 'commercial', ('Jabi Mall',)),
+    ('Jahi Extension', 'Abuja Municipal Area Council', 'Jahi', 'Jahi', 'neighborhood', ()),
+    ('Kado Estate', 'Abuja Municipal Area Council', 'Kado', 'Kado', 'estate', ()),
+    ('Kado Fishing Village Axis', 'Abuja Municipal Area Council', 'Kado', 'Kado', 'neighborhood', ('Kado Fishing Village',)),
+    ('Katampe Main', 'Abuja Municipal Area Council', 'Katampe', 'Katampe', 'neighborhood', ()),
+    ('Mabushi Extension', 'Abuja Municipal Area Council', 'Mabushi', 'Mabushi', 'neighborhood', ()),
+    ('Mabushi Market Axis', 'Abuja Municipal Area Council', 'Mabushi', 'Mabushi', 'commercial', ('Mabushi Market',)),
+    ('Life Camp Extension', 'Abuja Municipal Area Council', 'Life Camp', 'Life Camp', 'neighborhood', ()),
+    ('Happy Island', 'Abuja Municipal Area Council', 'Life Camp', 'Life Camp', 'landmark', ()),
+    ('Durumi 1', 'Abuja Municipal Area Council', 'Durumi', 'Durumi', 'neighborhood', ('Durumi I',)),
+    ('Durumi 2', 'Abuja Municipal Area Council', 'Durumi', 'Durumi', 'neighborhood', ('Durumi II',)),
+    ('Durumi 3', 'Abuja Municipal Area Council', 'Durumi', 'Durumi', 'neighborhood', ('Durumi III',)),
+
+    # AMAC southern, airport, and satellite neighbourhoods
+    ('Apo Mechanic Village Axis', 'Abuja Municipal Area Council', 'Apo', 'Apo', 'commercial', ('Apo Mechanic Village',)),
+    ('Apo-Gudu Axis', 'Abuja Municipal Area Council', 'Apo / Gudu', 'Apo', 'road', ()),
+    ('S-Base Axis', 'Abuja Municipal Area Council', 'Lokogoma', 'Lokogoma', 'neighborhood', ('S Base',)),
+    ('Prince Ebeano Environs', 'Abuja Municipal Area Council', 'Lokogoma', 'Lokogoma', 'commercial', ('Prince Ebeano',)),
+    ('COSCHARIS Axis', 'Abuja Municipal Area Council', 'Lokogoma', 'Lokogoma', 'commercial', ('Coscharis',)),
+    ('Orozo', 'Abuja Municipal Area Council', 'Lugbe / Airport Road', 'Abuja Municipal Area Council', 'district', ()),
+    ('Richton Park Estate Axis', 'Abuja Municipal Area Council', 'Lugbe', 'Lugbe', 'estate', ('Richton Park Estate',)),
+    ('Airport Road Axis', 'Abuja Municipal Area Council', 'Lugbe / Airport Road', 'Lugbe', 'road', ('Airport Road',)),
+    ('Gwarinpa 1st Avenue', 'Abuja Municipal Area Council', 'Gwarinpa', 'Gwarinpa', 'road', ('Gwarinpa First Avenue',)),
+    ('Gwarinpa 2nd Avenue', 'Abuja Municipal Area Council', 'Gwarinpa', 'Gwarinpa', 'road', ('Gwarinpa Second Avenue',)),
+    ('Gwarinpa 3rd Avenue', 'Abuja Municipal Area Council', 'Gwarinpa', 'Gwarinpa', 'road', ('Gwarinpa Third Avenue',)),
+    ('Gwarinpa 4th Avenue', 'Abuja Municipal Area Council', 'Gwarinpa', 'Gwarinpa', 'road', ('Gwarinpa Fourth Avenue',)),
+    ('Gwarinpa 5th Avenue', 'Abuja Municipal Area Council', 'Gwarinpa', 'Gwarinpa', 'road', ('Gwarinpa Fifth Avenue',)),
+    ('Gwarinpa 6th Avenue', 'Abuja Municipal Area Council', 'Gwarinpa', 'Gwarinpa', 'road', ('Gwarinpa Sixth Avenue',)),
+    ('HEPZIBAH', 'Abuja Municipal Area Council', 'Gwarinpa', 'Gwarinpa', 'neighborhood', ('Hepzibah',)),
+    ('Gwarinpa 14th Avenue', 'Abuja Municipal Area Council', 'Gwarinpa', 'Gwarinpa', 'road', ('14th Avenue Gwarinpa',)),
+    ('Gwarinpa Market', 'Abuja Municipal Area Council', 'Gwarinpa', 'Gwarinpa', 'commercial', ()),
+    ('Karmo Extension', 'Abuja Municipal Area Council', 'Karmo', 'Karmo', 'neighborhood', ()),
+    ('Karmo Market', 'Abuja Municipal Area Council', 'Karmo', 'Karmo', 'commercial', ()),
+    ('Karmo-Kubwa Road Axis', 'Abuja Municipal Area Council', 'Karmo', 'Karmo', 'road', ()),
+    ('Wuye Extension', 'Abuja Municipal Area Council', 'Wuye', 'Wuye', 'neighborhood', ()),
+    ('Wuye Market', 'Abuja Municipal Area Council', 'Wuye', 'Wuye', 'commercial', ()),
+    ('Wuye-Jabi Axis', 'Abuja Municipal Area Council', 'Wuye / Jabi', 'Wuye', 'road', ()),
+    ('Galadimawa Extension', 'Abuja Municipal Area Council', 'Galadimawa', 'Galadimawa', 'neighborhood', ()),
+    ('Galadimawa Market', 'Abuja Municipal Area Council', 'Galadimawa', 'Galadimawa', 'commercial', ()),
+    ('Dei-Dei Industrial Area', 'Bwari Area Council', 'Dei-Dei', 'Dei-Dei', 'commercial', ()),
+    ('Zuma Rock Road Axis', 'Bwari Area Council', 'Dei-Dei / Kubwa', 'Dei-Dei', 'road', ('Zuma Rock Road',)),
+    ('Building Materials Market', 'Bwari Area Council', 'Dei-Dei', 'Dei-Dei', 'commercial', ('Dei-Dei Building Materials Market',)),
+    ('Idu Industrial Area', 'Abuja Municipal Area Council', 'Idu', 'Idu', 'commercial', ()),
+    ('Idu Railway Station Axis', 'Abuja Municipal Area Council', 'Idu', 'Idu', 'road', ('Idu Railway Station',)),
+    ('Idu Extension', 'Abuja Municipal Area Council', 'Idu', 'Idu', 'neighborhood', ()),
+    ('Mpape Extension', 'Bwari Area Council', 'Mpape', 'Mpape', 'neighborhood', ()),
+    ('Mpape Crushed Rock Axis', 'Bwari Area Council', 'Mpape', 'Mpape', 'landmark', ('Mpape Crushed Rock',)),
+    ('Kabusa Extension', 'Abuja Municipal Area Council', 'Kabusa', 'Kabusa', 'neighborhood', ()),
+    ('Kuchigoro Village', 'Abuja Municipal Area Council', 'Kuchigoro', 'Kuchigoro', 'village', ()),
+    ('Kuchigoro Extension', 'Abuja Municipal Area Council', 'Kuchigoro', 'Kuchigoro', 'neighborhood', ()),
+    ('Kurudu', 'Abuja Municipal Area Council', 'Kurudu', 'Abuja Municipal Area Council', 'district', ()),
+    ('Kurudu Village', 'Abuja Municipal Area Council', 'Kurudu', 'Kurudu', 'village', ()),
+    ('Kurudu Market Axis', 'Abuja Municipal Area Council', 'Kurudu', 'Kurudu', 'commercial', ('Kurudu Market',)),
+    ('Kurudu Extension', 'Abuja Municipal Area Council', 'Kurudu', 'Kurudu', 'neighborhood', ()),
+    ('Nyanya Main', 'Abuja Municipal Area Council', 'Nyanya', 'Nyanya', 'neighborhood', ()),
+    ('Nyanya Extension', 'Abuja Municipal Area Council', 'Nyanya', 'Nyanya', 'neighborhood', ()),
+    ('Jikwoyi Phase 1', 'Abuja Municipal Area Council', 'Jikwoyi', 'Jikwoyi', 'neighborhood', ('Jikwoyi Phase One',)),
+    ('Jikwoyi Phase 2', 'Abuja Municipal Area Council', 'Jikwoyi', 'Jikwoyi', 'neighborhood', ('Jikwoyi Phase Two',)),
+    ('Jikwoyi Extension', 'Abuja Municipal Area Council', 'Jikwoyi', 'Jikwoyi', 'neighborhood', ()),
+
+    # Bwari and Gwagwalada
+    ('Kubwa Phase 1', 'Bwari Area Council', 'Kubwa', 'Kubwa', 'neighborhood', ('Kubwa Phase One',)),
+    ('Kubwa Phase 2', 'Bwari Area Council', 'Kubwa', 'Kubwa', 'neighborhood', ('Kubwa Phase Two',)),
+    ('Kubwa Phase 3', 'Bwari Area Council', 'Kubwa', 'Kubwa', 'neighborhood', ('Kubwa Phase Three',)),
+    ('Kubwa Phase 4', 'Bwari Area Council', 'Kubwa', 'Kubwa', 'neighborhood', ('Kubwa Phase Four',)),
+    ('Kubwa Phase 5', 'Bwari Area Council', 'Kubwa', 'Kubwa', 'neighborhood', ('Kubwa Phase Five',)),
+    ('FHA Kubwa', 'Bwari Area Council', 'Kubwa', 'Kubwa', 'estate', ()),
+    ('Gado Nasko Road Axis', 'Bwari Area Council', 'Kubwa', 'Kubwa', 'road', ('Gado Nasko Road',)),
+    ('Bwari Town', 'Bwari Area Council', 'Bwari', 'Bwari', 'district', ()),
+    ('Bwari Village', 'Bwari Area Council', 'Bwari', 'Bwari', 'village', ()),
+    ('Bwari Market', 'Bwari Area Council', 'Bwari', 'Bwari', 'commercial', ()),
+    ('Dutse Village', 'Bwari Area Council', 'Dutse', 'Dutse', 'village', ()),
+    ('Dawaki Village', 'Bwari Area Council', 'Dawaki', 'Dawaki', 'village', ()),
+    ('Dawaki Extension', 'Bwari Area Council', 'Dawaki', 'Dawaki', 'neighborhood', ()),
+    ('Dawaki Bwari', 'Bwari Area Council', 'Dawaki', 'Dawaki', 'neighborhood', ()),
+    ('Byazhin Extension', 'Bwari Area Council', 'Byazhin', 'Byazhin', 'neighborhood', ()),
+    ('Zuba Town', 'Gwagwalada Area Council', 'Zuba', 'Zuba', 'district', ()),
+    ('Zuba Extension', 'Gwagwalada Area Council', 'Zuba', 'Zuba', 'neighborhood', ()),
+    ('Zuba Express Axis', 'Gwagwalada Area Council', 'Zuba', 'Zuba', 'road', ('Zuba Expressway',)),
+    ('Zuba-Kubwa Road', 'Gwagwalada Area Council', 'Zuba / Kubwa', 'Zuba', 'road', ()),
+    ('Karishi Town', 'Bwari Area Council', 'Kubwa-Zuba Road', 'Bwari Area Council', 'district', ('Karishi', 'Karshi')),
+    ('Karishi Extension', 'Bwari Area Council', 'Kubwa-Zuba Road', 'Karishi Town', 'neighborhood', ('Karishi Ext',)),
+    ('Karishi Market', 'Bwari Area Council', 'Kubwa-Zuba Road', 'Karishi Town', 'commercial', ()),
+    ('Afaka Village', 'Bwari Area Council', 'Afaka / NDA Road', 'Bwari Area Council', 'village', ()),
+    ('Afaka Extension', 'Bwari Area Council', 'Afaka / NDA Road', 'Afaka Village', 'neighborhood', ()),
+    ('NDA Road Axis', 'Bwari Area Council', 'Afaka', 'Afaka Village', 'road', ()),
+    ('Igu Extension', 'Bwari Area Council', 'Igu', 'Igu', 'neighborhood', ()),
+    ('Ushafa Village', 'Bwari Area Council', 'Ushafa', 'Ushafa', 'village', ()),
+    ('Ushafa Extension', 'Bwari Area Council', 'Ushafa', 'Ushafa', 'neighborhood', ()),
+    ('Dobi Extension', 'Gwagwalada Area Council', 'Gwagwalada', 'Dobi', 'neighborhood', ()),
+    ('Gwagwalada Phase 1', 'Gwagwalada Area Council', 'Gwagwalada', 'Gwagwalada', 'neighborhood', ()),
+    ('Gwagwalada Phase 2', 'Gwagwalada Area Council', 'Gwagwalada', 'Gwagwalada', 'neighborhood', ()),
+    ('Gwagwalada Phase 3', 'Gwagwalada Area Council', 'Gwagwalada', 'Gwagwalada', 'neighborhood', ()),
+    ('Gwagwalada Market Axis', 'Gwagwalada Area Council', 'Gwagwalada', 'Gwagwalada', 'commercial', ('Gwagwalada Market',)),
+    ('Gwagwalada Secretariat Axis', 'Gwagwalada Area Council', 'Gwagwalada', 'Gwagwalada', 'commercial', ('Gwagwalada Secretariat',)),
+    ('UniAbuja Staff Quarters', 'Gwagwalada Area Council', 'University of Abuja', 'Gwagwalada', 'residential', ('University of Abuja Staff Quarters',)),
+    ('UniAbuja Phase 3 Campus', 'Gwagwalada Area Council', 'University of Abuja', 'Gwagwalada', 'university', ('University of Abuja Phase 3 Campus',)),
+    ('Teaching Hospital Axis', 'Gwagwalada Area Council', 'University of Abuja', 'Gwagwalada', 'hospital', ('University of Abuja Teaching Hospital Axis',)),
+    ('Paiko Extension', 'Gwagwalada Area Council', 'Gwagwalada', 'Paiko', 'neighborhood', ()),
+    ('Chukuku Village', 'Gwagwalada Area Council', 'Gwagwalada', 'Gwagwalada Area Council', 'village', ('Chukuku',)),
+    ('Chukuku Extension', 'Gwagwalada Area Council', 'Gwagwalada', 'Chukuku Village', 'neighborhood', ()),
+    ('Dagiri Village', 'Gwagwalada Area Council', 'Gwagwalada', 'Gwagwalada Area Council', 'village', ('Dagiri',)),
+    ('Dagiri Extension', 'Gwagwalada Area Council', 'Gwagwalada', 'Dagiri Village', 'neighborhood', ()),
+    ('Parkview Estate', 'Gwagwalada Area Council', 'Gwagwalada-Abuja Road', 'Gwagwalada', 'estate', ()),
+    ('Gwagwalada-Abuja Road Axis', 'Gwagwalada Area Council', 'Gwagwalada', 'Gwagwalada', 'road', ()),
+
+    # Kuje, Kwali, and Abaji
+    ('Kuje Central', 'Kuje Area Council', 'Kuje', 'Kuje', 'neighborhood', ()),
+    ('Kuje Phase 1', 'Kuje Area Council', 'Kuje', 'Kuje', 'neighborhood', ()),
+    ('Kuje Phase 2', 'Kuje Area Council', 'Kuje', 'Kuje', 'neighborhood', ()),
+    ('Kuje Market', 'Kuje Area Council', 'Kuje', 'Kuje', 'commercial', ()),
+    ('Ikwa (Rubochi Area)', 'Kuje Area Council', 'Rubochi', 'Rubochi', 'village', ('Ikwa',)),
+    ('Zokutu Axis', 'Kuje Area Council', 'Rubochi', 'Rubochi', 'neighborhood', ('Zokutu',)),
+    ('Chibiri Village', 'Kuje Area Council', 'Kuje', 'Chibiri', 'village', ()),
+    ('Chibiri Extension', 'Kuje Area Council', 'Kuje', 'Chibiri', 'neighborhood', ()),
+    ('Kuchibiyi Village', 'Kuje Area Council', 'Kuje', 'Kuje Area Council', 'village', ('Kuchibiyi',)),
+    ('Kuchibiyi Extension', 'Kuje Area Council', 'Kuje', 'Kuchibiyi Village', 'neighborhood', ()),
+    ('Karama Village', 'Kuje Area Council', 'Kuje', 'Kuje Area Council', 'village', ()),
+    ('Karama Extension', 'Kuje Area Council', 'Kuje', 'Karama Village', 'neighborhood', ()),
+    ('Yaba (Kuje Area Council)', 'Kuje Area Council', 'Kuje', 'Kuje Area Council', 'village', ('Yaba',)),
+    ('Yaba Extension', 'Kuje Area Council', 'Kuje', 'Yaba (Kuje Area Council)', 'neighborhood', ()),
+    ('Kwali Town', 'Kwali Area Council', 'Kwali', 'Kwali', 'district', ()),
+    ('Kwali Phase 1', 'Kwali Area Council', 'Kwali', 'Kwali', 'neighborhood', ()),
+    ('Kwali Phase 2', 'Kwali Area Council', 'Kwali', 'Kwali', 'neighborhood', ()),
+    ('Kwali Market', 'Kwali Area Council', 'Kwali', 'Kwali', 'commercial', ()),
+    ('Kwali Secretariat Axis', 'Kwali Area Council', 'Kwali', 'Kwali', 'commercial', ('Kwali Secretariat',)),
+    ('Yangoji Extension', 'Kwali Area Council', 'Kwali', 'Yangoji', 'neighborhood', ()),
+    ('Sukuku Axis', 'Kwali Area Council', 'Yangoji', 'Yangoji', 'neighborhood', ('Sukuku',)),
+    ('Ashara Extension', 'Kwali Area Council', 'Kwali', 'Ashara', 'neighborhood', ()),
+    ('Gwako (Kwali Area Council)', 'Kwali Area Council', 'Kwali', 'Kwali Area Council', 'village', ('Gwako',)),
+    ('Pabuko Village', 'Kwali Area Council', 'Kwali', 'Kwali Area Council', 'village', ('Pabuko',)),
+    ('Pabuko Extension', 'Kwali Area Council', 'Kwali', 'Pabuko Village', 'neighborhood', ()),
+    ('Abaji Town', 'Abaji Area Council', 'Abaji', 'Abaji', 'district', ()),
+    ('Abaji Central', 'Abaji Area Council', 'Abaji', 'Abaji', 'neighborhood', ()),
+    ('Manderegi', 'Abaji Area Council', 'Abaji', 'Abaji Area Council', 'village', ()),
+    ('Abaji Market', 'Abaji Area Council', 'Abaji', 'Abaji', 'commercial', ()),
+    ('Nuku Sabon Gari', 'Abaji Area Council', 'Nuku', 'Nuku', 'neighborhood', ('Sabon Gari Nuku',)),
+    ('Kekeshi Ward', 'Abaji Area Council', 'Nuku', 'Nuku', 'neighborhood', ('Kekeshi',)),
+    ('Gwanje Village', 'Abaji Area Council', 'Abaji', 'Abaji Area Council', 'village', ('Gwanje',)),
+    ('Gwanje Extension', 'Abaji Area Council', 'Abaji', 'Gwanje Village', 'neighborhood', ()),
+    ('Gwargwada Village', 'Abaji Area Council', 'Abaji', 'Abaji Area Council', 'village', ('Gwargwada',)),
+    ('Gwargwada Extension', 'Abaji Area Council', 'Abaji', 'Gwargwada Village', 'neighborhood', ()),
+    ('Ribah Village', 'Abaji Area Council', 'Abaji', 'Abaji Area Council', 'village', ('Ribah',)),
+    ('Ribah Extension', 'Abaji Area Council', 'Abaji', 'Ribah Village', 'neighborhood', ()),
+)
+
 FCT_LOCATION_SEED.extend(
     _listed_place(name, council, zone, parent, place_type=place_type, aliases=aliases)
     for name, council, zone, parent, place_type, aliases in _ABUJA_DIRECTORY_PLACES
+)
+FCT_LOCATION_SEED.extend(
+    _listed_place(name, council, zone, parent, place_type=place_type, aliases=aliases)
+    for name, council, zone, parent, place_type, aliases in _ADDITIONAL_DIRECTORY_PLACES
+)
+FCT_LOCATION_SEED.extend(
+    _listed_place(name, None, zone, parent,
+                  place_type=place_type, aliases=aliases, state='Nasarawa State', lga=lga)
+    for name, zone, parent, place_type, aliases, lga in (
+        ('Karu', 'Karu LGA', None, 'district', (), 'Karu LGA'),
+        ('Old Karu', 'Karu LGA', 'Karu', 'neighborhood', (), 'Karu LGA'),
+        ('New Karu', 'Karu LGA', 'Karu', 'neighborhood', (), 'Karu LGA'),
+        ('Mararaba', 'Karu LGA', 'Karu', 'district', (), 'Karu LGA'),
+        ('Ado', 'Karu LGA', 'Karu', 'district', (), 'Karu LGA'),
+        ('Masaka', 'Nasarawa State', None, 'district', (), None),
+        ('Keffi Road Axis', 'Nasarawa State', None, 'road', (), None),
+    )
 )
 
 FCT_LOCATION_SEED.append(_listed_place(

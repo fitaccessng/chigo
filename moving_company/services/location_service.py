@@ -13,7 +13,13 @@ from flask import current_app, has_app_context
 from sqlalchemy import func, or_, text
 from sqlalchemy.exc import SQLAlchemyError
 
-from .fct_location_data import FCT_AREA_COUNCILS, FCT_LOCATION_SEED
+from .fct_location_data import (
+    FCT_AREA_COUNCILS,
+    FCT_LOCATION_SEED,
+    FCT_METRO_SCOPE,
+    FCT_SERVICE_REGION,
+)
+from ..time_utils import utc_now_naive
 
 ABUJA_FCT_CENTER = {'latitude': 9.0765, 'longitude': 7.3986}
 FCT_BOUNDS = {'min_latitude': 8.2, 'max_latitude': 9.85, 'min_longitude': 6.6, 'max_longitude': 7.85}
@@ -32,6 +38,11 @@ _ROUTE_CACHE = {}
 _ROUTE_CACHE_TTL = 300
 _REQUEST_FAILED = object()
 _PHOTON_AUTOCOMPLETE_TIMEOUT = 1.2
+_PHOTON_QUERY_CONTEXT_WORDS = frozenset({
+    'a', 'an', 'and', 'around', 'at', 'behind', 'beside', 'by', 'capital',
+    'close', 'fct', 'federal', 'for', 'in', 'near', 'nigeria', 'of', 'off',
+    'opposite', 'along', 'abuja', 'territory', 'the', 'to', 'next',
+})
 ROUTE_VEHICLE_PROFILES = {
     'standard_car': 'auto',
     'light_commercial': 'truck',
@@ -306,7 +317,8 @@ def get_local_place(place_id):
                 identifier = int(value.partition('-')[2])
                 row = db.session.execute(text("""
                           SELECT id, name, address, area, area_council, district, neighborhood,
-                              place_type, state, country, latitude, longitude, postal_code, source_id, source
+                              lga, service_region, place_type, state, country, latitude,
+                              longitude, postal_code, source_id, source
                     FROM location_records WHERE id = :id AND active IS TRUE
                 """), {'id': identifier}).mappings().first()
             except (ValueError, SQLAlchemyError):
@@ -327,7 +339,8 @@ def get_local_place(place_id):
                     ),
                     'area': row['area'] or row['neighborhood'] or row['district'] or row['name'],
                     'area_council': row['area_council'] or '', 'district': row['district'] or '',
-                    'neighborhood': row['neighborhood'] or '', 'location_type': row['place_type'],
+                    'neighborhood': row['neighborhood'] or '', 'lga': row['lga'] or '',
+                    'service_region': row['service_region'], 'location_type': row['place_type'],
                     'city': '', 'state': row['state'] or '', 'country': row['country'] or '',
                     'latitude': float(row['latitude']) if row['latitude'] is not None else None,
                     'longitude': float(row['longitude']) if row['longitude'] is not None else None,
@@ -352,7 +365,8 @@ def get_local_place(place_id):
         'name': place.name, 'formatted_address': place.address or place.name,
         'display_name': place.address or place.name, 'area': place.area or place.neighborhood or place.district or place.name,
         'area_council': place.area_council, 'district': place.district or '',
-        'neighborhood': place.neighborhood or '', 'location_type': place.place_type,
+        'neighborhood': place.neighborhood or '', 'lga': place.lga or '',
+        'service_region': place.service_region, 'location_type': place.place_type,
         'city': place.city or '', 'state': place.state or '', 'country': place.country or '',
         'latitude': float(place.latitude) if place.latitude is not None else None,
         'longitude': float(place.longitude) if place.longitude is not None else None,
@@ -413,7 +427,15 @@ def _normalise_result(raw_result):
         'formatted_address': raw_result.get('formatted_address') or raw_result.get('display_name') or raw_result.get('name') or 'Address unavailable',
         'display_name': raw_result.get('display_name') or raw_result.get('formatted_address') or raw_result.get('name') or 'Address unavailable',
         'area': raw_result.get('area') or address.get('suburb') or address.get('neighbourhood') or address.get('city_district') or raw_result.get('suburb') or raw_result.get('district') or raw_result.get('neighbourhood') or raw_result.get('city') or raw_result.get('name'),
-        'area_council': raw_result.get('area_council') or address.get('area_council') or address.get('county') or '',
+        'area_council': raw_result.get('area_council') or address.get('area_council') or '',
+        'lga': raw_result.get('lga') or address.get('lga') or '',
+        'service_region': raw_result.get('service_region') or (
+            FCT_SERVICE_REGION
+            if normalize_location_name(raw_result.get('state') or address.get('state')) in {
+                'fct', 'federal capital territory', 'abuja federal capital territory',
+            }
+            else ''
+        ),
         'district': raw_result.get('district') or address.get('city_district') or address.get('county') or '',
         'neighborhood': raw_result.get('neighborhood') or raw_result.get('neighbourhood') or address.get('neighbourhood') or address.get('suburb') or '',
         'location_type': raw_result.get('location_type') or raw_result.get('place_type') or raw_result.get('type') or 'address',
@@ -467,11 +489,17 @@ def _photon_to_location(item):
         'name': name,
         'formatted_address': display_name,
         'area': properties.get('district') or properties.get('suburb') or properties.get('city') or properties.get('town') or '',
-        'area_council': area_council_for_point(latitude, longitude),
+        'area_council': (
+            properties.get('area_council')
+            if canonical_area_council(properties.get('area_council')) else ''
+        ),
         'district': properties.get('district') or '', 'neighborhood': properties.get('suburb') or '',
         'location_type': properties.get('type') or osm_type or 'address',
         'city': properties.get('city') or properties.get('town') or properties.get('village') or '',
         'state': properties.get('state') or '',
+        'service_region': FCT_SERVICE_REGION if normalize_location_name(properties.get('state')) in {
+            'fct', 'federal capital territory', 'abuja federal capital territory',
+        } else '',
         'country': properties.get('country') or '', 'latitude': latitude, 'longitude': longitude,
         'postal_code': properties.get('postcode') or properties.get('postal_code') or '',
         'place_id': f"photon-{properties.get('osm_id') or latitude}:{longitude}",
@@ -520,14 +548,27 @@ def _photon_result_is_fct_candidate(item):
     return state_is_fct or council_is_fct
 
 
+def _photon_query_terms(query):
+    return [
+        term for term in normalize_location_name(query).split()
+        if term not in _PHOTON_QUERY_CONTEXT_WORDS
+    ]
+
+
 def _photon_result_matches_query(item, query):
     properties = item.get('properties') or item
     searchable = normalize_location_name(' '.join(str(properties.get(key) or '') for key in (
         'name', 'street', 'district', 'suburb', 'neighbourhood', 'city', 'town', 'village',
         'county', 'state', 'country', 'postcode',
     )))
-    query_terms = normalize_location_name(query).split()
-    return bool(query_terms) and all(term in searchable.split() for term in query_terms)
+    searchable_terms = searchable.split()
+    query_terms = _photon_query_terms(query)
+    if not query_terms:
+        return True
+    return all(
+        any(searchable_term.startswith(term) for searchable_term in searchable_terms)
+        for term in query_terms
+    )
 
 
 def _nominatim_to_location(item):
@@ -536,17 +577,23 @@ def _nominatim_to_location(item):
     name = item.get('name') or display_name.split(',')[0].strip() or 'Location'
     city = address.get('city') or address.get('town') or address.get('village') or address.get('municipality') or ''
     state = address.get('state') or address.get('state_district') or ''
+    candidate_council = address.get('area_council') or address.get('county')
+    area_council = candidate_council if canonical_area_council(candidate_council) else ''
     area = address.get('suburb') or address.get('neighbourhood') or address.get('city_district') or address.get('county') or city
     location = {
         'name': name,
         'formatted_address': display_name,
         'area': area,
-        'area_council': area_council_for_point(item.get('lat'), item.get('lon')),
+        'area_council': area_council,
+        'lga': area_council,
         'district': address.get('county') or address.get('state_district') or '',
         'neighborhood': address.get('neighbourhood') or address.get('suburb') or '',
         'location_type': item.get('type') or item.get('class') or 'address',
         'city': city,
         'state': state,
+        'service_region': FCT_SERVICE_REGION if normalize_location_name(state) in {
+            'fct', 'federal capital territory', 'abuja federal capital territory',
+        } else '',
         'country': address.get('country') or '',
         'postal_code': address.get('postcode') or '',
         'latitude': float(item.get('lat') or 0),
@@ -559,24 +606,19 @@ def _nominatim_to_location(item):
         'category': item.get('class') or '',
         'address': address,
     }
-    location['area_council'] = area_council_for_point(location['latitude'], location['longitude'])
+    if not location['area_council']:
+        location['area_council'] = resolve_nearest_postgis_references(
+            location['latitude'], location['longitude'],
+        ).get('area_council') or ''
+        location['lga'] = location['area_council']
     return location
 
 
 def area_council_for_point(latitude, longitude):
-    try:
-        latitude, longitude = float(latitude), float(longitude)
-    except (TypeError, ValueError):
+    coordinates = validate_coordinates(latitude, longitude)
+    if coordinates is None:
         return ''
-    if not (FCT_BOUNDS['min_latitude'] <= latitude <= FCT_BOUNDS['max_latitude'] and
-            FCT_BOUNDS['min_longitude'] <= longitude <= FCT_BOUNDS['max_longitude']):
-        return ''
-    centers = {
-        'Abuja Municipal Area Council': (9.0578, 7.4951), 'Bwari Area Council': (9.2813, 7.3736),
-        'Gwagwalada Area Council': (8.9435, 7.0913), 'Kuje Area Council': (8.8795, 7.2276),
-        'Kwali Area Council': (8.8217, 6.9835), 'Abaji Area Council': (8.4759, 6.9447),
-    }
-    return min(centers, key=lambda name: (centers[name][0] - latitude) ** 2 + (centers[name][1] - longitude) ** 2)
+    return resolve_nearest_postgis_references(*coordinates).get('area_council') or ''
 
 
 def _search_local_abuja_places(query, limit=8):
@@ -680,7 +722,9 @@ def _search_local_abuja_places(query, limit=8):
         seen_local.add(canonical_key)
         result_id = f'local-{place.id}'
         council = place.area_council or ''
-        context = ', '.join(part for part in (place.neighborhood, place.district, council, 'FCT', 'Nigeria') if part)
+        context = ', '.join(part for part in (
+            place.neighborhood, place.district, place.lga, council, place.state, place.country,
+        ) if part)
         formatted_address = place.address or f'{place.name}, {context}'
         if place.postal_code and place.postal_code.casefold() not in formatted_address.casefold():
             formatted_address = f'{formatted_address} · {place.postal_code}'
@@ -693,6 +737,8 @@ def _search_local_abuja_places(query, limit=8):
             'area_council': council,
             'district': place.district or '',
             'neighborhood': place.neighborhood or '',
+            'lga': place.lga or '',
+            'service_region': place.service_region,
             'location_type': place.place_type or 'point_of_interest',
             'type': place.place_type or 'point_of_interest',
             'city': place.city or '', 'state': place.state or '',
@@ -747,6 +793,7 @@ def _search_postgis_locations(query, limit=8, area_council=None):
                 location_records.id, location_records.name, location_records.normalized_name,
                 location_records.place_type, location_records.area_council,
                 location_records.district, location_records.neighborhood, location_records.area,
+                location_records.lga, location_records.service_region,
                 location_records.state, location_records.country, location_records.latitude,
                 location_records.longitude, location_records.postal_code, location_records.source, location_records.source_id,
                 location_records.confidence, location_records.verification_status,
@@ -846,7 +893,9 @@ def _search_postgis_locations(query, limit=8, area_council=None):
             })
 
     for row in rows:
-        context = ', '.join(part for part in (row['neighborhood'], row['district'], row['area_council'], 'FCT', 'Nigeria') if part)
+        context = ', '.join(part for part in (
+            row['neighborhood'], row['district'], row['lga'], row['area_council'], row['state'], row['country'],
+        ) if part)
         formatted_address = row['address'] or f"{row['name']}, {context}"
         if row['postal_code'] and row['postal_code'] not in formatted_address:
             formatted_address = f"{formatted_address} · {row['postal_code']}"
@@ -856,7 +905,8 @@ def _search_postgis_locations(query, limit=8, area_council=None):
             'display_name': formatted_address,
             'area': row['area'] or row['neighborhood'] or row['district'] or row['name'],
             'area_council': row['area_council'] or '', 'district': row['district'] or '',
-            'neighborhood': row['neighborhood'] or '', 'location_type': row['place_type'],
+            'neighborhood': row['neighborhood'] or '', 'lga': row['lga'] or '',
+            'service_region': row['service_region'], 'location_type': row['place_type'],
             'type': row['place_type'], 'city': '', 'state': row['state'] or '',
             'country': row['country'] or '', 'latitude': row['latitude'], 'longitude': row['longitude'],
             'postal_code': row['postal_code'],
@@ -1413,16 +1463,19 @@ def search_places(query, session_token=None, latitude=None, longitude=None, limi
         result for result in local_results
         if not result.get('state') or normalize_location_name(result.get('state')) in {
             'fct', 'federal capital territory', 'abuja federal capital territory',
-        }
+        } or (
+            normalize_location_name(result.get('state')) == 'nasarawa state'
+        and result.get('service_region') == FCT_SERVICE_REGION
+        )
     ]
     if local_results:
         results = _rank_location_results(local_results, raw_query)
         for result in results:
             result['search_count'] = int(result.get('search_count') or 0) + 1
     else:
-        external_query = normalize_location_name(raw_query)
+        external_query = ' '.join(_photon_query_terms(raw_query)) or raw_query
         if 'nigeria' not in external_query.casefold():
-            external_query = f'{raw_query}, Nigeria'
+            external_query = f'{external_query}, Nigeria'
         bbox = ','.join(str(FCT_BOUNDS[key]) for key in (
             'min_longitude', 'min_latitude', 'max_longitude', 'max_latitude',
         ))
@@ -1563,7 +1616,7 @@ def record_location_usage(place_id, action='search'):
         place.booking_count = (place.booking_count or 0) + 1
     else:
         place.search_count = (place.search_count or 0) + 1
-    place.last_used_at = datetime.utcnow()
+    place.last_used_at = utc_now_naive()
     return True
 
 
@@ -1583,7 +1636,18 @@ def upsert_location_records(records, commit=True):
             raise ValueError('Each imported location needs a name no longer than 160 characters.')
         if place_type not in {'area_council', 'district', 'neighborhood', 'village', 'estate', 'landmark', 'road', 'airport', 'hotel', 'school', 'university', 'hospital', 'shopping_centre', 'commercial', 'residential', 'address', 'point_of_interest'}:
             raise ValueError(f'Unsupported location type for {name}.')
-        if council not in FCT_AREA_COUNCILS and place_type != 'area_council':
+        source_attributes = record.get('source_attributes') or {}
+        service_region = record.get('service_region') or (
+            FCT_SERVICE_REGION
+            if record.get('state') in {'Federal Capital Territory', 'FCT'}
+            else None
+        )
+        is_nasarawa_metro = (
+            service_region == FCT_SERVICE_REGION
+            and record.get('state') == 'Nasarawa State'
+            and source_attributes.get('metro_scope') == FCT_METRO_SCOPE
+        )
+        if council not in FCT_AREA_COUNCILS and place_type != 'area_council' and not is_nasarawa_metro:
             raise ValueError(f'Choose one of the six FCT Area Councils for {name}.')
         raw_latitude, raw_longitude = record.get('latitude'), record.get('longitude')
         if raw_latitude in (None, '') or raw_longitude in (None, ''):
@@ -1601,17 +1665,31 @@ def upsert_location_records(records, commit=True):
             raise ValueError(f'{name} has an invalid postal code.')
         prepared.append({**record, 'name': name, 'normalized_name': normalized,
                          'place_type': place_type, 'area_council': council,
+                         'service_region': service_region, 'is_nasarawa_metro': is_nasarawa_metro,
                          'latitude': latitude, 'longitude': longitude,
                          'source_identifier': source_identifier, 'postal_code': postal_code})
 
     rows = {}
     for record in prepared:
+        service_region = record['service_region']
+        is_nasarawa_metro = record['is_nasarawa_metro']
         council = record['area_council'] or record['name']
         existing = LocalPlace.query.filter(func.lower(LocalPlace.normalized_name) == record['normalized_name']).all()
         place = next((candidate for candidate in existing
                       if normalize_location_name(candidate.area_council) == normalize_location_name(council)
                       and str(candidate.place_type or '').casefold() == record['place_type']), None)
-        if place is None and len(existing) == 1:
+        if place is None and is_nasarawa_metro:
+            place = next((
+                candidate for candidate in existing
+                if candidate.state == 'Nasarawa State'
+                and candidate.area_council in (None, 'Nasarawa State (FCT Metro)')
+                and str(candidate.place_type or '').casefold() == record['place_type']
+            ), None)
+        if (
+            place is None and len(existing) == 1 and not is_nasarawa_metro
+            and existing[0].state == (record.get('state') or 'Federal Capital Territory')
+            and not existing[0].area_council
+        ):
             place = existing[0]
         if place is None:
             place = LocalPlace(normalized_name=record['normalized_name'], name=record['name'])
@@ -1621,24 +1699,44 @@ def upsert_location_records(records, commit=True):
                     normalize_location_name(duplicate.area_council) == normalize_location_name(council) and
                     str(duplicate.place_type or '').casefold() == record['place_type']):
                 duplicate.active = False
+            if (
+                duplicate.state == 'Nasarawa State'
+                and duplicate.area_council in (None, 'Nasarawa State (FCT Metro)')
+                and (
+                    is_nasarawa_metro
+                    or record['name'] in {'Nyanya', 'Jikwoyi', 'Kurudu', 'Nyanya Main', 'Nyanya Extension',
+                                          'Jikwoyi Phase 1', 'Jikwoyi Phase 2', 'Jikwoyi Extension',
+                                          'Kurudu Village', 'Kurudu Market Axis', 'Kurudu Extension'}
+                )
+            ):
+                duplicate.active = False
         aliases = record.get('aliases') or []
         keywords = record.get('search_keywords') or record.get('keywords') or []
         record_source = record.get('source') or record.get('provider')
+        source_attributes = record.get('source_attributes') or {}
         trusted_curation = bool(record.get('verified')) and record_source == 'chigo-curated'
-        preserve_verified = bool(place.verified) and not trusted_curation
+        preserve_verified = bool(place.verified) and not trusted_curation and not is_nasarawa_metro
         if not preserve_verified:
             place.name = record['name']
             place.normalized_name = record['normalized_name']
             place.place_type = record['place_type']
         if not preserve_verified or not place.area_council:
-            place.area_council = record['area_council'] or record['name']
+            place.area_council = None if is_nasarawa_metro else record['area_council'] or record['name']
         place.district = place.district or record.get('district') or None
         place.neighborhood = place.neighborhood or record.get('neighborhood') or None
         place.area = place.area or record.get('area') or place.neighborhood or place.district or place.name
-        place.lga = place.lga or place.area_council
-        place.state = place.state or record.get('state')
+        place.lga = (
+            record.get('lga')
+            if is_nasarawa_metro or record.get('lga') is not None
+            else place.lga or place.area_council
+        )
+        place.state = record.get('state') if is_nasarawa_metro else place.state or record.get('state')
+        place.service_region = service_region or place.service_region
         place.country = place.country or record.get('country')
-        place.address = place.address or record.get('address') or None
+        if is_nasarawa_metro:
+            place.address = record.get('address') or place.address
+        else:
+            place.address = place.address or record.get('address') or None
         existing_aliases = [item.strip() for item in re.split(r'[,;|]', place.aliases or '') if item.strip()]
         incoming_aliases = (
             [str(alias).strip() for alias in aliases if str(alias).strip()]
@@ -1666,7 +1764,9 @@ def upsert_location_records(records, commit=True):
         if preserve_verified:
             place.postal_code = place.postal_code or record['postal_code']
         else:
-            if record['latitude'] is not None:
+            if is_nasarawa_metro:
+                place.latitude = place.longitude = None
+            elif record['latitude'] is not None:
                 place.latitude = record['latitude']
                 place.longitude = record['longitude']
             elif getattr(place, 'id', None) is None:
@@ -1689,7 +1789,10 @@ def upsert_location_records(records, commit=True):
             place.provider_place_id = str(record.get('provider_place_id') or record.get('source_identifier') or f"chigo:{record['normalized_name'].replace(' ', '-')}")[:255]
         source_metadata = dict(place.source_metadata or {})
         if record.get('source_attributes'):
-            source_metadata.setdefault('source_attributes', record['source_attributes'])
+            if is_nasarawa_metro:
+                source_metadata['source_attributes'] = record['source_attributes']
+            else:
+                source_metadata.setdefault('source_attributes', record['source_attributes'])
         if record.get('provenance'):
             provenance = source_metadata.setdefault('provenance', [])
             provenance_keys = {
@@ -1833,6 +1936,9 @@ def geocode_address(address):
             'state': result['state'],
             'city': result['city'],
             'area': result['area'],
+            'area_council': result['area_council'],
+            'lga': result['lga'],
+            'service_region': result['service_region'],
             'district': result['district'] or result['area'],
             'postal_code': result['postal_code'],
             'address_components': result['address'],
@@ -1878,6 +1984,8 @@ def reverse_geocode(latitude, longitude):
     if not isinstance(payload, dict) or not payload:
         return None
     address = payload.get('address') or {}
+    state = address.get('state') or ''
+    area_council = area_council_for_point(latitude, longitude)
     street = ' '.join(filter(None, (address.get('house_number'), address.get('road')))).strip()
     name = street or address.get('amenity') or address.get('building') or address.get('neighbourhood') or address.get('suburb') or payload.get('name') or payload.get('display_name')
     return {
@@ -1888,7 +1996,12 @@ def reverse_geocode(latitude, longitude):
         'latitude': latitude,
         'longitude': longitude,
         'country': address.get('country') or '',
-        'state': address.get('state') or '',
+        'state': state,
+        'area_council': area_council,
+        'lga': area_council,
+        'service_region': FCT_SERVICE_REGION if normalize_location_name(state) in {
+            'fct', 'federal capital territory', 'abuja federal capital territory',
+        } else '',
         'city': address.get('city') or address.get('town') or address.get('village') or '',
         'area': address.get('suburb') or address.get('neighbourhood') or address.get('city_district') or payload.get('county') or '',
         'district': address.get('county') or address.get('state_district'),

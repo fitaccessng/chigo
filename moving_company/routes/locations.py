@@ -23,7 +23,8 @@ locations_bp = Blueprint('locations', __name__)
 
 _AUTOCOMPLETE_LEGACY_FIELDS = (
     'id', 'local_place_id', 'name', 'formatted_address', 'display_name', 'area',
-    'area_council', 'district', 'neighborhood', 'location_type', 'type', 'city',
+    'area_council', 'lga', 'district', 'neighborhood', 'service_region',
+    'location_type', 'type', 'city',
     'state', 'country', 'latitude', 'longitude', 'postal_code', 'place_id',
     'provider_place_id', 'provider', 'provider_raw_id', 'source',
     'source_provenance', 'coordinate_precision', 'original_query', 'normalized_query', 'confidence',
@@ -39,7 +40,7 @@ _PUBLIC_ADDRESS_FIELDS = (
 def _autocomplete_contract(result):
     components = {
         key: result.get(key) or None
-        for key in ('area_council', 'district', 'neighborhood', 'city', 'state', 'country', 'postal_code')
+        for key in ('area_council', 'lga', 'district', 'neighborhood', 'city', 'state', 'country', 'postal_code')
     }
     verified = bool(result.get('verified')) or result.get('verification_status') == 'verified'
     has_coordinates = validate_coordinates(result.get('latitude'), result.get('longitude')) is not None
@@ -54,7 +55,7 @@ def _autocomplete_contract(result):
         **public_result,
         'feature_type': result.get('location_type') or result.get('type') or 'unknown',
         'state_or_territory': result.get('state') or None,
-        'parent_name': result.get('district') or result.get('area_council') or None,
+        'parent_name': result.get('district') or result.get('lga') or result.get('area_council') or None,
         'address_components': components,
         'precision': result.get('coordinate_precision') or result.get('precision') or 'unknown',
         'source_summary': result.get('source') or result.get('provider') or 'unknown',

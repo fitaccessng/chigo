@@ -1,9 +1,9 @@
 import smtplib
-from datetime import datetime
 from email.message import EmailMessage
 
 from flask import current_app
 
+from ..time_utils import utc_now_naive
 
 def send_human_escalation_email(request, customer_name, customer_email, customer_phone=None, admin_url=None):
     mail_server = current_app.config.get('MAIL_SERVER')
@@ -32,7 +32,7 @@ def send_human_escalation_email(request, customer_name, customer_email, customer
         f'Booking: {request.booking_id or "Not provided"}\n'
         f'Service: {request.service_type or "Not provided"}\n'
         f'Request: {request.reason}\n'
-        f'Time: {datetime.utcnow().strftime("%m/%d/%Y %I:%M %p UTC")}\n'
+        f'Time: {utc_now_naive().strftime("%m/%d/%Y %I:%M %p UTC")}\n'
         f'Status: {request.status}\n'
         f'Open Support Conversation: {admin_url or "Chigo admin support inbox"}'
     )

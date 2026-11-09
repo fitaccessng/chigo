@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from secrets import token_hex, token_urlsafe
 
 from flask import current_app, session, url_for
@@ -8,6 +8,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from ..extensions import db
+from ..time_utils import utc_now_naive
 from ..models import (
     Booking, Notification, Payment, Referral, ReferralAttribution,
     ReferralCampaign, ReferralCode, ReferralReward, RewardTransaction, User,
@@ -32,7 +33,7 @@ def get_campaign(create=False):
 
 
 def campaign_is_active(campaign, at=None):
-    at = at or datetime.utcnow()
+    at = at or utc_now_naive()
     return bool(
         campaign and campaign.active
         and (campaign.starts_at is None or campaign.starts_at <= at)
@@ -100,7 +101,7 @@ def attach_attribution_to_user(user, token=None):
     code = db.session.get(ReferralCode, attribution.referral_code_id)
     if not campaign_is_active(campaign, attribution.captured_at) or code is None or not code.is_active:
         return None
-    if attribution.captured_at + timedelta(days=campaign.attribution_window_days) < datetime.utcnow():
+    if attribution.captured_at + timedelta(days=campaign.attribution_window_days) < utc_now_naive():
         return None
     if code.user_id == user.id or User.query.filter_by(id=code.user_id, role='customer').first() is None:
         return None
@@ -143,7 +144,7 @@ def record_manual_referral(user, raw_code):
     campaign = get_campaign()
     if not campaign_is_active(campaign):
         raise ValueError('The referral programme is not currently active.')
-    if datetime.utcnow() - user.created_at > timedelta(days=campaign.attribution_window_days):
+    if utc_now_naive() - user.created_at > timedelta(days=campaign.attribution_window_days):
         raise ValueError('The referral attribution window has expired.')
     if Booking.query.filter_by(customer_id=user.id).count():
         raise ValueError('Referral codes can only be applied before your first booking.')
@@ -174,7 +175,7 @@ def apply_referral_discount(booking, user_id, gross_total):
     campaign = db.session.get(ReferralCampaign, referral.campaign_id)
     already_qualified = referral.qualifying_booking_id == booking.id
     if not already_qualified:
-        if not campaign_is_active(campaign) or referral.attributed_at + timedelta(days=campaign.attribution_window_days) < datetime.utcnow():
+        if not campaign_is_active(campaign) or referral.attributed_at + timedelta(days=campaign.attribution_window_days) < utc_now_naive():
             return 0.0
     terms = referral.terms_snapshot or {}
     eligible_services = terms.get('eligible_services') or []
@@ -202,7 +203,7 @@ def apply_referral_discount(booking, user_id, gross_total):
             new_status='booking_qualified',
             description='Server-calculated first-booking referral discount.' if previous_discount == 0 else 'Adjustment to the server-calculated referral discount after quote recalculation.',
             idempotency_key=f'referral:{referral.id}:booking:{booking.id}:discount:{token_hex(12)}',
-            processed_at=datetime.utcnow(),
+            processed_at=utc_now_naive(),
         ))
     return booking.referral_discount_amount
 
@@ -220,7 +221,7 @@ def issue_referral_reward(booking, actor_user_id=None):
         return existing
     if referral.status != 'booking_qualified':
         return None
-    now = datetime.utcnow()
+    now = utc_now_naive()
     try:
         with db.session.begin_nested():
             reward = ReferralReward(
@@ -276,7 +277,7 @@ def reverse_referral_reward(reward, actor_user_id, reason):
         previous_status=previous_status, new_status=reward.status,
         description=reason[:500],
         idempotency_key=f'referral:{reward.referral_id}:credit_reversed',
-        actor_user_id=actor_user_id, processed_at=datetime.utcnow(),
+        actor_user_id=actor_user_id, processed_at=utc_now_naive(),
     ))
     db.session.add(Notification(
         user_id=reward.beneficiary_user_id, booking_id=reward.booking_id,
@@ -286,7 +287,7 @@ def reverse_referral_reward(reward, actor_user_id, reason):
 
 
 def expire_referral_rewards(now=None):
-    now = now or datetime.utcnow()
+    now = now or utc_now_naive()
     expired = ReferralReward.query.filter(
         ReferralReward.status == 'available',
         ReferralReward.expires_at.isnot(None),
@@ -343,7 +344,7 @@ def referral_dashboard_data(user, page=1):
     transaction_sums = dict(db.session.query(
         RewardTransaction.transaction_type, func.sum(RewardTransaction.amount_kobo),
     ).filter_by(customer_id=user.id).group_by(RewardTransaction.transaction_type).all())
-    now = datetime.utcnow()
+    now = utc_now_naive()
     available_kobo = int(db.session.query(func.coalesce(func.sum(ReferralReward.amount_kobo), 0)).filter(
         ReferralReward.beneficiary_user_id == user.id,
         ReferralReward.status == 'available',
@@ -390,7 +391,7 @@ def referral_dashboard_data(user, page=1):
         'can_apply_code': bool(
             campaign_is_active(campaign)
             and user.created_at
-            and datetime.utcnow() - user.created_at <= timedelta(days=campaign.attribution_window_days)
+            and utc_now_naive() - user.created_at <= timedelta(days=campaign.attribution_window_days)
             and not Booking.query.filter_by(customer_id=user.id).first()
             and not Referral.query.filter_by(referred_user_id=user.id).first()
         ),

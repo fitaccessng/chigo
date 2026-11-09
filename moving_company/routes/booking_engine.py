@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date
 import secrets
 
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_from_directory, session, url_for
@@ -7,6 +7,7 @@ from flask_login import current_user, login_required
 from ..extensions import csrf, db
 from ..forms import BookingLocationForm
 from ..models import Booking, BookingInventory, BookingItem, BookingPhoto, BookingQuoteLine, InventoryItem, ServicePricing, VehicleImage
+from ..time_utils import utc_now_naive
 from ..services.booking_engine_service import (
     BULK_ITEM_OPTIONS, STAGES, accept_quote, calculate_quote, confirm_inventory, create_booking_request,
     catalogue_items_for_service, inventory_fingerprint, inventory_requirements, invalidate_from, preview_move_duration, record_event,
@@ -413,7 +414,7 @@ def _location_payload(form, service_type, places=None):
             'vehicle_restriction_status', 'requires_review', 'route_status',
         )
     } if route else {}
-    data['route_calculated_at'] = datetime.utcnow() if route else None
+    data['route_calculated_at'] = utc_now_naive() if route else None
     data['service_area_status'] = 'SERVICEABLE' if needs_route and all(
         validate_service_area(data[f'{place}_latitude'], data[f'{place}_longitude']) == 'SERVICEABLE'
         for place in places
